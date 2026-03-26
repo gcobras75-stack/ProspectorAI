@@ -7,21 +7,18 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "ios": {
-        "simulator": false
-      }
+      "channel": "development",
+      "ios": { "simulator": false }
     },
     "preview": {
       "distribution": "internal",
-      "ios": {
-        "buildConfiguration": "Release"
-      }
+      "channel": "preview",
+      "ios": { "buildConfiguration": "Release" }
     },
     "production": {
       "distribution": "store",
-      "ios": {
-        "buildConfiguration": "Release"
-      }
+      "channel": "production",
+      "ios": { "buildConfiguration": "Release" }
     }
   },
   "submit": {
