@@ -23,7 +23,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import MapView, { UrlTile, Marker } from 'react-native-maps';
+import MapView, { UrlTile, Marker, Polygon, Circle } from 'react-native-maps';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   BAND_CONFIGS,
@@ -120,6 +121,85 @@ function interpretIndex(index: BandIndex, value: number): Interpretation {
 
     default:
       return { level: 'VISUAL', color: '#666', label: 'VISUAL', detail: 'Composición visual — interpretar por color en el mapa' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Polygon analysis types & helpers
+// ---------------------------------------------------------------------------
+
+type MapCoord = { latitude: number; longitude: number };
+
+interface PolygonSample {
+  coord: MapCoord;
+  value: number;
+  interpretation: Interpretation;
+}
+
+interface PolygonAnalysisResult {
+  samples: PolygonSample[];
+  avgValue: number;
+  maxValue: number;
+  hotspots: PolygonSample[];   // samples with level ALTA or MODERADA
+  dominantMineral: string;
+  dominantDetail: string;
+  bandLabel: string;
+}
+
+/** Ray-casting point-in-polygon test */
+function pointInPolygon(pt: MapCoord, poly: MapCoord[]): boolean {
+  let inside = false;
+  const { latitude: y, longitude: x } = pt;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].longitude, yi = poly[i].latitude;
+    const xj = poly[j].longitude, yj = poly[j].latitude;
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Returns centroid of a polygon */
+function polygonCentroid(poly: MapCoord[]): MapCoord {
+  const lat = poly.reduce((s, c) => s + c.latitude, 0) / poly.length;
+  const lng = poly.reduce((s, c) => s + c.longitude, 0) / poly.length;
+  return { latitude: lat, longitude: lng };
+}
+
+/** Generates up to `maxPoints` sample coordinates inside the polygon using a grid */
+function samplePointsInPolygon(poly: MapCoord[], maxPoints = 9): MapCoord[] {
+  const lats = poly.map(c => c.latitude);
+  const lngs = poly.map(c => c.longitude);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+
+  const gridN = Math.ceil(Math.sqrt(maxPoints * 2)) + 1;
+  const inside: MapCoord[] = [];
+  for (let i = 0; i < gridN && inside.length < maxPoints; i++) {
+    for (let j = 0; j < gridN && inside.length < maxPoints; j++) {
+      const lat = minLat + ((i + 0.5) / gridN) * (maxLat - minLat);
+      const lng = minLng + ((j + 0.5) / gridN) * (maxLng - minLng);
+      const pt = { latitude: lat, longitude: lng };
+      if (pointInPolygon(pt, poly)) inside.push(pt);
+    }
+  }
+  // Always include centroid
+  const c = polygonCentroid(poly);
+  if (inside.length === 0) return [c];
+  if (!inside.some(p => Math.abs(p.latitude - c.latitude) < 1e-6)) {
+    inside.unshift(c);
+  }
+  return inside.slice(0, maxPoints);
+}
+
+/** Color for anomaly overlay circles */
+function hotspotColor(level: AnomalyLevel): string {
+  switch (level) {
+    case 'ALTA':     return '#FF3300';
+    case 'ANÓMALO':  return '#FF3300';
+    case 'MODERADA': return '#FF9900';
+    default:         return 'transparent';
   }
 }
 
@@ -449,9 +529,25 @@ function GEEView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Polygon (loaded from HOME screen via AsyncStorage)
+  const [polygon, setPolygon] = useState<MapCoord[] | null>(null);
+  const [polygonAnalysis, setPolygonAnalysis] = useState<PolygonAnalysisResult | null>(null);
+  const [polygonAnalyzing, setPolygonAnalyzing] = useState(false);
+
   // Panel
   const [panelExpanded, setPanelExpanded] = useState(false);
   const panelAnim = useRef(new Animated.Value(0)).current;
+
+  // Load polygon drawn in HOME screen
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('lastPolygon');
+        if (saved) setPolygon(JSON.parse(saved));
+      } catch { /* ignore */ }
+    };
+    load();
+  }, []);
 
   // Location permission on mount
   useEffect(() => {
@@ -549,6 +645,64 @@ function GEEView() {
       setLoading(false);
     }
   }, [userLocation, selectedBand, selectedDataset, dateRange, maxCloud]);
+
+  /** Samples up to 9 points across the polygon and computes zone statistics */
+  const analyzePolygon = useCallback(async () => {
+    if (!polygon || polygon.length < 3) return;
+    const VISUAL_ONLY: BandIndex[] = ['TRUE_COLOR', 'FALSE_COLOR'];
+    if (VISUAL_ONLY.includes(selectedBand)) return;
+
+    setPolygonAnalyzing(true);
+    setPolygonAnalysis(null);
+    setPanelExpanded(false);
+
+    const freshRange = getDefaultDateRange(DAYS_BACK[selectedDataset]);
+    const sampleCoords = samplePointsInPolygon(polygon, 9);
+
+    try {
+      const results = await Promise.all(
+        sampleCoords.map(coord =>
+          getGEEPixelValues(
+            coord.latitude, coord.longitude,
+            selectedBand, selectedDataset,
+            freshRange.start, freshRange.end
+          ).then(pv => ({
+            coord,
+            value: pv.computedIndex,
+            interpretation: interpretIndex(selectedBand, pv.computedIndex),
+          } as PolygonSample))
+          .catch(() => null)
+        )
+      );
+
+      const valid = results.filter((r): r is PolygonSample => r !== null);
+      if (valid.length === 0) {
+        setPolygonAnalyzing(false);
+        return;
+      }
+
+      const values = valid.map(r => r.value);
+      const avgValue = values.reduce((a, b) => a + b, 0) / values.length;
+      const maxValue = Math.max(...values);
+      const hotspots = valid.filter(r => r.interpretation.level === 'ALTA' || r.interpretation.level === 'ANÓMALO' || r.interpretation.level === 'MODERADA');
+
+      // Dominant interpretation = highest-value sample
+      const maxSample = valid.reduce((a, b) => a.value > b.value ? a : b);
+      const avgInterpretation = interpretIndex(selectedBand, avgValue);
+
+      setPolygonAnalysis({
+        samples: valid,
+        avgValue,
+        maxValue,
+        hotspots,
+        dominantMineral: maxSample.interpretation.label,
+        dominantDetail: avgInterpretation.detail,
+        bandLabel: BAND_CONFIGS[selectedBand].label,
+      });
+    } catch { /* ignore */ } finally {
+      setPolygonAnalyzing(false);
+    }
+  }, [polygon, selectedBand, selectedDataset, DAYS_BACK]);
 
   const handleCloudStep = (direction: 'up' | 'down') => {
     const idx = CLOUD_STEPS.indexOf(maxCloud);
@@ -797,15 +951,24 @@ function GEEView() {
 
             {/* Analyze button */}
             <TouchableOpacity
-              style={geeStyles.analyzeButton}
+              style={[geeStyles.analyzeButton, polygon && geeStyles.analyzeButtonPolygon]}
               onPress={() => {
-                setPanelExpanded(false);
-                fetchTiles();
+                if (polygon && polygon.length >= 3) {
+                  analyzePolygon();
+                } else {
+                  setPanelExpanded(false);
+                  fetchTiles();
+                }
               }}
               activeOpacity={0.85}
             >
-              {loading ? (
+              {loading || polygonAnalyzing ? (
                 <ActivityIndicator size="small" color="#000" />
+              ) : polygon && polygon.length >= 3 ? (
+                <>
+                  <MaterialCommunityIcons name="vector-polygon" size={18} color="#000" style={{ marginRight: 6 }} />
+                  <Text style={geeStyles.analyzeButtonText}>ANALIZAR POLÍGONO</Text>
+                </>
               ) : (
                 <>
                   <MaterialCommunityIcons name="magnify-scan" size={18} color="#000" style={{ marginRight: 6 }} />
@@ -905,6 +1068,119 @@ function GEEView() {
     );
   }
 
+  function renderPolygonResultsCard() {
+    const isVisual = selectedBand === 'TRUE_COLOR' || selectedBand === 'FALSE_COLOR';
+    if (isVisual) return null;
+
+    // Show analyzing spinner
+    if (polygonAnalyzing) {
+      return (
+        <View style={geeStyles.polygonCard}>
+          <View style={geeStyles.polygonCardHeader}>
+            <MaterialCommunityIcons name="vector-polygon" size={14} color="#FFD700" />
+            <Text style={geeStyles.polygonCardTitle}>ANALIZANDO POLÍGONO...</Text>
+            <ActivityIndicator size="small" color="#FFD700" style={{ marginLeft: 8 }} />
+          </View>
+          <Text style={geeStyles.polygonCardSub}>Muestreando puntos del área seleccionada</Text>
+        </View>
+      );
+    }
+
+    // No polygon drawn
+    if (!polygon || polygon.length < 3) {
+      return (
+        <View style={geeStyles.polygonCard}>
+          <View style={geeStyles.polygonCardHeader}>
+            <MaterialCommunityIcons name="vector-polygon" size={14} color="#555" />
+            <Text style={[geeStyles.polygonCardTitle, { color: '#555' }]}>SIN POLÍGONO</Text>
+          </View>
+          <Text style={geeStyles.polygonCardSub}>Dibuja un polígono en la pantalla HOME y vuelve aquí para analizar toda la zona</Text>
+        </View>
+      );
+    }
+
+    // Polygon exists but not yet analyzed
+    if (!polygonAnalysis) {
+      return (
+        <View style={geeStyles.polygonCard}>
+          <View style={geeStyles.polygonCardHeader}>
+            <MaterialCommunityIcons name="vector-polygon" size={14} color="#FFD700" />
+            <Text style={geeStyles.polygonCardTitle}>POLÍGONO CARGADO · {polygon.length} VÉRTICES</Text>
+          </View>
+          <Text style={geeStyles.polygonCardSub}>Toca "ANALIZAR POLÍGONO" para calcular el índice promedio y detectar anomalías en toda la zona</Text>
+        </View>
+      );
+    }
+
+    // Full results
+    const { avgValue, maxValue, hotspots, dominantMineral, dominantDetail, samples } = polygonAnalysis;
+    const avgInterp = interpretIndex(selectedBand, avgValue);
+    const highCount = hotspots.filter(h => h.interpretation.level === 'ALTA' || h.interpretation.level === 'ANÓMALO').length;
+
+    return (
+      <View style={[geeStyles.polygonCard, geeStyles.polygonCardResult]}>
+        {/* Header */}
+        <View style={geeStyles.polygonCardHeader}>
+          <MaterialCommunityIcons name="vector-polygon" size={14} color="#FFD700" />
+          <Text style={geeStyles.polygonCardTitle}>ANÁLISIS DE ZONA · {samples.length} PUNTOS</Text>
+          {hotspots.length > 0 && (
+            <View style={[geeStyles.anomalyBadge, { backgroundColor: '#FF330022', borderColor: '#FF3300', marginLeft: 8 }]}>
+              <Text style={[geeStyles.anomalyText, { color: '#FF3300' }]}>
+                {highCount} ALTA{highCount !== 1 ? 'S' : ''}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Stats row */}
+        <View style={geeStyles.polygonStatsRow}>
+          <View style={geeStyles.polygonStat}>
+            <Text style={geeStyles.polygonStatLabel}>ÍNDICE PROM.</Text>
+            <Text style={[geeStyles.polygonStatValue, { color: avgInterp.color }]}>
+              {avgValue.toFixed(4)}
+            </Text>
+          </View>
+          <View style={geeStyles.polygonStatDivider} />
+          <View style={geeStyles.polygonStat}>
+            <Text style={geeStyles.polygonStatLabel}>MÁXIMO</Text>
+            <Text style={geeStyles.polygonStatValue}>{maxValue.toFixed(4)}</Text>
+          </View>
+          <View style={geeStyles.polygonStatDivider} />
+          <View style={geeStyles.polygonStat}>
+            <Text style={geeStyles.polygonStatLabel}>ANOMALÍAS</Text>
+            <Text style={[geeStyles.polygonStatValue, { color: hotspots.length > 0 ? '#FF9900' : '#444' }]}>
+              {hotspots.length}/{samples.length}
+            </Text>
+          </View>
+        </View>
+
+        {/* Dominant mineral */}
+        <View style={[geeStyles.anomalyBadge, { backgroundColor: avgInterp.color + '22', borderColor: avgInterp.color, alignSelf: 'flex-start' }]}>
+          <Text style={[geeStyles.anomalyText, { color: avgInterp.color }]}>{dominantMineral}</Text>
+        </View>
+        <Text style={geeStyles.polygonCardSub}>{dominantDetail}</Text>
+
+        {/* Heatmap legend */}
+        {hotspots.length > 0 && (
+          <View style={geeStyles.hotspotLegend}>
+            <View style={geeStyles.hotspotLegendItem}>
+              <View style={[geeStyles.hotspotDot, { backgroundColor: '#FF3300' }]} />
+              <Text style={geeStyles.hotspotLegendText}>Anomalía alta</Text>
+            </View>
+            <View style={geeStyles.hotspotLegendItem}>
+              <View style={[geeStyles.hotspotDot, { backgroundColor: '#FF9900' }]} />
+              <Text style={geeStyles.hotspotLegendText}>Anomalía moderada</Text>
+            </View>
+            <View style={geeStyles.hotspotLegendItem}>
+              <View style={[geeStyles.hotspotDot, { backgroundColor: '#555' }]} />
+              <Text style={geeStyles.hotspotLegendText}>Baja respuesta</Text>
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Main GEEView render
   // ---------------------------------------------------------------------------
@@ -933,6 +1209,47 @@ function GEEView() {
                 opacity={0.85}
               />
             ) : null}
+
+            {/* Polygon from HOME screen */}
+            {polygon && polygon.length >= 3 && (
+              <Polygon
+                coordinates={polygon}
+                strokeColor="#FFD700"
+                strokeWidth={2}
+                fillColor="rgba(255,215,0,0.12)"
+              />
+            )}
+
+            {/* Hotspot anomaly circles */}
+            {polygonAnalysis?.samples.map((s, i) => {
+              const color = hotspotColor(s.interpretation.level);
+              if (color === 'transparent') return null;
+              return (
+                <Circle
+                  key={i}
+                  center={s.coord}
+                  radius={200}
+                  strokeColor={color}
+                  strokeWidth={2}
+                  fillColor={color + '55'}
+                />
+              );
+            })}
+
+            {/* Low-signal sample markers (small dots) */}
+            {polygonAnalysis?.samples.map((s, i) => {
+              if (s.interpretation.level !== 'BAJA') return null;
+              return (
+                <Circle
+                  key={'low_' + i}
+                  center={s.coord}
+                  radius={80}
+                  strokeColor="#444"
+                  strokeWidth={1}
+                  fillColor="rgba(80,80,80,0.25)"
+                />
+              );
+            })}
 
             <Marker
               coordinate={{ latitude: userLocation.lat, longitude: userLocation.lng }}
@@ -979,6 +1296,9 @@ function GEEView() {
 
       {/* Results card — index value + interpretation at GPS point */}
       {renderResultsCard()}
+
+      {/* Polygon analysis card */}
+      {renderPolygonResultsCard()}
 
       {/* Band selector */}
       {renderBandSelector()}
@@ -1258,6 +1578,87 @@ const geeStyles = StyleSheet.create({
     lineHeight: 14,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
+  // Polygon analysis card
+  polygonCard: {
+    backgroundColor: '#0A0A0A',
+    borderTopWidth: 1,
+    borderTopColor: '#1A1A1A',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  polygonCardResult: {
+    borderTopColor: '#FFD70033',
+  },
+  polygonCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  polygonCardTitle: {
+    color: '#FFD700',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    flex: 1,
+  },
+  polygonCardSub: {
+    color: '#666',
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  polygonStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  polygonStat: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+  },
+  polygonStatLabel: {
+    color: '#555',
+    fontSize: 8,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  polygonStatValue: {
+    color: '#FFD700',
+    fontSize: 15,
+    fontWeight: '900',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  polygonStatDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: '#222',
+  },
+  analyzeButtonPolygon: {
+    backgroundColor: '#FF9900',
+  },
+  hotspotLegend: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 2,
+  },
+  hotspotLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  hotspotDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  hotspotLegendText: {
+    color: '#666',
+    fontSize: 9,
+  },
+
   // Band selector
   bandSelectorContainer: {
     backgroundColor: '#0A0A0A',
