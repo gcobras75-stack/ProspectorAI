@@ -42,6 +42,9 @@ app-example
 # Claude Code memory (private)
 .claude/
 
+# MCP config — contains API tokens, never push
+.mcp.json
+
 # Backend server — deployed separately to Railway
 server/
 
