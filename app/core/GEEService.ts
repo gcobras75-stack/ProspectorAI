@@ -295,14 +295,22 @@ export const DATASET_LABELS: Record<
 // Helpers
 // ---------------------------------------------------------------------------
 
+const GEE_SERVER_FALLBACK = 'https://prospector-gee-server-production.up.railway.app';
+
 function getServerUrl(): string {
   const url = process.env.EXPO_PUBLIC_SERVER_URL;
-  if (!url) {
-    throw new Error(
-      'EXPO_PUBLIC_SERVER_URL no está configurada. Verifica tu archivo .env'
-    );
+  if (!url || url === 'undefined') {
+    console.warn(`[GEEService] EXPO_PUBLIC_SERVER_URL vacía, usando fallback: ${GEE_SERVER_FALLBACK}`);
+    return GEE_SERVER_FALLBACK;
   }
   return url.replace(/\/$/, '');
+}
+
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = 30000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
 }
 
 function buildQueryString(params: Record<string, string | number | undefined>): string {
@@ -319,14 +327,14 @@ async function geeGet<T>(path: string, params: Record<string, string | number | 
 
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetchWithTimeout(url, {
       method: 'GET',
       headers: { Accept: 'application/json' },
-    });
+    }, 30000);
   } catch (networkErr: any) {
+    const reason = networkErr.name === 'AbortError' ? 'Timeout 30s' : networkErr.message;
     throw new Error(
-      `No se pudo conectar al servidor proxy GEE (${base}). ` +
-        `Verifica que el servidor esté corriendo. Detalle: ${networkErr.message}`
+      `[GEE GET] Fallo de red → ${url} | ${reason}`
     );
   }
 
@@ -459,16 +467,18 @@ export async function getBiomassAnalysis(
   const base = getServerUrl();
   const url = `${base}/api/biomass-analysis`;
 
+  console.log(`[GEEService] POST biomass-analysis → ${url}`);
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ coordinates, fecha_inicio, fecha_fin }),
-    });
+    }, 30000);
   } catch (networkErr: any) {
+    const reason = networkErr.name === 'AbortError' ? 'Timeout 30s' : networkErr.message;
     throw new Error(
-      `No se pudo conectar al servidor GEE (${base}). Detalle: ${networkErr.message}`
+      `[GEE POST] Fallo de red → ${url} | ${reason}`
     );
   }
 
@@ -480,7 +490,7 @@ export async function getBiomassAnalysis(
     } catch {
       detail = await response.text().catch(() => '');
     }
-    throw new Error(`Error del servidor GEE [${response.status}]: ${detail || response.statusText}`);
+    throw new Error(`[GEE POST ${response.status}] ${url} | ${detail || response.statusText}`);
   }
 
   return (await response.json()) as BiomassAnalysisResult;
@@ -533,14 +543,15 @@ export async function getBiomassGrid(
 
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ coordinates, fecha_inicio, fecha_fin, cell_size_km }),
-    });
+    }, 30000);
   } catch (networkErr: any) {
+    const reason = networkErr.name === 'AbortError' ? 'Timeout 30s' : networkErr.message;
     throw new Error(
-      `No se pudo conectar al servidor GEE (${base}). Detalle: ${networkErr.message}`
+      `[GEE POST grid] Fallo de red → ${url} | ${reason}`
     );
   }
 
