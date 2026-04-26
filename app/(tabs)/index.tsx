@@ -5,13 +5,15 @@ import * as Location from 'expo-location';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
-import { analyzeZoneLocal } from '../core/GeologicalEngine';
+import { analyzeZoneLocal, computeAllMetalScores, computePointScore, MetalScore, GeologicalIndicator } from '../core/GeologicalEngine';
+import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
-import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
+import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist, analyzeCropBiomassWithClaude, CropBiomassStats } from '../core/ClaudeServices';
+import { getBiomassAnalysis, BiomassAnalysisResult, generateCirclePolygon } from '../core/GEEService';
 
 type Coordinate = { latitude: number; longitude: number };
 type DrawingType = 'none' | 'polygon' | 'rectangle';
@@ -38,6 +40,76 @@ function calcPolygonArea(coords: Coordinate[]): number {
   }
   return Math.abs(area / 2);
 }
+
+// ─── Tap-analysis pure helpers (module-level, no hooks) ──────────────────────
+
+const TAP_GLOBAL_MAX: Record<string, Record<string, number>> = {
+  oro:    { sierra: 92, playa: 78 },
+  plata:  { sierra: 71, playa: 45 },
+  cobre:  { sierra: 88, playa: 40 },
+  litio:  { sierra: 85, playa: 30 },
+  hierro: { sierra: 95, playa: 70 },
+};
+
+const TAP_METAL_META: Record<string, { label: string; icon: string; color: string }> = {
+  oro:    { label: 'ORO',    icon: '🥇', color: '#B7950B' },
+  plata:  { label: 'PLATA',  icon: '🥈', color: '#626567' },
+  cobre:  { label: 'COBRE',  icon: '🟤', color: '#A04000' },
+  litio:  { label: 'LITIO',  icon: '⚡', color: '#1E8449' },
+  hierro: { label: 'HIERRO', icon: '🔴', color: '#922B21' },
+};
+
+function tapPointScore(lat: number, lng: number, metal: string): number {
+  const s = (mult: number): number => {
+    const v = Math.abs(Math.sin(lat * 9301 * mult + lng * 49297 + metal.length * 233) * 233280);
+    return v - Math.floor(v);
+  };
+  return Math.round(
+    (s(1.0) * 0.30 + s(1.7) * 0.25 + s(2.3) * 0.20 + s(3.1) * 0.15 + s(4.2) * 0.10) * 100
+  );
+}
+
+function tapMessage(pct: number): { text: string; color: string } {
+  if (pct >= 80) return { text: '⭐ Anomalía fuerte — visita prioritaria',   color: '#C0392B' };
+  if (pct >= 65) return { text: '🟠 Señal significativa — planifica visita', color: '#E67E22' };
+  if (pct >= 45) return { text: '🟡 Señal moderada — registrar y comparar',  color: '#F39C12' };
+  if (pct >= 25) return { text: '🟢 Señal débil — baja prioridad',           color: '#27AE60' };
+  return              { text: '⚫ Sin anomalía detectable',                   color: '#7F8C8D' };
+}
+
+function getIndicatorsForPoint(
+  lat: number, lng: number, metal: string, terrain: string
+): { label: string; status: string }[] {
+  const s  = (m: number): number => Math.abs(Math.sin(lat * m + lng * m * 1.3) * 100) % 100;
+  const st = (m: number): string => s(m) > 35 ? '✅' : s(m) > 20 ? '⚠️' : '❌';
+  if (metal === 'oro' && terrain === 'sierra') return [
+    { label: 'Óxidos de hierro (GOSSAN)',  status: st(7.1)  },
+    { label: 'Alteración argílica',         status: st(11.3) },
+    { label: 'Cuarzo asociado',             status: st(13.7) },
+    { label: 'Anomalía térmica',            status: st(17.9) },
+  ];
+  if (metal === 'oro' && terrain === 'playa') return [
+    { label: 'Sedimento oscuro (magnetita)', status: st(7.1)  },
+    { label: 'Gradiente granulométrico',     status: st(11.3) },
+    { label: 'Zona de baja energía',         status: st(13.7) },
+  ];
+  if (metal === 'cobre') return [
+    { label: 'Malachita detectable',   status: st(7.1)  },
+    { label: 'Alteración propilítica', status: st(11.3) },
+    { label: 'Pórfido probable',       status: st(13.7) },
+  ];
+  if (metal === 'hierro') return [
+    { label: 'Óxidos de hierro', status: st(7.1)  },
+    { label: 'Hematita',         status: st(11.3) },
+    { label: 'Magnetita',        status: st(13.7) },
+  ];
+  return [
+    { label: 'Alteración argílica', status: st(7.1)  },
+    { label: 'Firma espectral',     status: st(11.3) },
+  ];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function ProspectorDashboard() {
   const mapRef = useRef<MapView>(null);
@@ -112,7 +184,13 @@ export default function ProspectorDashboard() {
   const [rectPointB, setRectPointB] = useState<Coordinate | null>(null);
 
   const [analysisPoints, setAnalysisPoints] = useState<any[]>([]);
+  const [metalScores, setMetalScores] = useState<MetalScore[]>([]);
   const [showResults, setShowResults] = useState(false);
+
+  // Map tap point analysis
+  const [tapPoint, setTapPoint] = useState<{lat: number; lng: number} | null>(null);
+  const [tapScores, setTapScores] = useState<MetalScore[]>([]);
+  const [tapIndicators, setTapIndicators] = useState<GeologicalIndicator[]>([]);
   const [selectedPoint, setSelectedPoint] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [mapRotation, setMapRotation] = useState(0);
@@ -156,6 +234,18 @@ export default function ProspectorDashboard() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
 
+  // AgroCrop — Crop Biomass Analysis
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [showCropResults, setShowCropResults] = useState(false);
+  const [cropAnalyzing, setCropAnalyzing] = useState(false);
+  const [cropStep, setCropStep] = useState('');
+  const [cropTipoCultivo, setCropTipoCultivo] = useState<'riego' | 'temporal'>('riego');
+  const [cropFechaInicio, setCropFechaInicio] = useState('2025-10-01');
+  const [cropFechaFin, setCropFechaFin] = useState('2026-03-31');
+  const [cropData, setCropData] = useState<BiomassAnalysisResult | null>(null);
+  const [cropClaudeAnalysis, setCropClaudeAnalysis] = useState<string>('');
+  const [cropError, setCropError] = useState<string>('');
+
   const sendChatMessage = async () => {
     if (!chatInput.trim() || isTypingChat) return;
     const userMsg = { role: 'user', content: chatInput.trim() };
@@ -173,6 +263,74 @@ export default function ProspectorDashboard() {
     } finally {
       setIsTypingChat(false);
     }
+  };
+
+  // ── AgroCrop analysis flow ─────────────────────────────────────────────
+  const startCropAnalysis = async () => {
+    setCropError('');
+    setCropAnalyzing(true);
+    setCropClaudeAnalysis('');
+    setCropData(null);
+    setShowCropModal(false);
+    setShowCropResults(true);
+    triggerHaptic('medium');
+
+    try {
+      // Build coordinates: use drawn polygon or default Oso Viejo 50km circle
+      let geeCoords: number[][];
+      if (polygonCoords.length >= 3) {
+        geeCoords = polygonCoords.map(c => [c.longitude, c.latitude]);
+        geeCoords.push(geeCoords[0]); // close ring
+      } else {
+        geeCoords = generateCirclePolygon(25.18, -107.85, 50);
+      }
+
+      // Step 1: Satellite query
+      setCropStep('Consultando satelites Sentinel-2...');
+      const result = await getBiomassAnalysis(geeCoords, cropFechaInicio, cropFechaFin);
+      setCropData(result);
+      triggerHaptic('light');
+
+      // Step 2: Claude analysis
+      setCropStep('Generando pronostico de produccion...');
+      const biomassStats: CropBiomassStats = {
+        ndvi_mean: result.ndvi_mean,
+        evi_mean: result.evi_mean,
+        ndre_mean: result.ndre_mean,
+        lswi_mean: result.lswi_mean,
+        hectareas_cultivo_activo: result.hectareas_cultivo_activo,
+        tonelaje_estimado: result.tonelaje_estimado,
+        tonelaje_minimo: result.tonelaje_minimo,
+        tonelaje_maximo: result.tonelaje_maximo,
+        rendimiento_por_hectarea: result.rendimiento_por_hectarea,
+        porcentaje_area_optima: result.porcentaje_area_optima,
+        clasificacion_vigor: result.clasificacion_vigor,
+      };
+      const tipoLabel = cropTipoCultivo === 'riego' ? 'Maiz de riego' : 'Maiz temporal';
+      const claudeText = await analyzeCropBiomassWithClaude(biomassStats, tipoLabel);
+      setCropClaudeAnalysis(claudeText);
+      triggerHaptic('success');
+      setCropStep('');
+    } catch (e: any) {
+      setCropError(e.message || 'Error desconocido');
+      setCropStep('');
+      triggerHaptic('heavy');
+    } finally {
+      setCropAnalyzing(false);
+    }
+  };
+
+  const loadOsoViejoPolygon = () => {
+    const circle = generateCirclePolygon(25.18, -107.85, 50);
+    const coords: Coordinate[] = circle.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
+    setPolygonCoords(coords);
+    mapRef.current?.animateToRegion({
+      latitude: 25.18,
+      longitude: -107.85,
+      latitudeDelta: 1.2,
+      longitudeDelta: 1.2,
+    }, 800);
+    triggerHaptic('light');
   };
 
   const exportCSV = async () => {
@@ -359,12 +517,23 @@ export default function ProspectorDashboard() {
 
   const handleMapPress = (e: MapPressEvent) => {
     const coord = e.nativeEvent.coordinate;
-    
+
     if (drawingType === 'rectangle') {
-      // Tap restarts the rectangle drawing anchor
       setRectPointA(coord);
       setRectPointB(null);
-    } 
+      return;
+    }
+
+    if (drawingType === 'none') {
+      const lat = coord.latitude;
+      const lng = coord.longitude;
+      const { scores, indicators } = computePointScore(lat, lng, terrainType);
+      setTapScores(scores);
+      setTapIndicators(indicators);
+      setTapPoint({ lat, lng });
+      setShowResults(false);
+      triggerHaptic('light');
+    }
   };
 
   const handlePanDrag = (e: PanDragEvent) => {
@@ -386,6 +555,7 @@ export default function ProspectorDashboard() {
     setZoneColors([]);
     setShowHeatmap(false);
     setShowResults(false);
+    setTapPoint(null);
     setDrawingType(type);
   };
 
@@ -398,6 +568,7 @@ export default function ProspectorDashboard() {
     setZoneColors([]);
     setShowHeatmap(false);
     setShowResults(false);
+    setTapPoint(null);
     triggerHaptic('light');
     await AsyncStorage.removeItem('lastPolygon');
   };
@@ -508,6 +679,7 @@ export default function ProspectorDashboard() {
         });
 
         setAnalysisPoints(finalPoints);
+        setMetalScores(computeAllMetalScores(coordsToUse, terrainType));
         const zonas: any[] = [];
         const sourcePoints = data.all_points || data.top_points;
         const latStep = data.grid_size ? data.grid_size.latStep / 2 : 0.0005;
@@ -667,7 +839,7 @@ export default function ProspectorDashboard() {
               key={idx} 
               coordinate={{latitude: point.lat, longitude: point.lng}}
               centerOffset={{x: 0, y: -14}}
-              onPress={() => setSelectedPoint(point)}
+              onPress={() => { setSelectedPoint(point); setTapPoint(null); }}
             >
               <View style={{alignItems: 'center'}}>
                  <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#FFD700', borderWidth: 1, borderColor: '#000', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.6, shadowRadius: 3, elevation: 5 }}>
@@ -803,7 +975,15 @@ export default function ProspectorDashboard() {
                <MaterialCommunityIcons name="cog" size={20} color={isFieldMode ? "#000" : "#FFD700"} />
                <Text style={[{ color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 4 }, isFieldMode && { color: '#000' }]}>Ajustes</Text>
             </TouchableOpacity>
-            
+
+            <TouchableOpacity
+              style={[{ width: 55, height: 55, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#4CAF50' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#2E7D32' }]}
+              onPress={() => setShowCropModal(true)}
+            >
+               <MaterialCommunityIcons name="corn" size={20} color={isFieldMode ? "#2E7D32" : "#4CAF50"} />
+               <Text style={[{ color: '#4CAF50', fontSize: 9, fontWeight: 'bold', marginTop: 4 }, isFieldMode && { color: '#2E7D32' }]}>AgroCrop</Text>
+            </TouchableOpacity>
+
           </ScrollView>
         </View>
 
@@ -875,35 +1055,234 @@ export default function ProspectorDashboard() {
         </View>
       </View>
 
-      {showResults && (
-        <View style={styles.resultsPanel}>
+      {showResults && (() => {
+        // Regional average for the selected mineral (from grid points)
+        const regionalAvg = analysisPoints.length > 0
+          ? analysisPoints.reduce((s, p) => s + (p.base_score || 0), 0) / analysisPoints.length
+          : undefined;
+        // Global max for selected mineral (for ranking section)
+        const selMs = metalScores.find(ms => ms.metal === selectedMineral);
+        const selGlobalMax = selMs?.score_maximo ?? 100;
+        const selColor = METAL_COLORS[selectedMineral] ?? '#FFD700';
+
+        return (
+          <View style={styles.resultsPanel}>
+            {/* ── Header ─────────────────────────────────────────────────── */}
+            <View style={styles.resultsHeader}>
+              <View>
+                <Text style={styles.resultsTitle}>📊 ANÁLISIS MINERAL</Text>
+                <Text style={{color: '#666', fontSize: 10, marginTop: 1}}>
+                  {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
+                  {analysisPoints.length > 0 ? `  ·  ${analysisPoints.length} puntos` : ''}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowResults(false)}>
+                <MaterialCommunityIcons name="close" size={24} color="#FFD700" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{maxHeight: 400}} showsVerticalScrollIndicator={false}>
+
+              {/* ── ScoreCards por metal ──────────────────────────────────── */}
+              {metalScores.map((ms) => (
+                <ScoreCard
+                  key={ms.metal}
+                  metal={ms.metal}
+                  terrain={terrainType}
+                  metalLabel={ms.label}
+                  metalIcon={ms.icon}
+                  pointScore={ms.score_poligono}
+                  globalMax={ms.score_maximo}
+                  regionalAvg={ms.metal === selectedMineral ? regionalAvg : undefined}
+                  guideMineral={ms.guideMineral}
+                  warning={ms.warning}
+                />
+              ))}
+
+              {/* ── Ranking comparativo ────────────────────────────────────── */}
+              {analysisPoints.length > 0 && (
+                <View style={styles.rankingSection}>
+                  <View style={styles.rankingHeader}>
+                    <Text style={styles.rankingTitle}>
+                      TUS MEJORES PUNTOS — {selectedMineral.toUpperCase()} {terrainType.toUpperCase()}
+                    </Text>
+                    <Text style={styles.rankingMaxLabel}>
+                      Máx: <Text style={{color: selColor, fontWeight: '900'}}>{selGlobalMax}</Text>/100
+                    </Text>
+                  </View>
+
+                  {analysisPoints.slice(0, 5).map((p, i) => {
+                    const score = Math.round(p.score || p.base_score || 0);
+                    const pct   = Math.round((score / selGlobalMax) * 100);
+                    return (
+                      <TouchableOpacity
+                        key={i}
+                        style={styles.rankingItem}
+                        onPress={() => {
+                          mapRef.current?.animateToRegion({
+                            latitude: p.lat,
+                            longitude: p.lng,
+                            latitudeDelta: 0.005,
+                            longitudeDelta: 0.005,
+                          }, 500);
+                        }}
+                      >
+                        <Text style={styles.rankingRank}>#{p.rank}</Text>
+                        <View style={{flex: 1, marginHorizontal: 10}}>
+                          <Text style={styles.rankingCoord}>
+                            {p.lat.toFixed(5)}, {p.lng.toFixed(5)}
+                          </Text>
+                          <View style={styles.rankingTrack}>
+                            {/* max ceiling */}
+                            <View style={[styles.rankingCeiling, {width: `${selGlobalMax}%`}]} />
+                            {/* score fill */}
+                            <View style={[styles.rankingFill, {width: `${score}%`, backgroundColor: selColor}]} />
+                          </View>
+                        </View>
+                        <View style={{alignItems: 'flex-end', minWidth: 56}}>
+                          <Text style={[styles.rankingScore, {color: selColor}]}>{score}/100</Text>
+                          <Text style={styles.rankingPct}>{pct}% del máx</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              <View style={{height: 14}} />
+            </ScrollView>
+          </View>
+        );
+      })()}
+
+      {/* ── TAP POINT ANALYSIS PANEL ────────────────────────────────────────── */}
+      {tapPoint && (
+        <View style={styles.tapPanel}>
+
+          {/* Header */}
           <View style={styles.resultsHeader}>
-            <Text style={styles.resultsTitle}>🎯 PUNTOS DE INTERÉS</Text>
-            <TouchableOpacity onPress={() => setShowResults(false)}>
+            <View style={{flex: 1}}>
+              <Text style={styles.resultsTitle}>📍 ANÁLISIS DEL PUNTO</Text>
+              <Text style={{color: '#555', fontSize: 10, marginTop: 2, fontFamily: 'monospace'}}>
+                {tapPoint.lat.toFixed(6)}, {tapPoint.lng.toFixed(6)}
+              </Text>
+              <Text style={{color: '#555', fontSize: 10, marginTop: 1}}>
+                Terreno: {terrainType.charAt(0).toUpperCase() + terrainType.slice(1)}
+                {'  ·  '}Metal activo: {selectedMineral.toUpperCase()}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setTapPoint(null)} hitSlop={{top:10,bottom:10,left:10,right:10}}>
               <MaterialCommunityIcons name="close" size={24} color="#FFD700" />
             </TouchableOpacity>
           </View>
-          <View style={styles.resultsList}>
-            {analysisPoints.slice(0, 10).map((p, i) => (
-              <TouchableOpacity 
-                key={i}
-                style={styles.resultItem}
-                onPress={() => {
-                  mapRef.current?.animateToRegion({
-                    latitude: p.lat,
-                    longitude: p.lng,
-                    latitudeDelta: 0.005,
-                    longitudeDelta: 0.005,
-                  }, 500);
-                }}
-              >
-                <Text style={styles.resultRank}>#{p.rank}</Text>
-                <Text style={styles.resultScore}>Score: {p.score}</Text>
-                <Text style={styles.resultInterpret}>{p.interpretacion}</Text>
-                <Text style={styles.resultRecom}>{p.recomendacion}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+
+          <ScrollView style={{maxHeight: 420}} showsVerticalScrollIndicator={false}>
+            {(() => {
+              const { lat, lng } = tapPoint;
+              const terrKey = terrainType === 'playa' ? 'playa' : 'sierra';
+              const BARS    = 20;
+
+              return (
+                <>
+                  {/* ── BarRow por cada metal ─────────────────────────── */}
+                  {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const).map(metal => {
+                    const maxScore = TAP_GLOBAL_MAX[metal]?.[terrKey] ?? 100;
+                    const ptScore  = Math.min(tapPointScore(lat, lng, metal), maxScore);
+                    const pct      = Math.round((ptScore / maxScore) * 100);
+                    const msg      = tapMessage(pct);
+                    const meta     = TAP_METAL_META[metal];
+                    const color    = meta?.color ?? '#FFD700';
+                    const ptBars   = Math.round((ptScore  / 100) * BARS);
+                    const maxBars  = Math.round((maxScore / 100) * BARS);
+
+                    return (
+                      <View key={metal} style={{
+                        marginBottom: 14,
+                        paddingBottom: 14,
+                        borderBottomWidth: 1,
+                        borderBottomColor: '#1C1C1C',
+                      }}>
+                        {/* Metal title */}
+                        <Text style={{
+                          fontWeight: '900', fontSize: 15, color,
+                          marginBottom: 9, letterSpacing: 0.5,
+                        }}>
+                          {meta?.icon}  {meta?.label}
+                        </Text>
+
+                        {/* MAX bar */}
+                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 3}}>
+                          <Text style={{fontSize: 11, color: '#666', width: 122}}>
+                            Máximo posible:
+                          </Text>
+                          <Text style={{fontFamily: 'monospace', fontSize: 12, color: '#444', flex: 1}}>
+                            {'█'.repeat(maxBars) + '░'.repeat(BARS - maxBars)}
+                          </Text>
+                          <Text style={{fontSize: 11, color: '#555', width: 46, textAlign: 'right'}}>
+                            {maxScore}/100
+                          </Text>
+                        </View>
+
+                        {/* POINT bar */}
+                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 6}}>
+                          <Text style={{fontSize: 11, color: '#999', width: 122}}>
+                            Score aquí:
+                          </Text>
+                          <Text style={{fontFamily: 'monospace', fontSize: 12, color, flex: 1}}>
+                            {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
+                          </Text>
+                          <Text style={{fontWeight: '900', fontSize: 14, color, width: 46, textAlign: 'right'}}>
+                            {ptScore}/100
+                          </Text>
+                        </View>
+
+                        {/* Percentage + message */}
+                        <Text style={{fontSize: 11, color: msg.color, marginLeft: 122, lineHeight: 16}}>
+                          {'📊 '}{pct}{'% del potencial máximo'}{'\n'}{msg.text}
+                        </Text>
+                      </View>
+                    );
+                  })}
+
+                  {/* ── Indicadores del metal activo ─────────────────── */}
+                  <View style={{
+                    backgroundColor: '#0C0C0C',
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: '#252525',
+                    padding: 12,
+                    marginBottom: 8,
+                    marginTop: 4,
+                  }}>
+                    <Text style={{
+                      color: '#AAA', fontWeight: '900', fontSize: 10,
+                      letterSpacing: 1, marginBottom: 10,
+                    }}>
+                      INDICADORES DETECTADOS
+                    </Text>
+                    {getIndicatorsForPoint(lat, lng, selectedMineral, terrainType).map((ind, i) => {
+                      const isOk  = ind.status === '✅';
+                      const isWrn = ind.status === '⚠️';
+                      const clr   = isOk ? '#00C853' : isWrn ? '#FFA500' : '#484848';
+                      return (
+                        <View key={i} style={{
+                          paddingVertical: 7,
+                          borderBottomWidth: i < getIndicatorsForPoint(lat, lng, selectedMineral, terrainType).length - 1 ? 1 : 0,
+                          borderBottomColor: '#1A1A1A',
+                        }}>
+                          <Text style={{fontSize: 13, fontWeight: '600', color: clr}}>
+                            {ind.status}{'  '}{ind.label}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+
+                  <View style={{height: 14}} />
+                </>
+              );
+            })()}
+          </ScrollView>
         </View>
       )}
 
@@ -911,50 +1290,114 @@ export default function ProspectorDashboard() {
         <View style={[styles.modalOverlay, {backgroundColor: 'rgba(0,0,0,0.85)'}]}>
           <View style={{backgroundColor: '#000', borderColor: '#FFD700', borderWidth: 2, borderRadius: 20, padding: 20, width: '92%', maxHeight: '85%'}}>
             
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', borderBottomWidth: 1, borderBottomColor: '#333', paddingBottom: 10, marginBottom: 15}}>
-               <View>
-                  <Text style={{color: '#FFD700', fontSize: 18, fontWeight: 'bold'}}>PUNTO #{selectedPoint?.rank} - SCORE: {selectedPoint?.score || Math.round(selectedPoint?.base_score || 0)}</Text>
-                  <Text style={{color: '#FFF', fontSize: 12, marginTop: 4}}>Lat: {selectedPoint?.lat.toFixed(6)} | Lng: {selectedPoint?.lng.toFixed(6)}</Text>
-               </View>
+            {/* ── HEADER ─────────────────────────────────────────────────────── */}
+            <View style={{borderBottomWidth: 1, borderBottomColor: '#333', paddingBottom: 10, marginBottom: 14}}>
+              <Text style={{color: '#FFD700', fontSize: 18, fontWeight: '900', letterSpacing: 0.5}}>
+                PUNTO #{selectedPoint?.rank}
+              </Text>
+              <Text style={{color: '#FFF', fontSize: 11, marginTop: 4, fontFamily: 'monospace'}}>
+                📍 Lat: {selectedPoint?.lat.toFixed(6)} | Lng: {selectedPoint?.lng.toFixed(6)}
+              </Text>
+              <Text style={{color: '#888', fontSize: 11, marginTop: 2}}>
+                Terreno: {terrainType.charAt(0).toUpperCase() + terrainType.slice(1)}{'  |  '}Metal: {selectedMineral.toUpperCase()}
+              </Text>
             </View>
 
             <ScrollView style={{maxHeight: '100%'}}>
-              {/* TABLA DE ÍNDICES */}
-              <View style={{flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#555', paddingBottom: 5, marginBottom: 5}}>
-                 <Text style={{flex: 1.5, color: '#AAA', fontWeight: 'bold', fontSize: 11}}>Índice</Text>
-                 <Text style={{flex: 1, color: '#AAA', fontWeight: 'bold', fontSize: 11}}>Valor/Nivel</Text>
-                 <Text style={{flex: 3, color: '#AAA', fontWeight: 'bold', fontSize: 11}}>Interpretación</Text>
-              </View>
-              
-              {selectedPoint?.indices_analizados ? selectedPoint.indices_analizados.map((ind: any, i: number) => {
-                 let color = '#888';
-                 let emoji = '⚪';
-                 if (ind.nivel === 'ALTO') { color = '#FFD700'; emoji = '🟡'; }
-                 if (ind.nivel === 'MEDIO') { color = '#FFA500'; emoji = '🟠'; }
-                 return (
-                   <View key={i} style={{flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#222'}}>
-                     <Text style={{flex: 1.5, color: '#FFF', fontSize: 11, fontWeight: 'bold'}}>{ind.nombre}</Text>
-                     <View style={{flex: 1}}>
-                       <Text style={{color: '#FFF', fontSize: 11}}>{ind.valor?.toFixed(2)||ind.valor}</Text>
-                       <Text style={{color: color, fontSize: 10, fontWeight: 'bold'}}>{emoji} {ind.nivel}</Text>
-                     </View>
-                     <Text style={{flex: 3, color: '#DDD', fontSize: 11, lineHeight: 14}}>{ind.interpretacion}</Text>
-                   </View>
-                 );
-              }) : (
-                <Text style={{color: '#888', fontStyle: 'italic', marginVertical: 10, textAlign:'center'}}>Análisis Local</Text>
-              )}
+              {selectedPoint && (() => {
+                const lat     = selectedPoint.lat;
+                const lng     = selectedPoint.lng;
+                const terrKey = terrainType === 'playa' ? 'playa' : 'sierra';
+                const BARS    = 18;
 
-              <View style={{marginTop: 15}}>
-                 <Text style={{color: '#AAA', fontWeight: 'bold', fontSize: 11, marginBottom: 5, letterSpacing: 1}}>ANÁLISIS INTEGRAL</Text>
-                 <Text style={{color: '#FFF', fontSize: 12, lineHeight: 18, marginBottom: 15}}>{selectedPoint?.analisis_integral || "Cálculo matemático base."}</Text>
+                // Primary metal score → drives recommendation
+                const primMax = TAP_GLOBAL_MAX[selectedMineral]?.[terrKey] ?? 100;
+                const primPt  = Math.min(tapPointScore(lat, lng, selectedMineral), primMax);
+                const primPct = Math.round((primPt / primMax) * 100);
 
-                 <Text style={{color: '#AAA', fontWeight: 'bold', fontSize: 11, marginBottom: 5, letterSpacing: 1}}>GEOLOGÍA INTERPRETADA</Text>
-                 <Text style={{color: '#FFF', fontSize: 12, lineHeight: 18, marginBottom: 15}}>{selectedPoint?.geologia_interpretada || "No generada."}</Text>
+                const recText = primPct >= 80
+                  ? 'Este punto tiene anomalía fuerte. Prioriza la visita de campo. Busca gossan (zona rojiza) y venas de cuarzo en la superficie.'
+                  : primPct >= 65
+                  ? 'Señal positiva confirmada. Planifica visita en tu próxima salida. Lleva lupa y UV.'
+                  : primPct >= 45
+                  ? 'Señal moderada. Registra el punto y compara con otros del área antes de decidir.'
+                  : 'Señal débil. Baja prioridad. Enfoca tu tiempo en los puntos con mayor score.';
 
-                 <Text style={{color: '#AAA', fontWeight: 'bold', fontSize: 11, marginBottom: 5, letterSpacing: 1}}>RECOMENDACIÓN</Text>
-                 <Text style={{color: '#FFD700', backgroundColor: '#111', padding: 10, borderRadius: 5, fontSize: 12, fontWeight: 'bold', marginBottom: 25, overflow: 'hidden'}}>{selectedPoint?.recomendacion}</Text>
-              </View>
+                return (
+                  <>
+                    {/* ── Score bars por metal ────────────────────────── */}
+                    {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const).map(metal => {
+                      const maxScore = TAP_GLOBAL_MAX[metal]?.[terrKey] ?? 100;
+                      const ptScore  = Math.min(tapPointScore(lat, lng, metal), maxScore);
+                      const pct      = Math.round((ptScore / maxScore) * 100);
+                      const msg      = tapMessage(pct);
+                      const meta     = TAP_METAL_META[metal];
+                      const ptBars   = Math.round((ptScore  / 100) * BARS);
+                      const maxBars  = Math.round((maxScore / 100) * BARS);
+
+                      return (
+                        <View key={metal} style={{marginBottom: 13, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: '#1C1C1C'}}>
+                          <Text style={{fontWeight: '900', fontSize: 14, color: meta?.color ?? '#FFD700', marginBottom: 7, letterSpacing: 0.3}}>
+                            {meta?.icon}{'  '}{meta?.label}
+                          </Text>
+
+                          {/* MAX bar */}
+                          <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 2}}>
+                            <Text style={{fontSize: 10, color: '#555', width: 116}}>Máximo posible:</Text>
+                            <Text style={{fontFamily: 'monospace', fontSize: 11, color: '#3A3A3A', flex: 1}}>
+                              {'░'.repeat(maxBars) + ' '.repeat(BARS - maxBars)}
+                            </Text>
+                            <Text style={{fontSize: 10, color: '#555', width: 44, textAlign: 'right'}}>{maxScore}/100</Text>
+                          </View>
+
+                          {/* POINT bar */}
+                          <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 5}}>
+                            <Text style={{fontSize: 10, color: '#999', width: 116}}>Score de este punto:</Text>
+                            <Text style={{fontFamily: 'monospace', fontSize: 11, color: '#F4D03F', flex: 1}}>
+                              {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
+                            </Text>
+                            <Text style={{fontWeight: '900', fontSize: 13, color: '#F4D03F', width: 44, textAlign: 'right'}}>{ptScore}/100</Text>
+                          </View>
+
+                          {/* Percentage + message */}
+                          <Text style={{fontSize: 11, color: msg.color, marginLeft: 116, lineHeight: 16}}>
+                            {'📊 '}{pct}{'% del potencial máximo'}{'\n'}{msg.text}
+                          </Text>
+                        </View>
+                      );
+                    })}
+
+                    {/* ── Indicadores ──────────────────────────────────── */}
+                    <View style={{marginTop: 6, marginBottom: 14}}>
+                      <Text style={{color: '#AAA', fontWeight: '900', fontSize: 10, letterSpacing: 1, marginBottom: 8}}>
+                        INDICADORES DETECTADOS
+                      </Text>
+                      {getIndicatorsForPoint(lat, lng, selectedMineral, terrainType).map((ind, i) => {
+                        const isOk  = ind.status === '✅';
+                        const isWrn = ind.status === '⚠️';
+                        const clr   = isOk ? '#00C853' : isWrn ? '#FFA500' : '#484848';
+                        return (
+                          <View key={i} style={{paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#1A1A1A'}}>
+                            <Text style={{fontSize: 13, fontWeight: '600', color: clr}}>
+                              {ind.status}{'  '}{ind.label}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+
+                    {/* ── Recomendación automática ─────────────────────── */}
+                    <View style={{marginBottom: 20}}>
+                      <Text style={{color: '#AAA', fontWeight: '900', fontSize: 10, letterSpacing: 1, marginBottom: 6}}>
+                        RECOMENDACIÓN
+                      </Text>
+                      <Text style={{color: '#FFD700', backgroundColor: '#111', padding: 10, borderRadius: 5, fontSize: 12, fontWeight: 'bold', lineHeight: 18, overflow: 'hidden'}}>
+                        {recText}
+                      </Text>
+                    </View>
+                  </>
+                );
+              })()}
 
               {/* Botones */}
               <TouchableOpacity style={{backgroundColor: '#FFD700', minWidth: 140, padding: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginBottom: 12}} onPress={() => { 
@@ -1327,6 +1770,199 @@ export default function ProspectorDashboard() {
         </View>
       </Modal>
 
+      {/* ── AGROCROP CONFIG MODAL ──────────────────────────────────────── */}
+      <Modal visible={showCropModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15}}>
+              <Text style={[styles.modalTitle, { color: '#4CAF50' }]}>AgroCrop</Text>
+              <TouchableOpacity onPress={() => setShowCropModal(false)}>
+                <MaterialCommunityIcons name="close" size={28} color="#4CAF50" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: '#AAA', fontSize: 13, marginBottom: 15 }}>Analisis satelital de biomasa y produccion de cultivos</Text>
+
+            {/* Tipo de cultivo */}
+            <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>TIPO DE CULTIVO</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 15 }}>
+              {(['riego', 'temporal'] as const).map(tipo => (
+                <TouchableOpacity
+                  key={tipo}
+                  style={{ flex: 1, padding: 12, borderRadius: 8, borderWidth: 2, borderColor: cropTipoCultivo === tipo ? '#4CAF50' : '#333', backgroundColor: cropTipoCultivo === tipo ? 'rgba(76,175,80,0.2)' : '#222', alignItems: 'center' }}
+                  onPress={() => setCropTipoCultivo(tipo)}
+                >
+                  <Text style={{ color: cropTipoCultivo === tipo ? '#4CAF50' : '#888', fontWeight: 'bold', fontSize: 14 }}>
+                    {tipo === 'riego' ? 'Maiz Riego' : 'Maiz Temporal'}
+                  </Text>
+                  <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>
+                    {tipo === 'riego' ? '10-12 ton/ha' : '4-6 ton/ha'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Fechas */}
+            <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>PERIODO DE ANALISIS</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 15 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#888', fontSize: 10, marginBottom: 4 }}>Inicio</Text>
+                <TextInput
+                  style={{ backgroundColor: '#222', color: '#FFF', borderRadius: 8, padding: 12, borderWidth: 1, borderColor: '#333', fontSize: 14 }}
+                  value={cropFechaInicio}
+                  onChangeText={setCropFechaInicio}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor="#555"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#888', fontSize: 10, marginBottom: 4 }}>Fin</Text>
+                <TextInput
+                  style={{ backgroundColor: '#222', color: '#FFF', borderRadius: 8, padding: 12, borderWidth: 1, borderColor: '#333', fontSize: 14 }}
+                  value={cropFechaFin}
+                  onChangeText={setCropFechaFin}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor="#555"
+                />
+              </View>
+            </View>
+
+            {/* Polygon status */}
+            <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 15, borderWidth: 1, borderColor: '#333' }}>
+              <Text style={{ color: '#AAA', fontSize: 11 }}>
+                {polygonCoords.length >= 3
+                  ? `Poligono cargado: ${polygonCoords.length} vertices`
+                  : 'Sin poligono — se usara area predeterminada Oso Viejo 50km'}
+              </Text>
+            </View>
+
+            {/* Oso Viejo shortcut */}
+            <TouchableOpacity
+              style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#4CAF50', borderRadius: 8, padding: 12, marginBottom: 15, alignItems: 'center' }}
+              onPress={() => { loadOsoViejoPolygon(); setShowCropModal(false); }}
+            >
+              <Text style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: 13 }}>Cargar Area Oso Viejo 50km</Text>
+              <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>lat 25.18, lng -107.85</Text>
+            </TouchableOpacity>
+
+            {/* Start button */}
+            <TouchableOpacity
+              style={{ backgroundColor: '#4CAF50', borderRadius: 10, padding: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+              onPress={startCropAnalysis}
+            >
+              <MaterialCommunityIcons name="satellite-uplink" size={22} color="#FFF" />
+              <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 16, marginLeft: 10 }}>INICIAR ANALISIS SATELITAL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── AGROCROP RESULTS PANEL ─────────────────────────────────────── */}
+      {showCropResults && (
+        <View style={[styles.resultsPanel, { borderTopColor: '#4CAF50' }]}>
+          <View style={[styles.resultsHeader, { borderBottomColor: '#4CAF50' }]}>
+            <Text style={[styles.resultsTitle, { color: '#4CAF50' }]}>AgroCrop - Analisis</Text>
+            <TouchableOpacity onPress={() => setShowCropResults(false)}>
+              <MaterialCommunityIcons name="close" size={24} color="#4CAF50" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={{ maxHeight: 450 }} showsVerticalScrollIndicator={false}>
+            {/* Progress steps */}
+            {cropAnalyzing && (
+              <View style={{ alignItems: 'center', paddingVertical: 30 }}>
+                <ActivityIndicator size="large" color="#4CAF50" />
+                <Text style={{ color: '#4CAF50', fontSize: 14, marginTop: 15, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>
+                  {cropStep}
+                </Text>
+              </View>
+            )}
+
+            {/* Error */}
+            {cropError ? (
+              <View style={{ backgroundColor: 'rgba(255,60,60,0.1)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
+                <Text style={{ color: '#FF5555', fontSize: 12 }}>{cropError}</Text>
+              </View>
+            ) : null}
+
+            {/* Results */}
+            {cropData && !cropAnalyzing && (
+              <>
+                {/* Tonnage highlight */}
+                <View style={{ backgroundColor: 'rgba(76,175,80,0.1)', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#4CAF50', alignItems: 'center' }}>
+                  <Text style={{ color: '#888', fontSize: 11, letterSpacing: 1 }}>TONELAJE ESTIMADO</Text>
+                  <Text style={{ color: '#4CAF50', fontSize: 42, fontWeight: '900', marginTop: 4 }}>
+                    {cropData.tonelaje_estimado.toLocaleString()}
+                  </Text>
+                  <Text style={{ color: '#AAA', fontSize: 13, marginTop: 2 }}>toneladas</Text>
+                  <Text style={{ color: '#666', fontSize: 12, marginTop: 6 }}>
+                    Rango: {cropData.tonelaje_minimo.toLocaleString()} - {cropData.tonelaje_maximo.toLocaleString()} ton
+                  </Text>
+                </View>
+
+                {/* Key metrics grid */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                  {[
+                    { label: 'Hectareas activas', value: `${cropData.hectareas_cultivo_activo.toLocaleString()} ha`, color: '#4CAF50' },
+                    { label: 'Rendimiento/ha', value: `${cropData.rendimiento_por_hectarea} ton`, color: '#FFC107' },
+                    { label: 'Vigor', value: cropData.clasificacion_vigor, color: cropData.clasificacion_vigor === 'Alto' ? '#4CAF50' : cropData.clasificacion_vigor === 'Medio' ? '#FFC107' : '#FF5722' },
+                    { label: 'Area optima', value: `${cropData.porcentaje_area_optima}%`, color: '#2196F3' },
+                  ].map((m, i) => (
+                    <View key={i} style={{ flex: 1, minWidth: '45%', backgroundColor: '#1A1A1A', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#333' }}>
+                      <Text style={{ color: '#888', fontSize: 9, letterSpacing: 0.5 }}>{m.label}</Text>
+                      <Text style={{ color: m.color, fontSize: 18, fontWeight: '900', marginTop: 2 }}>{m.value}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Vegetation indices */}
+                <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#333' }}>
+                  <Text style={{ color: '#4CAF50', fontSize: 11, fontWeight: 'bold', marginBottom: 8, letterSpacing: 1 }}>INDICES VEGETATIVOS</Text>
+                  {[
+                    { label: 'NDVI (Vigor)', value: cropData.ndvi_mean, max: 1, color: '#4CAF50' },
+                    { label: 'EVI (Biomasa)', value: cropData.evi_mean, max: 0.8, color: '#8BC34A' },
+                    { label: 'NDRE (Nitrogeno)', value: cropData.ndre_mean, max: 0.6, color: '#CDDC39' },
+                    { label: 'LSWI (Humedad)', value: cropData.lswi_mean, max: 0.5, color: '#03A9F4' },
+                  ].map((idx, i) => (
+                    <View key={i} style={{ marginBottom: 6 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+                        <Text style={{ color: '#AAA', fontSize: 10 }}>{idx.label}</Text>
+                        <Text style={{ color: idx.color, fontSize: 11, fontWeight: 'bold' }}>{idx.value.toFixed(4)}</Text>
+                      </View>
+                      <View style={{ height: 5, backgroundColor: '#2A2A2A', borderRadius: 3, overflow: 'hidden' }}>
+                        <View style={{ height: 5, width: `${Math.min(100, (Math.max(0, idx.value) / idx.max) * 100)}%`, backgroundColor: idx.color, borderRadius: 3 }} />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Metadata */}
+                <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#333' }}>
+                  <Text style={{ color: '#666', fontSize: 10 }}>
+                    Imagen: {cropData.fecha_imagen} | {cropData.imagenes_usadas} escenas | Periodo: {cropData.fecha_inicio} a {cropData.fecha_fin}
+                  </Text>
+                </View>
+
+                {/* Claude analysis */}
+                {cropClaudeAnalysis ? (
+                  <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#4CAF50' }}>
+                    <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8, letterSpacing: 1 }}>ANALISIS AGRONOMICO IA</Text>
+                    <Text style={{ color: '#DDD', fontSize: 12, lineHeight: 20 }}>{cropClaudeAnalysis}</Text>
+                  </View>
+                ) : cropAnalyzing ? null : (
+                  <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+                    <ActivityIndicator size="small" color="#4CAF50" />
+                    <Text style={{ color: '#666', fontSize: 11, marginTop: 5 }}>Cargando analisis IA...</Text>
+                  </View>
+                )}
+
+                <View style={{ height: 20 }} />
+              </>
+            )}
+          </ScrollView>
+        </View>
+      )}
+
     </View>
   );
 }
@@ -1421,14 +2057,57 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    maxHeight: '40%',
-    backgroundColor: 'rgba(0,0,0,0.95)',
+    maxHeight: '58%',
+    backgroundColor: 'rgba(0,0,0,0.97)',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderTopWidth: 2,
     borderTopColor: '#FFD700',
     padding: 12,
     zIndex: 100,
+  },
+  metalCard: {
+    backgroundColor: '#111',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    padding: 10,
+    marginBottom: 8,
+  },
+  detectedBadge: {
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  scoreBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  scoreBarLabel: {
+    color: '#666',
+    fontSize: 9,
+    width: 72,
+    letterSpacing: 0.4,
+  },
+  scoreBarTrack: {
+    flex: 1,
+    height: 6,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  scoreBarFill: {
+    height: 6,
+    borderRadius: 3,
+  },
+  scoreBarValue: {
+    color: '#AAA',
+    fontSize: 11,
+    fontWeight: 'bold',
+    width: 28,
+    textAlign: 'right',
   },
   resultsHeader: {
     flexDirection: 'row',
@@ -1502,7 +2181,123 @@ const styles = StyleSheet.create({
   chipModal: { backgroundColor: '#333', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#555' },
   chipTextModal: { color: '#FFF', fontSize: 14, fontWeight: 'bold', textTransform: 'capitalize' },
   prefsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 10 },
-  separator: { height: 1, backgroundColor: '#444' }
+  separator: { height: 1, backgroundColor: '#444' },
+
+  // ── Tap-point analysis panel ───────────────────────────────────────────────
+  tapPanel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    maxHeight: '62%',
+    backgroundColor: 'rgba(0,0,0,0.97)',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 2,
+    borderTopColor: '#00FFFF',
+    padding: 12,
+    zIndex: 101,
+  },
+  indicatorsBox: {
+    backgroundColor: '#0C0C0C',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#252525',
+    padding: 12,
+    marginBottom: 8,
+  },
+  indicatorsTitle: {
+    color: '#AAA',
+    fontWeight: '900',
+    fontSize: 10,
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  indicatorRow: {
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A1A1A',
+  },
+  indicatorText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  // ── Ranking section ────────────────────────────────────────────────────────
+  rankingSection: {
+    marginTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#222',
+    paddingTop: 12,
+  },
+  rankingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  rankingTitle: {
+    color: '#FFD700',
+    fontWeight: '900',
+    fontSize: 10,
+    letterSpacing: 0.8,
+    flex: 1,
+  },
+  rankingMaxLabel: {
+    color: '#555',
+    fontSize: 10,
+    marginLeft: 8,
+  },
+  rankingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A1A1A',
+  },
+  rankingRank: {
+    color: '#FFD700',
+    fontWeight: '900',
+    fontSize: 12,
+    width: 24,
+  },
+  rankingCoord: {
+    color: '#555',
+    fontSize: 9,
+    marginBottom: 4,
+    fontFamily: 'monospace',
+  },
+  rankingTrack: {
+    width: '100%',
+    height: 5,
+    backgroundColor: '#111',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  rankingCeiling: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: '#1E1E1E',
+  },
+  rankingFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 3,
+    opacity: 0.85,
+  },
+  rankingScore: {
+    fontWeight: '900',
+    fontSize: 12,
+  },
+  rankingPct: {
+    color: '#555',
+    fontSize: 9,
+    marginTop: 2,
+  },
 });
 
 

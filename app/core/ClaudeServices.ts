@@ -245,4 +245,70 @@ export async function askClaudeGeologist(
   return data.content?.[0]?.text || '';
 }
 
+// ═══════════════════════════════════════════════════════
+// 4. ANÁLISIS AGRÍCOLA DE BIOMASA (AgroCrop)
+// ═══════════════════════════════════════════════════════
+export interface CropBiomassStats {
+  ndvi_mean: number;
+  evi_mean: number;
+  ndre_mean: number;
+  lswi_mean: number;
+  hectareas_cultivo_activo: number;
+  tonelaje_estimado: number;
+  tonelaje_minimo: number;
+  tonelaje_maximo: number;
+  rendimiento_por_hectarea: number;
+  porcentaje_area_optima: number;
+  clasificacion_vigor: string;
+}
+
+export async function analyzeCropBiomassWithClaude(
+  stats: CropBiomassStats,
+  tipoCultivo: string
+): Promise<string> {
+  const API_KEY = getApiKey();
+
+  const prompt = `Eres un agrónomo experto en cultivos de maíz del Valle de Culiacán, Sinaloa.
+Analiza estos índices satelitales Sentinel-2 de un área de ${stats.hectareas_cultivo_activo} hectáreas cerca de Oso Viejo, Sinaloa:
+- NDVI promedio: ${stats.ndvi_mean} (vigor vegetativo)
+- EVI promedio: ${stats.evi_mean} (biomasa)
+- NDRE promedio: ${stats.ndre_mean} (contenido de nitrógeno)
+- LSWI promedio: ${stats.lswi_mean} (estrés hídrico)
+- Clasificación de vigor: ${stats.clasificacion_vigor}
+- Tonelaje estimado: ${stats.tonelaje_estimado} toneladas (rango: ${stats.tonelaje_minimo}-${stats.tonelaje_maximo})
+- Rendimiento estimado: ${stats.rendimiento_por_hectarea} ton/ha
+- Porcentaje de área en condiciones óptimas (NDVI > 0.7): ${stats.porcentaje_area_optima}%
+- Tipo de cultivo: ${tipoCultivo}
+
+Proporciona:
+1. Diagnóstico del estado actual del cultivo
+2. Estimación de producción con rango mínimo-máximo en toneladas
+3. Factores de riesgo identificados (estrés hídrico, déficit nutricional)
+4. Recomendaciones de manejo agronómico específicas para esta zona
+5. Comparación con el promedio histórico del Valle de Culiacán
+
+Responde en español técnico pero comprensible. Sé específico con los datos numéricos proporcionados.`;
+
+  const payload = {
+    model: MODEL_SMART,
+    max_tokens: 2500,
+    messages: [{ role: 'user', content: prompt }]
+  };
+
+  const response = await fetchWithRetry(
+    'https://api.anthropic.com/v1/messages',
+    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
+  );
+
+  if (!response.ok) {
+    const err = await response.text();
+    let msg = err;
+    try { msg = JSON.parse(err).error?.message || err; } catch {}
+    throw new Error(`Anthropic: ${msg.substring(0, 100)}`);
+  }
+
+  const data = await response.json();
+  return data.content?.[0]?.text || 'No se obtuvo respuesta del análisis.';
+}
+
 export default function DummyClaudeRoute() { return null; }

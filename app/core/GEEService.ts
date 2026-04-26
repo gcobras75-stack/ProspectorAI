@@ -16,17 +16,37 @@ export type BandIndex =
   | 'IRON_OXIDE'
   | 'CLAY_MINERALS'
   | 'FERROUS_IRON'
+  // ASTER SWIR mineral indices (historical 2000-2008 imagery)
+  | 'ASTER_ALUNITE'
+  | 'ASTER_CALCITE'
+  | 'ASTER_CHLORITE'
   // EMIT hyperspectral
   | 'EMIT_AL_CLAY'
   | 'EMIT_MG_CLAY'
   | 'EMIT_CARBONATE'
   | 'EMIT_FERRIC';
 
-export type GEEDataset = 'SENTINEL2' | 'LANDSAT8' | 'LANDSAT9' | 'EMIT';
+export type GEEDataset = 'SENTINEL2' | 'LANDSAT8' | 'LANDSAT9' | 'ASTER' | 'EMIT';
 
-/** EMIT indices require dataset=EMIT; multispectral indices require Sentinel/Landsat */
+/** EMIT indices require dataset=EMIT */
 export const EMIT_BAND_IDS: BandIndex[] = ['EMIT_AL_CLAY', 'EMIT_MG_CLAY', 'EMIT_CARBONATE', 'EMIT_FERRIC'];
+
+/** Multispectral indices compatible with Sentinel-2, Landsat 8/9, and ASTER VNIR */
 export const MULTISPECTRAL_BAND_IDS: BandIndex[] = ['TRUE_COLOR', 'FALSE_COLOR', 'NDVI', 'SWIR_MINERAL', 'IRON_OXIDE', 'CLAY_MINERALS', 'FERROUS_IRON'];
+
+/** ASTER-specific SWIR mineral indices (require historical data 2000-2008) */
+export const ASTER_EXTRA_BAND_IDS: BandIndex[] = ['ASTER_ALUNITE', 'ASTER_CALCITE', 'ASTER_CHLORITE'];
+
+/**
+ * Indices available for ASTER:
+ *  - VNIR-only (recent imagery): TRUE_COLOR, FALSE_COLOR, NDVI, IRON_OXIDE
+ *  - SWIR historical (2000-2008): ASTER_ALUNITE, ASTER_CALCITE, ASTER_CHLORITE
+ * NOTE: CLAY_MINERALS, FERROUS_IRON, SWIR_MINERAL need SWIR which failed in 2008.
+ */
+export const ASTER_BAND_IDS: BandIndex[] = [
+  'TRUE_COLOR', 'FALSE_COLOR', 'NDVI', 'IRON_OXIDE',
+  'ASTER_ALUNITE', 'ASTER_CALCITE', 'ASTER_CHLORITE',
+];
 
 export interface BandConfig {
   id: BandIndex;
@@ -40,13 +60,15 @@ export interface BandConfig {
 }
 
 export interface GEETileConfig {
-  tileUrl: string; // URL template with {z}/{x}/{y}
+  tileUrl: string;
   mapId: string;
   legend: { color: string; label: string }[];
   bandDescription: string;
   mineralApplication: string;
   acquisitionDate: string;
   cloudCover: number;
+  /** Estimated date of next satellite pass (acquisitionDate + revisit period). Null for EMIT. */
+  nextPassDate: string | null;
   expiresAt: number;
 }
 
@@ -65,7 +87,7 @@ export const BAND_CONFIGS: Record<BandIndex, BandConfig> = {
     label: 'Color Verdadero',
     shortLabel: 'RGB',
     description:
-      'Composición RGB estándar (Rojo-Verde-Azul). Representa la superficie tal como la vería el ojo humano desde el espacio.',
+      'Composición RGB estándar. Para ASTER usa NIR-Rojo-Verde (sin banda azul) mostrando vegetación en rojo.',
     mineralUse:
       'Referencia visual de base. Útil para identificar afloramientos rocosos, vegetación escasa y zonas de alteración superficial visibles.',
     icon: 'eye-outline',
@@ -91,7 +113,7 @@ export const BAND_CONFIGS: Record<BandIndex, BandConfig> = {
     description:
       'Índice de Diferencia Normalizada de Vegetación (NIR-Rojo)/(NIR+Rojo). Valores altos = vegetación sana. Valores bajos o negativos = roca, suelo, agua.',
     mineralUse:
-      'Zonas de NDVI anómalosamente bajo en áreas donde debería haber vegetación pueden indicar suelos tóxicos por mineralización (halo geoquímico). Delimita afloramientos.',
+      'Zonas de NDVI anómalamente bajo en áreas donde debería haber vegetación pueden indicar suelos tóxicos por mineralización (halo geoquímico). Delimita afloramientos.',
     icon: 'leaf',
     gradientColors: ['#8B0000', '#FF4400', '#FFDD00', '#88DD00', '#006600'],
     gradientLabels: ['Sin vegetación (-1 a 0)', 'Muy escasa (0–0.1)', 'Moderada (0.1–0.3)', 'Densa (0.3–0.6)', 'Muy densa (0.6–1)'],
@@ -113,7 +135,7 @@ export const BAND_CONFIGS: Record<BandIndex, BandConfig> = {
     label: 'Óxidos de Hierro',
     shortLabel: 'Fe-Ox',
     description:
-      'Cociente de bandas Rojo/Azul (o Rojo/SWIR según sensor). Sensible a minerales de Fe: goethita, limonita, hematita y jarosita que tiñen la roca de pardo-rojizo.',
+      'Cociente de bandas Rojo/Verde-Azul. Sensible a minerales de Fe: goethita, limonita, hematita y jarosita que tiñen la roca de pardo-rojizo.',
     mineralUse:
       'Mapeo de gossan (sombrero de hierro), halos de oxidación de sulfuros masivos, zonas de lixiviación. Guía directa a depósitos de oro, plata, cobre y polimetálicos.',
     icon: 'magnet',
@@ -137,12 +159,50 @@ export const BAND_CONFIGS: Record<BandIndex, BandConfig> = {
     label: 'Hierro Ferroso (Fe²⁺)',
     shortLabel: 'Fe²⁺',
     description:
-      'Cociente NIR/SWIR1. Sensible al hierro ferroso en silicatos máficos como olivino, piroxeno y anfíbol. Distingue ferrous de férrico.',
+      'Cociente NIR/SWIR1. Sensible al hierro ferroso en silicatos máficos como olivino, piroxeno y anfíbol. Distingue ferroso de férrico.',
     mineralUse:
       'Mapeo de rocas máficas y ultramáficas (fuentes de Ni, Co, Cr, PGE). Delimita intrusivos básicos y zonas de serpentinización con potencial para minerales estratégicos.',
     icon: 'water',
     gradientColors: ['#000022', '#001144', '#003388', '#2266CC', '#88AAFF'],
     gradientLabels: ['Sin Fe²⁺', 'Fe²⁺ traza', 'Fe²⁺ moderado', 'Rocas máficas', 'Ultramáficas/Serpentinita'],
+  },
+
+  // ── ASTER SWIR mineral indices (histórico 2000-2008) ────────────────────────
+  ASTER_ALUNITE: {
+    id: 'ASTER_ALUNITE',
+    label: 'ASTER — Alunita/Caolinita',
+    shortLabel: 'Al-OH',
+    description:
+      'Profundidad de banda Al-OH a 2200 nm: 1 − B06/(B05+B07)/2. Detecta alunita, caolinita, moscovita y pirofilita. 30 m · ASTER SWIR · Datos históricos 2000-2008.',
+    mineralUse:
+      'Guía a epitermales de alta sulfidación (Au-Ag) y halos de alteración argílica avanzada (ALS) en pórfidos de Cu. Mayor resolución espacial que EMIT en zonas históricamente mapeadas.',
+    icon: 'grain',
+    gradientColors: ['#1A0A00', '#4D2500', '#996633', '#DDAA44', '#FFFFCC'],
+    gradientLabels: ['Sin Al-OH', 'Trazas caolinita', 'Caolinita moderada', 'Caolinita/Alunita', 'Alt. argílica (ALS)'],
+  },
+  ASTER_CALCITE: {
+    id: 'ASTER_CALCITE',
+    label: 'ASTER — Carbonatos',
+    shortLabel: 'CO₃',
+    description:
+      'Profundidad de banda CO₃ a 2350 nm: 1 − B08/(B06+B09)/2. Detecta calcita, dolomita y magnesita. 30 m · ASTER SWIR · Datos históricos 2000-2008.',
+    mineralUse:
+      'Clave para skarns (Fe, Cu, Au, W), carbonatitas (REE, Nb) y carbonatización hidrotermal en epitermales. Delimita aureolas metasomáticas calcáreas.',
+    icon: 'layers-outline',
+    gradientColors: ['#00001A', '#001144', '#003388', '#3366CC', '#AACCFF'],
+    gradientLabels: ['Sin carbonatos', 'Trazas calcita', 'Carbonatos mod.', 'Carbonatización', 'Skarn/Carbonatita'],
+  },
+  ASTER_CHLORITE: {
+    id: 'ASTER_CHLORITE',
+    label: 'ASTER — Clorita/Serpentina',
+    shortLabel: 'Mg-OH',
+    description:
+      'Profundidad de banda Mg-OH a 2300 nm: 1 − B08/(B07+B09)/2. Detecta clorita, serpentina y talco. 30 m · ASTER SWIR · Datos históricos 2000-2008.',
+    mineralUse:
+      'Indica alteración propilítica en pórfidos Cu-Mo y rocas ultramáficas con potencial de Ni, Co, Cr y PGE. Delimita zonas de serpentinización.',
+    icon: 'water',
+    gradientColors: ['#001A00', '#00331A', '#006633', '#00AA55', '#AAFFCC'],
+    gradientLabels: ['Sin Mg-OH', 'Trazas clorita', 'Clorita moderada', 'Clorita/Serpentina', 'Alt. propilítica'],
   },
 
   // ── EMIT hyperspectral (NASA/ISS · 285 bandas · 60 m) ─────────────────────
@@ -219,6 +279,11 @@ export const DATASET_LABELS: Record<
     resolution: '30 m',
     revisit: '16 días',
   },
+  ASTER: {
+    label: 'ASTER',
+    resolution: '15-30 m',
+    revisit: '16 días',
+  },
   EMIT: {
     label: 'EMIT Hiperespectral',
     resolution: '60 m',
@@ -237,16 +302,17 @@ function getServerUrl(): string {
       'EXPO_PUBLIC_SERVER_URL no está configurada. Verifica tu archivo .env'
     );
   }
-  return url.replace(/\/$/, ''); // strip trailing slash
+  return url.replace(/\/$/, '');
 }
 
-function buildQueryString(params: Record<string, string | number>): string {
+function buildQueryString(params: Record<string, string | number | undefined>): string {
   return Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '' && String(v) !== 'undefined' && String(v) !== 'null')
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
     .join('&');
 }
 
-async function geeGet<T>(path: string, params: Record<string, string | number>): Promise<T> {
+async function geeGet<T>(path: string, params: Record<string, string | number | undefined>): Promise<T> {
   const base = getServerUrl();
   const qs = buildQueryString(params);
   const url = `${base}${path}?${qs}`;
@@ -289,27 +355,26 @@ async function geeGet<T>(path: string, params: Record<string, string | number>):
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches a tile configuration (mapId + tileUrl template) from the backend proxy.
- * The backend is responsible for authenticating with GEE and returning a signed
- * tile URL template in the format:  https://.../{z}/{x}/{y}
+ * Fetches a tile configuration from the backend proxy.
+ * Omit dateStart/dateEnd to use auto-latest mode (most recent cloud-free image).
  */
 export async function getGEETileConfig(
   lat: number,
   lng: number,
   index: BandIndex,
   dataset: GEEDataset,
-  dateStart: string,
-  dateEnd: string,
-  maxCloud: number
+  dateStart?: string,
+  dateEnd?: string,
+  maxCloud?: number
 ): Promise<GEETileConfig> {
   const data = await geeGet<GEETileConfig>('/api/gee/tiles', {
     lat,
     lng,
     index,
     dataset,
-    dateStart,
-    dateEnd,
-    maxCloud,
+    ...(dateStart ? { dateStart } : {}),
+    ...(dateEnd   ? { dateEnd   } : {}),
+    ...(maxCloud != null ? { maxCloud } : {}),
   });
 
   if (!data.tileUrl) {
@@ -324,23 +389,23 @@ export async function getGEETileConfig(
 
 /**
  * Fetches pixel-level spectral values at the given coordinate.
- * Useful for point sampling and spectral signature analysis.
+ * Omit dateStart/dateEnd to use auto-latest mode.
  */
 export async function getGEEPixelValues(
   lat: number,
   lng: number,
   index: BandIndex,
   dataset: GEEDataset,
-  dateStart: string,
-  dateEnd: string
+  dateStart?: string,
+  dateEnd?: string
 ): Promise<GEEPixelValues> {
   const data = await geeGet<GEEPixelValues>('/api/gee/pixels', {
     lat,
     lng,
     index,
     dataset,
-    dateStart,
-    dateEnd,
+    ...(dateStart ? { dateStart } : {}),
+    ...(dateEnd   ? { dateEnd   } : {}),
   });
 
   if (data.computedIndex === undefined || data.computedIndex === null) {
@@ -350,12 +415,107 @@ export async function getGEEPixelValues(
   return data;
 }
 
+// ---------------------------------------------------------------------------
+// Biomass / AgroCrop analysis
+// ---------------------------------------------------------------------------
+
+export interface BiomassAnalysisResult {
+  success: boolean;
+  ndvi_mean: number;
+  evi_mean: number;
+  ndre_mean: number;
+  lswi_mean: number;
+  ndvi_stdDev: number;
+  ndvi_p25: number;
+  ndvi_p50: number;
+  ndvi_p75: number;
+  hectareas_cultivo_activo: number;
+  hectareas_area_optima: number;
+  porcentaje_area_optima: number;
+  clasificacion_vigor: string;
+  tonelaje_estimado: number;
+  tonelaje_minimo: number;
+  tonelaje_maximo: number;
+  rendimiento_por_hectarea: number;
+  factor_ndvi: number;
+  factor_ndre: number;
+  fecha_imagen: string;
+  imagenes_usadas: number;
+  fecha_inicio: string;
+  fecha_fin: string;
+}
+
+/**
+ * Sends a polygon to the backend for crop biomass analysis using Sentinel-2.
+ * @param coordinates [[lng,lat], ...] polygon ring
+ * @param fecha_inicio YYYY-MM-DD
+ * @param fecha_fin YYYY-MM-DD
+ */
+export async function getBiomassAnalysis(
+  coordinates: number[][],
+  fecha_inicio: string,
+  fecha_fin: string
+): Promise<BiomassAnalysisResult> {
+  const base = getServerUrl();
+  const url = `${base}/api/biomass-analysis`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ coordinates, fecha_inicio, fecha_fin }),
+    });
+  } catch (networkErr: any) {
+    throw new Error(
+      `No se pudo conectar al servidor GEE (${base}). Detalle: ${networkErr.message}`
+    );
+  }
+
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const body = await response.json();
+      detail = body?.error || JSON.stringify(body);
+    } catch {
+      detail = await response.text().catch(() => '');
+    }
+    throw new Error(`Error del servidor GEE [${response.status}]: ${detail || response.statusText}`);
+  }
+
+  return (await response.json()) as BiomassAnalysisResult;
+}
+
+/**
+ * Generates a circular polygon (approximation) around a center point.
+ * @param lat Center latitude
+ * @param lng Center longitude
+ * @param radiusKm Radius in kilometers
+ * @param points Number of polygon vertices (default 32)
+ * @returns [[lng,lat], ...] ring suitable for GEE Polygon
+ */
+export function generateCirclePolygon(
+  lat: number,
+  lng: number,
+  radiusKm: number,
+  points: number = 32
+): number[][] {
+  const coords: number[][] = [];
+  for (let i = 0; i < points; i++) {
+    const angle = (2 * Math.PI * i) / points;
+    const dLat = (radiusKm / 111.32) * Math.cos(angle);
+    const dLng = (radiusKm / (111.32 * Math.cos((lat * Math.PI) / 180))) * Math.sin(angle);
+    coords.push([lng + dLng, lat + dLat]);
+  }
+  coords.push(coords[0]); // close the ring
+  return coords;
+}
+
 /**
  * Returns a dynamic date range ending today.
- * daysBack=30  → Sentinel-2, Landsat 8/9 (5-16 day revisit, 30 days guarantees recent data)
- * daysBack=180 → EMIT (sparse ISS targeting, 6 months ensures scene availability)
+ * Kept for backward compatibility with polygon analysis.
  */
-export function getDefaultDateRange(daysBack = 30): { start: string; end: string } {
+export function getDefaultDateRange(daysBack = 90): { start: string; end: string } {
   const end = new Date();
   const start = new Date();
   start.setDate(start.getDate() - daysBack);
