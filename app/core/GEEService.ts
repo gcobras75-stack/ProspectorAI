@@ -486,6 +486,78 @@ export async function getBiomassAnalysis(
   return (await response.json()) as BiomassAnalysisResult;
 }
 
+// ---------------------------------------------------------------------------
+// Biomass grid (heatmap)
+// ---------------------------------------------------------------------------
+
+export interface GridCell {
+  lat: number;
+  lng: number;
+  ndvi: number;
+  evi: number;
+  ndre: number;
+  hectareas: number;
+  tonelaje_estimado: number;
+  rendimiento_ton_ha: number;
+  vigor: string;
+  color_hex: string;
+}
+
+export interface BiomassGridResult {
+  success: boolean;
+  grid: GridCell[];
+  total_celdas: number;
+  celdas_con_cultivo: number;
+  cell_size_km: number;
+  resumen: {
+    tonelaje_total: number;
+    hectareas_con_cultivo: number;
+    rendimiento_promedio: number;
+    fecha_inicio: string;
+    fecha_fin: string;
+    imagenes_usadas: number;
+  };
+}
+
+/**
+ * Fetches per-cell grid biomass data for heatmap overlay.
+ */
+export async function getBiomassGrid(
+  coordinates: number[][],
+  fecha_inicio: string,
+  fecha_fin: string,
+  cell_size_km: number = 1
+): Promise<BiomassGridResult> {
+  const base = getServerUrl();
+  const url = `${base}/api/biomass-grid`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ coordinates, fecha_inicio, fecha_fin, cell_size_km }),
+    });
+  } catch (networkErr: any) {
+    throw new Error(
+      `No se pudo conectar al servidor GEE (${base}). Detalle: ${networkErr.message}`
+    );
+  }
+
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const body = await response.json();
+      detail = body?.error || JSON.stringify(body);
+    } catch {
+      detail = await response.text().catch(() => '');
+    }
+    throw new Error(`Error del servidor GEE [${response.status}]: ${detail || response.statusText}`);
+  }
+
+  return (await response.json()) as BiomassGridResult;
+}
+
 /**
  * Generates a circular polygon (approximation) around a center point.
  * @param lat Center latitude

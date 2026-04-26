@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { StyleSheet, View, Text, ActivityIndicator, Platform, TouchableOpacity, Alert, Pressable, Modal, TextInput, ScrollView, Switch, Image } from 'react-native';
 import MapView, { Marker, Polygon, Region, MapPressEvent, PanDragEvent, UrlTile } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -13,7 +13,7 @@ import { analyzeZoneLocal, computeAllMetalScores, computePointScore, MetalScore,
 import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist, analyzeCropBiomassWithClaude, CropBiomassStats } from '../core/ClaudeServices';
-import { getBiomassAnalysis, BiomassAnalysisResult, generateCirclePolygon } from '../core/GEEService';
+import { getBiomassAnalysis, BiomassAnalysisResult, generateCirclePolygon, getBiomassGrid, GridCell } from '../core/GEEService';
 
 type Coordinate = { latitude: number; longitude: number };
 type DrawingType = 'none' | 'polygon' | 'rectangle';
@@ -245,6 +245,9 @@ export default function ProspectorDashboard() {
   const [cropData, setCropData] = useState<BiomassAnalysisResult | null>(null);
   const [cropClaudeAnalysis, setCropClaudeAnalysis] = useState<string>('');
   const [cropError, setCropError] = useState<string>('');
+  const [cropGridCells, setCropGridCells] = useState<GridCell[]>([]);
+  const [showCropHeatmap, setShowCropHeatmap] = useState(false);
+  const [cropGridLoading, setCropGridLoading] = useState(false);
 
   const sendChatMessage = async () => {
     if (!chatInput.trim() || isTypingChat) return;
@@ -311,6 +314,20 @@ export default function ProspectorDashboard() {
       setCropClaudeAnalysis(claudeText);
       triggerHaptic('success');
       setCropStep('');
+
+      // Step 3: Fetch heatmap grid in background
+      setCropGridLoading(true);
+      try {
+        setCropStep('Construyendo mapa de calor...');
+        const gridResult = await getBiomassGrid(geeCoords, cropFechaInicio, cropFechaFin, 1);
+        setCropGridCells(gridResult.grid);
+        setShowCropHeatmap(true);
+      } catch (gridErr: any) {
+        console.warn('[AgroCrop] Grid fetch failed:', gridErr.message);
+      } finally {
+        setCropGridLoading(false);
+        setCropStep('');
+      }
     } catch (e: any) {
       setCropError(e.message || 'Error desconocido');
       setCropStep('');
@@ -332,6 +349,44 @@ export default function ProspectorDashboard() {
     }, 800);
     triggerHaptic('light');
   };
+
+  // ── Heatmap grid polygon data (memoized) ────────────────────────────────
+  const HALF_CELL_DEG = 0.0045; // ~0.5km at lat 25°
+  const cropGridPolygons = useMemo(() => {
+    if (!cropGridCells.length) return [];
+    return cropGridCells.map((cell, i) => ({
+      key: `hm-${i}`,
+      coords: [
+        { latitude: cell.lat - HALF_CELL_DEG, longitude: cell.lng - HALF_CELL_DEG },
+        { latitude: cell.lat - HALF_CELL_DEG, longitude: cell.lng + HALF_CELL_DEG },
+        { latitude: cell.lat + HALF_CELL_DEG, longitude: cell.lng + HALF_CELL_DEG },
+        { latitude: cell.lat + HALF_CELL_DEG, longitude: cell.lng - HALF_CELL_DEG },
+      ],
+      fill: cell.color_hex + 'A6', // ~65% opacity
+      label: cell.rendimiento_ton_ha.toFixed(1),
+      lat: cell.lat,
+      lng: cell.lng,
+    }));
+  }, [cropGridCells]);
+
+  // Filter to visible viewport for performance
+  const visibleGridPolygons = useMemo(() => {
+    if (!mapCenter || !cropGridPolygons.length) return cropGridPolygons;
+    const latHalf = mapCenter.latitudeDelta / 2;
+    const lngHalf = mapCenter.longitudeDelta / 2;
+    const minLat = mapCenter.latitude - latHalf;
+    const maxLat = mapCenter.latitude + latHalf;
+    const minLng = mapCenter.longitude - lngHalf;
+    const maxLng = mapCenter.longitude + lngHalf;
+    return cropGridPolygons.filter(p =>
+      p.lat >= minLat && p.lat <= maxLat && p.lng >= minLng && p.lng <= maxLng
+    );
+  }, [cropGridPolygons, mapCenter]);
+
+  // Show labels only when zoomed in enough
+  const showGridLabels = useMemo(() => {
+    return mapCenter ? mapCenter.latitudeDelta < 0.3 : false;
+  }, [mapCenter]);
 
   const exportCSV = async () => {
     if (waypoints.length === 0) {
@@ -858,6 +913,30 @@ export default function ProspectorDashboard() {
               </View>
             </Marker>
           ))}
+
+          {/* AgroCrop heatmap grid */}
+          {showCropHeatmap && visibleGridPolygons.map(p => (
+            <Polygon
+              key={p.key}
+              coordinates={p.coords}
+              fillColor={p.fill}
+              strokeColor="transparent"
+              strokeWidth={0}
+              tappable={false}
+            />
+          ))}
+          {showCropHeatmap && showGridLabels && visibleGridPolygons.map(p => (
+            <Marker
+              key={`lbl-${p.key}`}
+              coordinate={{ latitude: p.lat, longitude: p.lng }}
+              anchor={{ x: 0.5, y: 0.5 }}
+              tracksViewChanges={false}
+            >
+              <View style={{ backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1 }}>
+                <Text style={{ color: '#fff', fontSize: 9, fontWeight: 'bold' }}>{p.label}t/ha</Text>
+              </View>
+            </Marker>
+          ))}
         </MapView>
 
         {/* OVERLAYS DENTRO DEL MAPA */}
@@ -901,6 +980,26 @@ export default function ProspectorDashboard() {
         </View>
 
         <TouchableOpacity style={styles.locationButton} onPress={() => { if (location) { mapRef.current?.animateToRegion({ latitude: location.coords.latitude, longitude: location.coords.longitude, latitudeDelta: 0.005, longitudeDelta: 0.005 }, 500); } }}><MaterialCommunityIcons name="crosshairs-gps" size={24} color="#FFD700" /></TouchableOpacity>
+
+        {/* AgroCrop heatmap legend */}
+        {showCropHeatmap && cropGridCells.length > 0 && (
+          <View style={{ position: 'absolute', bottom: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.9)', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#4CAF50', zIndex: 25 }}>
+            <Text style={{ color: '#4CAF50', fontSize: 10, fontWeight: 'bold', marginBottom: 6, letterSpacing: 1 }}>RENDIMIENTO ton/ha</Text>
+            {[
+              { color: '#1a5c1a', label: '> 10 t/ha' },
+              { color: '#4caf50', label: '8 - 10' },
+              { color: '#cddc39', label: '6 - 8' },
+              { color: '#ff9800', label: '4 - 6' },
+              { color: '#f44336', label: '< 4' },
+            ].map((item, i) => (
+              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
+                <View style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: item.color, marginRight: 6 }} />
+                <Text style={{ color: '#DDD', fontSize: 10 }}>{item.label}</Text>
+              </View>
+            ))}
+            <Text style={{ color: '#888', fontSize: 9, marginTop: 4 }}>{cropGridCells.length} celdas activas</Text>
+          </View>
+        )}
 
         <TouchableOpacity style={styles.northIndicator} onPress={() => { triggerHaptic('heavy'); setShowChatModal(true); }} onLongPress={() => { triggerHaptic('heavy'); setShowChatModal(true); }}><View style={[styles.northArrow, { transform: [{ rotate: `${-mapRotation}deg` }] }]}><MaterialCommunityIcons name="arrow-up" size={28} color="#FFD700" /><Text style={styles.northText}>N</Text></View></TouchableOpacity>
 
@@ -1862,9 +1961,21 @@ export default function ProspectorDashboard() {
         <View style={[styles.resultsPanel, { borderTopColor: '#4CAF50' }]}>
           <View style={[styles.resultsHeader, { borderBottomColor: '#4CAF50' }]}>
             <Text style={[styles.resultsTitle, { color: '#4CAF50' }]}>AgroCrop - Analisis</Text>
-            <TouchableOpacity onPress={() => setShowCropResults(false)}>
-              <MaterialCommunityIcons name="close" size={24} color="#4CAF50" />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              {cropGridCells.length > 0 && (
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: showCropHeatmap ? 'rgba(76,175,80,0.2)' : '#222', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: showCropHeatmap ? '#4CAF50' : '#555' }}
+                  onPress={() => setShowCropHeatmap(!showCropHeatmap)}
+                >
+                  <MaterialCommunityIcons name="grid" size={14} color={showCropHeatmap ? '#4CAF50' : '#888'} />
+                  <Text style={{ color: showCropHeatmap ? '#4CAF50' : '#888', fontSize: 10, fontWeight: 'bold', marginLeft: 4 }}>Mapa Calor</Text>
+                </TouchableOpacity>
+              )}
+              {cropGridLoading && <ActivityIndicator size="small" color="#4CAF50" />}
+              <TouchableOpacity onPress={() => setShowCropResults(false)}>
+                <MaterialCommunityIcons name="close" size={24} color="#4CAF50" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <ScrollView style={{ maxHeight: 450 }} showsVerticalScrollIndicator={false}>
