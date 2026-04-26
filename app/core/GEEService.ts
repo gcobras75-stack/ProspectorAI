@@ -580,6 +580,7 @@ export function generateCirclePolygon(
     coords.push([lng + dLng, lat + dLat]);
   }
   coords.push(coords[0]); // close the ring
+  console.log(`[generateCirclePolygon] Centro: lat ${lat} lng ${lng} | Radio: ${radiusKm} km | Vértices: ${points} | Primer punto: [${coords[0][0].toFixed(5)}, ${coords[0][1].toFixed(5)}] | Último: [${coords[coords.length - 2][0].toFixed(5)}, ${coords[coords.length - 2][1].toFixed(5)}]`);
   return coords;
 }
 

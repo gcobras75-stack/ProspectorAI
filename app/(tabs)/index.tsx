@@ -285,7 +285,7 @@ export default function ProspectorDashboard() {
         geeCoords = polygonCoords.map(c => [c.longitude, c.latitude]);
         geeCoords.push(geeCoords[0]); // close ring
       } else {
-        geeCoords = generateCirclePolygon(24.29, -107.17, 40);
+        geeCoords = generateCirclePolygon(24.3994, -107.1714, 40);
       }
 
       // Step 1: Satellite query
@@ -338,12 +338,12 @@ export default function ProspectorDashboard() {
   };
 
   const loadOsoViejoPolygon = () => {
-    const circle = generateCirclePolygon(24.29, -107.17, 40);
+    const circle = generateCirclePolygon(24.3994, -107.1714, 40);
     const coords: Coordinate[] = circle.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
     setPolygonCoords(coords);
     mapRef.current?.animateToRegion({
-      latitude: 24.29,
-      longitude: -107.17,
+      latitude: 24.3994,
+      longitude: -107.1714,
       latitudeDelta: 0.8,
       longitudeDelta: 0.8,
     }, 800);
@@ -1941,7 +1941,7 @@ export default function ProspectorDashboard() {
               onPress={() => { loadOsoViejoPolygon(); setShowCropModal(false); }}
             >
               <Text style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: 13 }}>Cargar Area Oso Viejo 40km</Text>
-              <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>lat 24.29, lng -107.17</Text>
+              <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>lat 24.3994, lng -107.1714</Text>
             </TouchableOpacity>
 
             {/* Start button */}
