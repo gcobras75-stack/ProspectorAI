@@ -950,6 +950,11 @@ export default function ProspectorDashboard() {
           </View>
         )}
 
+        {/* DEBUG VERSION TAG */}
+        <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, zIndex: 50 }}>
+          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v24.3994 / -107.1714</Text>
+        </View>
+
         {/* MINI OVERLAY PANELES */}
         {!showStatsBox && (
           <View style={[styles.panel, styles.topPanel, { borderRadius: 12}]}>
