@@ -349,7 +349,6 @@ export default function ProspectorDashboard() {
       latitudeDelta: delta,
       longitudeDelta: delta,
     }, 800);
-    AsyncStorage.setItem('agrocrop_radio', String(cropRadioKm));
     triggerHaptic('light');
   };
 
@@ -481,8 +480,6 @@ export default function ProspectorDashboard() {
           const parsed = JSON.parse(saved);
           if (parsed.length > 0) setPolygonCoords(parsed);
         }
-        const savedRadio = await AsyncStorage.getItem('agrocrop_radio');
-        if (savedRadio) setCropRadioKm(parseInt(savedRadio, 10) || 40);
         await initDB();
         await loadMuestras();
       } catch (e) {}
@@ -1893,6 +1890,24 @@ export default function ProspectorDashboard() {
 
             <Text style={{ color: '#AAA', fontSize: 13, marginBottom: 15 }}>Analisis satelital de biomasa y produccion de cultivos</Text>
 
+            {/* Radio del area */}
+            <View style={{ alignItems: 'center', marginBottom: 6 }}>
+              <Text style={{ color: '#FFF', fontSize: 22, fontWeight: '900' }}>Radio: {cropRadioKm} km</Text>
+              <Text style={{ color: '#888', fontSize: 11, marginTop: 3 }}>Area: ~{Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString()} km2</Text>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 15 }}>
+              {[10, 20, 40, 60, 80].map(r => (
+                <TouchableOpacity
+                  key={r}
+                  style={{ width: 52, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: cropRadioKm === r ? '#4CAF50' : '#222', borderWidth: 1, borderColor: cropRadioKm === r ? '#4CAF50' : '#444' }}
+                  onPress={() => setCropRadioKm(r)}
+                >
+                  <Text style={{ color: cropRadioKm === r ? '#FFF' : '#AAA', fontWeight: '900', fontSize: 16 }}>{r}</Text>
+                  <Text style={{ color: cropRadioKm === r ? 'rgba(255,255,255,0.7)' : '#666', fontSize: 9, marginTop: 1 }}>km</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
             {/* Tipo de cultivo */}
             <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>TIPO DE CULTIVO</Text>
             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 15 }}>
@@ -1944,43 +1959,6 @@ export default function ProspectorDashboard() {
                   ? `Poligono cargado: ${polygonCoords.length} vertices`
                   : `Sin poligono — se usara area predeterminada Oso Viejo ${cropRadioKm}km`}
               </Text>
-            </View>
-
-            {/* Radio selector */}
-            <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>RADIO DEL AREA</Text>
-            <View style={{ alignItems: 'center', marginBottom: 8 }}>
-              <Text style={{ color: '#FFF', fontSize: 28, fontWeight: '900' }}>Radio: {cropRadioKm} km</Text>
-              <Text style={{ color: '#888', fontSize: 12, marginTop: 2 }}>Area: ~{Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString()} km2</Text>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
-              <TouchableOpacity
-                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: cropRadioKm <= 5 ? '#333' : '#4CAF50', justifyContent: 'center', alignItems: 'center' }}
-                onPress={() => setCropRadioKm(Math.max(5, cropRadioKm - 5))}
-                disabled={cropRadioKm <= 5}
-              >
-                <Text style={{ color: '#FFF', fontSize: 20, fontWeight: '900' }}>-</Text>
-              </TouchableOpacity>
-              <View style={{ flex: 1, height: 6, backgroundColor: '#333', borderRadius: 3, marginHorizontal: 12, overflow: 'hidden' }}>
-                <View style={{ height: 6, width: `${((cropRadioKm - 5) / 95) * 100}%`, backgroundColor: '#4CAF50', borderRadius: 3 }} />
-              </View>
-              <TouchableOpacity
-                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: cropRadioKm >= 100 ? '#333' : '#4CAF50', justifyContent: 'center', alignItems: 'center' }}
-                onPress={() => setCropRadioKm(Math.min(100, cropRadioKm + 5))}
-                disabled={cropRadioKm >= 100}
-              >
-                <Text style={{ color: '#FFF', fontSize: 20, fontWeight: '900' }}>+</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 15 }}>
-              {[10, 25, 40, 80].map(r => (
-                <TouchableOpacity
-                  key={r}
-                  style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 6, borderWidth: 1, borderColor: cropRadioKm === r ? '#4CAF50' : '#444', backgroundColor: cropRadioKm === r ? 'rgba(76,175,80,0.2)' : '#222' }}
-                  onPress={() => setCropRadioKm(r)}
-                >
-                  <Text style={{ color: cropRadioKm === r ? '#4CAF50' : '#AAA', fontWeight: 'bold', fontSize: 13 }}>{r} km</Text>
-                </TouchableOpacity>
-              ))}
             </View>
 
             {/* Oso Viejo shortcut */}
