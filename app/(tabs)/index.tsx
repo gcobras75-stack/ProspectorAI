@@ -279,13 +279,13 @@ export default function ProspectorDashboard() {
     triggerHaptic('medium');
 
     try {
-      // Build coordinates: use drawn polygon or default Oso Viejo 50km circle
+      // Build coordinates: use drawn polygon or default Oso Viejo 40km circle
       let geeCoords: number[][];
       if (polygonCoords.length >= 3) {
         geeCoords = polygonCoords.map(c => [c.longitude, c.latitude]);
         geeCoords.push(geeCoords[0]); // close ring
       } else {
-        geeCoords = generateCirclePolygon(25.18, -107.85, 50);
+        geeCoords = generateCirclePolygon(25.18, -107.85, 40);
       }
 
       // Step 1: Satellite query
@@ -338,14 +338,14 @@ export default function ProspectorDashboard() {
   };
 
   const loadOsoViejoPolygon = () => {
-    const circle = generateCirclePolygon(25.18, -107.85, 50);
+    const circle = generateCirclePolygon(25.18, -107.85, 40);
     const coords: Coordinate[] = circle.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
     setPolygonCoords(coords);
     mapRef.current?.animateToRegion({
       latitude: 25.18,
       longitude: -107.85,
-      latitudeDelta: 1.2,
-      longitudeDelta: 1.2,
+      latitudeDelta: 1.0,
+      longitudeDelta: 1.0,
     }, 800);
     triggerHaptic('light');
   };
@@ -1931,7 +1931,7 @@ export default function ProspectorDashboard() {
               <Text style={{ color: '#AAA', fontSize: 11 }}>
                 {polygonCoords.length >= 3
                   ? `Poligono cargado: ${polygonCoords.length} vertices`
-                  : 'Sin poligono — se usara area predeterminada Oso Viejo 50km'}
+                  : 'Sin poligono — se usara area predeterminada Oso Viejo 40km'}
               </Text>
             </View>
 
@@ -1940,7 +1940,7 @@ export default function ProspectorDashboard() {
               style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#4CAF50', borderRadius: 8, padding: 12, marginBottom: 15, alignItems: 'center' }}
               onPress={() => { loadOsoViejoPolygon(); setShowCropModal(false); }}
             >
-              <Text style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: 13 }}>Cargar Area Oso Viejo 50km</Text>
+              <Text style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: 13 }}>Cargar Area Oso Viejo 40km</Text>
               <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>lat 25.18, lng -107.85</Text>
             </TouchableOpacity>
 
