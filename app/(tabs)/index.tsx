@@ -1107,7 +1107,7 @@ _Datos: ESA Copernicus, NASA, USGS_`;
 
         {/* DEBUG VERSION TAG */}
         <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, zIndex: 50, maxWidth: 220 }}>
-          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v6.4</Text>
+          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v6.5</Text>
           <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
         </View>
 
@@ -2207,6 +2207,18 @@ _Datos: ESA Copernicus, NASA, USGS_`;
             {/* Results */}
             {cropData && !cropAnalyzing && (
               <>
+                {/* Freshness card */}
+                <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 10, marginBottom: 8, borderWidth: 1, borderColor: (cropData.frescura_dias ?? 99) <= 7 ? '#4CAF50' : (cropData.frescura_dias ?? 99) <= 14 ? '#FFC107' : (cropData.frescura_dias ?? 99) <= 30 ? '#FF9800' : '#F44336', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View>
+                    <Text style={{ color: '#FFF', fontSize: 12, fontWeight: 'bold' }}>{cropData.fecha_imagen} <Text style={{ color: '#888', fontWeight: 'normal' }}>(hace {cropData.frescura_dias ?? '?'}d)</Text></Text>
+                    <Text style={{ color: '#888', fontSize: 10 }}>Sentinel-2 | {(cropData as any).metodo_composicion ? 'Top-3 recientes' : 'Mediana'}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: (cropData.frescura_dias ?? 99) <= 7 ? '#4CAF50' : (cropData.frescura_dias ?? 99) <= 14 ? '#FFC107' : '#FF9800', fontSize: 11, fontWeight: 'bold' }}>{(cropData as any).confianza_temporal || 'Buena'}</Text>
+                    <Text style={{ color: '#666', fontSize: 9 }}>{(cropData as any).margen_incertidumbre || '±15%'}</Text>
+                  </View>
+                </View>
+
                 {/* Tonnage highlight */}
                 <View style={{ backgroundColor: 'rgba(76,175,80,0.1)', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#4CAF50', alignItems: 'center' }}>
                   <Text style={{ color: '#888', fontSize: 11, letterSpacing: 1 }}>TONELAJE ESTIMADO</Text>
