@@ -241,8 +241,10 @@ export default function ProspectorDashboard() {
   const [cropStep, setCropStep] = useState('');
   const [cropRadioKm, setCropRadioKm] = useState(40);
   const [cropTipoCultivo, setCropTipoCultivo] = useState<'riego' | 'temporal'>('riego');
-  const [cropFechaInicio, setCropFechaInicio] = useState('2025-10-01');
-  const [cropFechaFin, setCropFechaFin] = useState('2026-03-31');
+  const [cropFechaFin] = useState(() => new Date().toISOString().split('T')[0]);
+  const [cropFechaInicio] = useState(() => {
+    const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().split('T')[0];
+  });
   const [cropData, setCropData] = useState<BiomassAnalysisResult | null>(null);
   const [cropClaudeAnalysis, setCropClaudeAnalysis] = useState<string>('');
   const [cropError, setCropError] = useState<string>('');
@@ -1899,7 +1901,7 @@ export default function ProspectorDashboard() {
               onChangeText={(t) => setCropRadioKm(Number(t) || 40)}
               style={{ backgroundColor: '#333', color: '#FFF', padding: 12, borderRadius: 8, fontSize: 20, textAlign: 'center', marginBottom: 12, borderWidth: 2, borderColor: '#4CAF50' }}
             />
-            <Text style={{ color: '#888', fontSize: 11, textAlign: 'center', marginBottom: 12 }}>Area: ~{Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString()} km2 | v1.0.1</Text>
+            <Text style={{ color: '#888', fontSize: 11, textAlign: 'center', marginBottom: 12 }}>Area: ~{Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString()} km2 | v1.0.2</Text>
 
             {/* Radio del area */}
             <View style={{ alignItems: 'center', marginBottom: 6 }}>
@@ -1940,28 +1942,11 @@ export default function ProspectorDashboard() {
 
             {/* Fechas */}
             <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>PERIODO DE ANALISIS</Text>
-            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 15 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#888', fontSize: 10, marginBottom: 4 }}>Inicio</Text>
-                <TextInput
-                  style={{ backgroundColor: '#222', color: '#FFF', borderRadius: 8, padding: 12, borderWidth: 1, borderColor: '#333', fontSize: 14 }}
-                  value={cropFechaInicio}
-                  onChangeText={setCropFechaInicio}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#555"
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#888', fontSize: 10, marginBottom: 4 }}>Fin</Text>
-                <TextInput
-                  style={{ backgroundColor: '#222', color: '#FFF', borderRadius: 8, padding: 12, borderWidth: 1, borderColor: '#333', fontSize: 14 }}
-                  value={cropFechaFin}
-                  onChangeText={setCropFechaFin}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#555"
-                />
-              </View>
+            <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 6, borderWidth: 1, borderColor: '#333', flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ color: '#AAA', fontSize: 12 }}>Desde: <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{cropFechaInicio}</Text></Text>
+              <Text style={{ color: '#AAA', fontSize: 12 }}>Hasta: <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{cropFechaFin}</Text></Text>
             </View>
+            <Text style={{ color: '#4CAF50', fontSize: 11, marginBottom: 15, textAlign: 'center' }}>Usando imagenes hasta hoy: {new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
 
             {/* Polygon status */}
             <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 15, borderWidth: 1, borderColor: '#333' }}>
@@ -2084,11 +2069,28 @@ export default function ProspectorDashboard() {
                   ))}
                 </View>
 
-                {/* Metadata */}
-                <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#333' }}>
-                  <Text style={{ color: '#666', fontSize: 10 }}>
-                    Imagen: {cropData.fecha_imagen} | {cropData.imagenes_usadas} escenas | Periodo: {cropData.fecha_inicio} a {cropData.fecha_fin}
-                  </Text>
+                {/* Metadata + phenology */}
+                <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#333' }}>
+                  <Text style={{ color: '#FFF', fontSize: 11, marginBottom: 4 }}>Imagen mas reciente: <Text style={{ color: '#4CAF50', fontWeight: 'bold' }}>{cropData.fecha_imagen}</Text></Text>
+                  <Text style={{ color: '#FFF', fontSize: 11, marginBottom: 4 }}>Etapa fenologica: <Text style={{ color: '#CDDC39', fontWeight: 'bold' }}>{(() => {
+                    const m = parseInt(cropData.fecha_imagen.split('-')[1], 10);
+                    if (m >= 10 || m <= 11) return 'Siembra';
+                    if (m === 12 || m === 1) return 'Desarrollo vegetativo';
+                    if (m === 2 || m === 3) return 'Floracion / Llenado de grano';
+                    return 'Madurez / Cosecha';
+                  })()}</Text></Text>
+                  <Text style={{ color: '#FFF', fontSize: 11, marginBottom: 4 }}>Precision estimada: <Text style={{ fontWeight: 'bold', color: (() => {
+                    const m = parseInt(cropData.fecha_imagen.split('-')[1], 10);
+                    if (m === 2 || m === 3) return '#4CAF50';
+                    if (m === 12 || m === 1) return '#FFC107';
+                    return '#FF9800';
+                  })() }}>{(() => {
+                    const m = parseInt(cropData.fecha_imagen.split('-')[1], 10);
+                    if (m === 2 || m === 3) return 'Alta';
+                    if (m === 12 || m === 1) return 'Media';
+                    return 'Baja';
+                  })()}</Text></Text>
+                  <Text style={{ color: '#666', fontSize: 9, marginTop: 2 }}>{cropData.imagenes_usadas} escenas | {cropData.fecha_inicio} a {cropData.fecha_fin}</Text>
                 </View>
 
                 {/* Claude analysis */}
