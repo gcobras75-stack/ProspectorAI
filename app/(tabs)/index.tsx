@@ -1107,7 +1107,7 @@ _Datos: ESA Copernicus, NASA, USGS_`;
 
         {/* DEBUG VERSION TAG */}
         <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, zIndex: 50, maxWidth: 220 }}>
-          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v6.3</Text>
+          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v6.4</Text>
           <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
         </View>
 
@@ -2223,16 +2223,35 @@ _Datos: ESA Copernicus, NASA, USGS_`;
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
                   {[
                     { label: 'Hectareas activas', value: `${cropData.hectareas_cultivo_activo.toLocaleString()} ha`, color: '#4CAF50' },
-                    { label: 'Rendimiento/ha', value: `${cropData.rendimiento_por_hectarea} ton`, color: '#FFC107' },
                     { label: 'Vigor', value: cropData.clasificacion_vigor, color: cropData.clasificacion_vigor === 'Alto' ? '#4CAF50' : cropData.clasificacion_vigor === 'Medio' ? '#FFC107' : '#FF5722' },
                     { label: 'Area optima', value: `${cropData.porcentaje_area_optima}%`, color: '#2196F3' },
                   ].map((m, i) => (
-                    <View key={i} style={{ flex: 1, minWidth: '45%', backgroundColor: '#1A1A1A', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#333' }}>
+                    <View key={i} style={{ flex: 1, minWidth: '30%', backgroundColor: '#1A1A1A', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#333' }}>
                       <Text style={{ color: '#888', fontSize: 9, letterSpacing: 0.5 }}>{m.label}</Text>
                       <Text style={{ color: m.color, fontSize: 18, fontWeight: '900', marginTop: 2 }}>{m.value}</Text>
                     </View>
                   ))}
                 </View>
+                {/* Rendimiento with tooltip */}
+                <TouchableOpacity
+                  style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#333' }}
+                  onPress={() => Alert.alert('Calculo de Rendimiento',
+                    `NDVI promedio: ${cropData.ndvi_mean}\n` +
+                    `Factor NDVI (progresivo): ${cropData.factor_ndvi}\n` +
+                    `Factor NDRE (nitrogeno): ${cropData.factor_ndre}\n` +
+                    `Factor etapa fenologica: ${(cropData as any).factor_etapa ?? '?'}\n` +
+                    `Base Sinaloa riego: ${(cropData as any).rendimiento_base ?? 9.5} ton/ha\n\n` +
+                    `Rendimiento = base × fNDVI × fNDRE × fEtapa`
+                  )}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View>
+                      <Text style={{ color: '#888', fontSize: 9 }}>Rendimiento/ha <Text style={{ color: '#FFC107' }}>ⓘ</Text></Text>
+                      <Text style={{ color: '#FFC107', fontSize: 22, fontWeight: '900', marginTop: 2 }}>{cropData.rendimiento_por_hectarea} ton/ha</Text>
+                    </View>
+                    <Text style={{ color: '#666', fontSize: 9, textAlign: 'right' }}>NDVI×{cropData.factor_ndvi} NDRE×{cropData.factor_ndre}{'\n'}Etapa×{(cropData as any).factor_etapa ?? '?'}</Text>
+                  </View>
+                </TouchableOpacity>
 
                 {/* Vegetation indices */}
                 <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#333' }}>

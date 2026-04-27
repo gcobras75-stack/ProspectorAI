@@ -447,6 +447,8 @@ export interface BiomassAnalysisResult {
   rendimiento_por_hectarea: number;
   factor_ndvi: number;
   factor_ndre: number;
+  factor_etapa?: number;
+  rendimiento_base?: number;
   fecha_imagen: string;
   imagenes_usadas: number;
   fecha_inicio: string;
