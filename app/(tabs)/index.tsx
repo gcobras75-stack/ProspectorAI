@@ -14,7 +14,7 @@ import { analyzeZoneLocal, computeAllMetalScores, computePointScore, MetalScore,
 import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist, analyzeCropBiomassWithClaude, CropBiomassStats } from '../core/ClaudeServices';
-import { getBiomassAnalysis, BiomassAnalysisResult, generateCirclePolygon, getBiomassGrid, GridCell } from '../core/GEEService';
+import { getBiomassAnalysis, BiomassAnalysisResult, generateCirclePolygon, getBiomassGrid, GridCell, getBiomassExtended, BiomassExtendedResult } from '../core/GEEService';
 
 type Coordinate = { latitude: number; longitude: number };
 type DrawingType = 'none' | 'polygon' | 'rectangle';
@@ -255,6 +255,8 @@ export default function ProspectorDashboard() {
   const [cropGridLoading, setCropGridLoading] = useState(false);
   const [showHeatLegend, setShowHeatLegend] = useState(true);
   const [showSatSources, setShowSatSources] = useState(false);
+  const [cropExtended, setCropExtended] = useState<BiomassExtendedResult | null>(null);
+  const [cropExtendedLoading, setCropExtendedLoading] = useState(false);
 
   const sendChatMessage = async () => {
     if (!chatInput.trim() || isTypingChat) return;
@@ -282,6 +284,8 @@ export default function ProspectorDashboard() {
     setCropClaudeAnalysis('');
     setCropData(null);
     setCropGridCells([]);
+    setCropExtended(null);
+    setCropExtendedLoading(false);
     setShowCropResults(true);
     triggerHaptic('medium');
 
@@ -329,20 +333,35 @@ export default function ProspectorDashboard() {
       triggerHaptic('success');
       setCropStep('');
 
-      // Step 3: Fetch heatmap grid
+      // Step 3: Fetch heatmap grid + extended satellites in parallel (non-blocking)
       setCropGridLoading(true);
+      setCropExtendedLoading(true);
+
+      // Grid (awaited)
       try {
         setCropStep('Construyendo mapa de calor...');
         const gridResult = await getBiomassGrid(geeCoords, cropFechaInicio, cropFechaFin);
         setCropGridCells(gridResult.grid);
         setShowCropHeatmap(true);
-        console.log('[AgroCrop] Grid recibido:', gridResult.grid.length, 'celdas, cell_size:', gridResult.cell_size_km, 'km');
+        console.log('[AgroCrop] Grid recibido:', gridResult.grid.length, 'celdas');
       } catch (gridErr: any) {
-        console.warn('[AgroCrop] Grid fetch failed:', gridErr.message);
+        console.warn('[AgroCrop] Grid failed:', gridErr.message);
       } finally {
         setCropGridLoading(false);
         setCropStep('');
       }
+
+      // Extended satellites (fire-and-forget, updates UI when ready)
+      getBiomassExtended(geeCoords, cropFechaInicio, cropFechaFin)
+        .then(ext => {
+          setCropExtended(ext);
+          setCropExtendedLoading(false);
+          console.log('[AgroCrop] Extended:', ext.sentinel1?.fecha, ext.smap?.humedad_suelo_pct + '%');
+        })
+        .catch(e => {
+          console.warn('[AgroCrop] Extended failed:', e.message);
+          setCropExtendedLoading(false);
+        });
     } catch (e: any) {
       setCropError(e.message || 'Error desconocido');
       setCropStep('');
@@ -1088,7 +1107,7 @@ _Datos: ESA Copernicus, NASA, USGS_`;
 
         {/* DEBUG VERSION TAG */}
         <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, zIndex: 50, maxWidth: 220 }}>
-          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v6.1</Text>
+          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v6.2</Text>
           <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
         </View>
 
@@ -2270,22 +2289,22 @@ _Datos: ESA Copernicus, NASA, USGS_`;
                     onPress={() => setShowSatSources(!showSatSources)}
                   >
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ color: '#4CAF50', fontSize: 11, fontWeight: 'bold' }}>FUENTES SATELITALES (5)</Text>
+                      <Text style={{ color: '#4CAF50', fontSize: 11, fontWeight: 'bold' }}>FUENTES SATELITALES {cropExtended ? '(5)' : '(2)'} {cropExtendedLoading ? '⏳' : ''}</Text>
                       <MaterialCommunityIcons name={showSatSources ? 'chevron-up' : 'chevron-down'} size={18} color="#4CAF50" />
                     </View>
                     {showSatSources && (
                       <View style={{ marginTop: 6 }}>
-                        {[
-                          { icon: '🛰️', name: 'Sentinel-2', d: cropData.fuentes_satelitales.sentinel2 },
-                          { icon: '🛰️', name: 'Landsat 8/9', d: cropData.fuentes_satelitales.landsat89 },
-                          { icon: '📡', name: 'Sentinel-1 SAR', d: cropData.fuentes_satelitales.sentinel1 },
-                          { icon: '🌍', name: 'MODIS', d: cropData.fuentes_satelitales.modis },
-                          { icon: '💧', name: 'SMAP', d: cropData.fuentes_satelitales.smap },
-                        ].map((s, i) => (
-                          <Text key={i} style={{ color: '#CCC', fontSize: 10, marginBottom: 2 }}>
-                            {s.icon} {s.name}: {s.d?.fecha || 'N/A'} ({s.d?.imagenes || 0} imgs){(s.d as any)?.humedad_suelo_pct ? ` | Humedad: ${(s.d as any).humedad_suelo_pct}%` : ''}{(s.d as any)?.tipo ? ` | ${(s.d as any).tipo}` : ''}
-                          </Text>
-                        ))}
+                        <Text style={{ color: '#CCC', fontSize: 10, marginBottom: 2 }}>🛰️ Sentinel-2: {cropData.fuentes_satelitales.sentinel2?.fecha} ({cropData.fuentes_satelitales.sentinel2?.imagenes} imgs)</Text>
+                        <Text style={{ color: '#CCC', fontSize: 10, marginBottom: 2 }}>🛰️ Landsat 8/9: {cropData.fuentes_satelitales.landsat89?.fecha} ({cropData.fuentes_satelitales.landsat89?.imagenes} imgs)</Text>
+                        {cropExtended ? (
+                          <>
+                            <Text style={{ color: '#CCC', fontSize: 10, marginBottom: 2 }}>📡 Sentinel-1 SAR: {cropExtended.sentinel1?.fecha} ({cropExtended.sentinel1?.imagenes} imgs) | RVI: {cropExtended.sentinel1?.rvi}</Text>
+                            <Text style={{ color: '#CCC', fontSize: 10, marginBottom: 2 }}>🌍 MODIS: {cropExtended.modis?.fecha} ({cropExtended.modis?.imagenes} imgs) | NDVI: {cropExtended.modis?.ndvi}</Text>
+                            <Text style={{ color: '#CCC', fontSize: 10, marginBottom: 2 }}>💧 SMAP: {cropExtended.smap?.fecha} | Humedad: {cropExtended.smap?.humedad_suelo_pct}%</Text>
+                          </>
+                        ) : cropExtendedLoading ? (
+                          <Text style={{ color: '#888', fontSize: 10, marginTop: 2 }}>📡 Cargando SAR + MODIS + SMAP...</Text>
+                        ) : null}
                       </View>
                     )}
                   </TouchableOpacity>

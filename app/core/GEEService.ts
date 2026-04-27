@@ -491,9 +491,9 @@ export async function getBiomassAnalysis(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ coordinates, fecha_inicio, fecha_fin }),
-    }, 120000);
+    }, 45000);
   } catch (networkErr: any) {
-    const reason = networkErr.name === 'AbortError' ? 'Timeout 120s (5 satelites)' : networkErr.message;
+    const reason = networkErr.name === 'AbortError' ? 'Timeout 45s' : networkErr.message;
     throw new Error(
       `[GEE POST] Fallo de red → ${url} | ${reason}`
     );
@@ -511,6 +511,47 @@ export async function getBiomassAnalysis(
   }
 
   return (await response.json()) as BiomassAnalysisResult;
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Biomass extended (SAR + MODIS + SMAP — background)
+// ---------------------------------------------------------------------------
+
+export interface BiomassExtendedResult {
+  success: boolean;
+  sentinel1: { fecha: string; imagenes: number; tipo: string; rvi: number };
+  modis:     { fecha: string; imagenes: number; ndvi: number };
+  smap:      { fecha: string; imagenes: number; humedad_suelo_pct: number };
+}
+
+export async function getBiomassExtended(
+  coordinates: number[][],
+  fecha_inicio: string,
+  fecha_fin: string
+): Promise<BiomassExtendedResult> {
+  const base = getServerUrl();
+  const url = `${base}/api/biomass-analysis-extended`;
+
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ coordinates, fecha_inicio, fecha_fin }),
+    }, 180000);
+  } catch (networkErr: any) {
+    const reason = networkErr.name === 'AbortError' ? 'Timeout 180s' : networkErr.message;
+    throw new Error(`[GEE extended] ${reason}`);
+  }
+
+  if (!response.ok) {
+    let detail = '';
+    try { const b = await response.json(); detail = b?.error || ''; } catch {}
+    throw new Error(`[GEE extended ${response.status}] ${detail}`);
+  }
+
+  return (await response.json()) as BiomassExtendedResult;
 }
 
 // ---------------------------------------------------------------------------
