@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Platform, TouchableOpacity, Alert, Pressable, Modal, TextInput, ScrollView, Switch, Image } from 'react-native';
+import { StyleSheet, View, Text, ActivityIndicator, Platform, TouchableOpacity, Alert, Pressable, Modal, TextInput, ScrollView, Switch, Image, Share } from 'react-native';
+import { captureRef } from 'react-native-view-shot';
 import MapView, { Marker, Polygon, Region, MapPressEvent, PanDragEvent, UrlTile } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -237,9 +238,10 @@ export default function ProspectorDashboard() {
   // AgroCrop — Crop Biomass Analysis
   const [showCropModal, setShowCropModal] = useState(false);
   const [showCropResults, setShowCropResults] = useState(false);
+  const [showCropConfig, setShowCropConfig] = useState(false);
   const [cropAnalyzing, setCropAnalyzing] = useState(false);
   const [cropStep, setCropStep] = useState('');
-  const [cropRadioKm, setCropRadioKm] = useState(40);
+  const [cropRadioKm, setCropRadioKm] = useState(20);
   const [cropTipoCultivo, setCropTipoCultivo] = useState<'riego' | 'temporal'>('riego');
   const [cropFechaFin] = useState(() => new Date().toISOString().split('T')[0]);
   const [cropFechaInicio] = useState(() => {
@@ -251,6 +253,8 @@ export default function ProspectorDashboard() {
   const [cropGridCells, setCropGridCells] = useState<GridCell[]>([]);
   const [showCropHeatmap, setShowCropHeatmap] = useState(false);
   const [cropGridLoading, setCropGridLoading] = useState(false);
+  const [showHeatLegend, setShowHeatLegend] = useState(true);
+  const [showSatSources, setShowSatSources] = useState(false);
 
   const sendChatMessage = async () => {
     if (!chatInput.trim() || isTypingChat) return;
@@ -277,18 +281,25 @@ export default function ProspectorDashboard() {
     setCropAnalyzing(true);
     setCropClaudeAnalysis('');
     setCropData(null);
-    setShowCropModal(false);
+    setCropGridCells([]);
     setShowCropResults(true);
     triggerHaptic('medium');
 
     try {
-      // Build coordinates: use drawn polygon or default Oso Viejo 40km circle
+      // Draw circle on map and zoom to it
       let geeCoords: number[][];
       if (polygonCoords.length >= 3) {
         geeCoords = polygonCoords.map(c => [c.longitude, c.latitude]);
-        geeCoords.push(geeCoords[0]); // close ring
+        geeCoords.push(geeCoords[0]);
       } else {
         geeCoords = generateCirclePolygon(24.3994, -107.1714, cropRadioKm);
+        // Draw the circle on the map
+        const mapCoords = geeCoords.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
+        setPolygonCoords(mapCoords);
+        console.log('[AgroCrop] Poligono creado:', mapCoords.length, 'vertices, radio:', cropRadioKm, 'km');
+        // Zoom to area
+        const delta = Math.max(0.3, (cropRadioKm / 111.32) * 2.5);
+        mapRef.current?.animateToRegion({ latitude: 24.3994, longitude: -107.1714, latitudeDelta: delta, longitudeDelta: delta }, 800);
       }
 
       // Step 1: Satellite query
@@ -318,13 +329,14 @@ export default function ProspectorDashboard() {
       triggerHaptic('success');
       setCropStep('');
 
-      // Step 3: Fetch heatmap grid in background
+      // Step 3: Fetch heatmap grid
       setCropGridLoading(true);
       try {
         setCropStep('Construyendo mapa de calor...');
-        const gridResult = await getBiomassGrid(geeCoords, cropFechaInicio, cropFechaFin, 1);
+        const gridResult = await getBiomassGrid(geeCoords, cropFechaInicio, cropFechaFin);
         setCropGridCells(gridResult.grid);
         setShowCropHeatmap(true);
+        console.log('[AgroCrop] Grid recibido:', gridResult.grid.length, 'celdas, cell_size:', gridResult.cell_size_km, 'km');
       } catch (gridErr: any) {
         console.warn('[AgroCrop] Grid fetch failed:', gridErr.message);
       } finally {
@@ -337,6 +349,94 @@ export default function ProspectorDashboard() {
       triggerHaptic('heavy');
     } finally {
       setCropAnalyzing(false);
+    }
+  };
+
+  const shareAgroCropResults = async () => {
+    if (!cropData) return;
+    try {
+      // 1. Hide results panel, zoom to fit circle
+      setShowCropResults(false);
+      const delta = (cropRadioKm / 111.32) * 2.4;
+      mapRef.current?.animateToRegion({
+        latitude: 24.3994, longitude: -107.1714,
+        latitudeDelta: delta, longitudeDelta: delta,
+      }, 800);
+      await new Promise(r => setTimeout(r, 1500));
+
+      // 2. Capture map
+      let imageUri = '';
+      try {
+        imageUri = await captureRef(mapRef, { format: 'png', quality: 0.9, result: 'tmpfile' });
+      } catch (e) {
+        console.warn('[AgroCrop] Screenshot failed:', e);
+      }
+
+      // 3. Restore results panel
+      setShowCropResults(true);
+
+      // 4. Build message
+      const imgMonth = parseInt(cropData.fecha_imagen.split('-')[1], 10);
+      const etapa = (imgMonth >= 10 && imgMonth <= 11) ? 'Siembra' : (imgMonth === 12 || imgMonth === 1) ? 'Desarrollo vegetativo' : (imgMonth === 2 || imgMonth === 3) ? 'Floracion/Llenado de grano' : 'Madurez/Cosecha';
+      const precision = (imgMonth === 2 || imgMonth === 3) ? 'Alta' : (imgMonth === 12 || imgMonth === 1) ? 'Media' : 'Baja';
+      const areaKm2 = Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString();
+      const hoy = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
+
+      const msg = `🌽 *ANALISIS DE BIOMASA - OSO VIEJO, SINALOA*
+📅 Analisis: ${hoy}
+🛰️ Imagen satelital: ${cropData.fecha_imagen} (Sentinel-2)
+📍 Centro: 24.3994°N, 107.1714°W
+📏 Radio analizado: ${cropRadioKm}km
+📐 Area total: ${areaKm2} km2
+
+━━━━━━━━━━━━━━━━━
+💰 *PRODUCCION ESTIMADA*
+━━━━━━━━━━━━━━━━━
+🎯 Total: *${cropData.tonelaje_estimado.toLocaleString()} toneladas*
+📊 Rango: ${cropData.tonelaje_minimo.toLocaleString()} - ${cropData.tonelaje_maximo.toLocaleString()} ton
+📈 Rendimiento promedio: ${cropData.rendimiento_por_hectarea} ton/ha
+🌾 Hectareas activas: ${cropData.hectareas_cultivo_activo.toLocaleString()} ha
+
+━━━━━━━━━━━━━━━━━
+🌿 *INDICADORES VEGETATIVOS*
+━━━━━━━━━━━━━━━━━
+• NDVI (Vigor): ${cropData.ndvi_mean}
+• EVI (Biomasa): ${cropData.evi_mean}
+• NDRE (Nitrogeno): ${cropData.ndre_mean}
+• LSWI (Humedad): ${cropData.lswi_mean}
+
+━━━━━━━━━━━━━━━━━
+📊 *CLASIFICACION*
+━━━━━━━━━━━━━━━━━
+🌱 Vigor: ${cropData.clasificacion_vigor}
+📍 Etapa fenologica: ${etapa}
+✅ Precision estimada: ${precision}
+🏆 Area optima (NDVI>0.7): ${cropData.porcentaje_area_optima}%
+
+━━━━━━━━━━━━━━━━━
+🛰️ *FUENTES (5 satelites)*
+━━━━━━━━━━━━━━━━━
+- Sentinel-2: ${cropData.fuentes_satelitales?.sentinel2?.fecha || 'N/A'}
+- Landsat 8/9: ${cropData.fuentes_satelitales?.landsat89?.fecha || 'N/A'}
+- Sentinel-1 SAR: ${cropData.fuentes_satelitales?.sentinel1?.fecha || 'N/A'}
+- MODIS: ${cropData.fuentes_satelitales?.modis?.fecha || 'N/A'}
+- SMAP humedad: ${cropData.fuentes_satelitales?.smap?.fecha || 'N/A'} (${cropData.fuentes_satelitales?.smap?.humedad_suelo_pct || 0}%)
+✅ Imagen mas fresca: ${cropData.frescura_dias ?? '?'}d | ${cropData.confianza_fusion || ''}
+
+━━━━━━━━━━━━━━━━━
+🤖 _Generado con ProspectorAI v6.0_
+_Datos: ESA Copernicus, NASA, USGS_`;
+
+      await Share.share({
+        message: msg,
+        ...(imageUri ? { url: imageUri } : {}),
+        title: 'Analisis AgroCrop',
+      });
+    } catch (e: any) {
+      if (e.message !== 'User did not share') {
+        Alert.alert('Error', 'No se pudo compartir: ' + e.message);
+      }
+      setShowCropResults(true);
     }
   };
 
@@ -356,42 +456,72 @@ export default function ProspectorDashboard() {
   };
 
   // ── Heatmap grid polygon data (memoized) ────────────────────────────────
-  const HALF_CELL_DEG = 0.0045; // ~0.5km at lat 25°
   const cropGridPolygons = useMemo(() => {
     if (!cropGridCells.length) return [];
+    // Detect cell size from spacing between first two cells in same row
+    let halfDeg = 0.0045;
+    if (cropGridCells.length >= 2) {
+      const sorted = [...cropGridCells].sort((a, b) => a.lat === b.lat ? a.lng - b.lng : a.lat - b.lat);
+      for (let i = 1; i < sorted.length; i++) {
+        if (Math.abs(sorted[i].lat - sorted[i - 1].lat) < 0.001) {
+          halfDeg = Math.abs(sorted[i].lng - sorted[i - 1].lng) / 2;
+          break;
+        }
+      }
+    }
+    console.log('[AgroCrop] Renderizando', cropGridCells.length, 'poligonos en mapa, halfDeg:', halfDeg.toFixed(5));
     return cropGridCells.map((cell, i) => ({
       key: `hm-${i}`,
       coords: [
-        { latitude: cell.lat - HALF_CELL_DEG, longitude: cell.lng - HALF_CELL_DEG },
-        { latitude: cell.lat - HALF_CELL_DEG, longitude: cell.lng + HALF_CELL_DEG },
-        { latitude: cell.lat + HALF_CELL_DEG, longitude: cell.lng + HALF_CELL_DEG },
-        { latitude: cell.lat + HALF_CELL_DEG, longitude: cell.lng - HALF_CELL_DEG },
+        { latitude: cell.lat - halfDeg, longitude: cell.lng - halfDeg },
+        { latitude: cell.lat - halfDeg, longitude: cell.lng + halfDeg },
+        { latitude: cell.lat + halfDeg, longitude: cell.lng + halfDeg },
+        { latitude: cell.lat + halfDeg, longitude: cell.lng - halfDeg },
       ],
-      fill: cell.color_hex + 'A6', // ~65% opacity
+      fill: cell.color_hex + 'A6',
       label: cell.rendimiento_ton_ha.toFixed(1),
       lat: cell.lat,
       lng: cell.lng,
     }));
   }, [cropGridCells]);
 
-  // Filter to visible viewport for performance
+  // Stable viewport ref — avoids re-renders during pan/zoom
+  const viewportRef = useRef<Region | null>(null);
+  const [stableViewport, setStableViewport] = useState<Region | null>(null);
+
+  // Debounced viewport update for grid filtering (only after pan/zoom settles)
+  const updateGridViewport = useCallback((region: Region) => {
+    viewportRef.current = region;
+    setStableViewport(region);
+  }, []);
+
+  // Filter + cap visible polygons
   const visibleGridPolygons = useMemo(() => {
-    if (!mapCenter || !cropGridPolygons.length) return cropGridPolygons;
-    const latHalf = mapCenter.latitudeDelta / 2;
-    const lngHalf = mapCenter.longitudeDelta / 2;
-    const minLat = mapCenter.latitude - latHalf;
-    const maxLat = mapCenter.latitude + latHalf;
-    const minLng = mapCenter.longitude - lngHalf;
-    const maxLng = mapCenter.longitude + lngHalf;
-    return cropGridPolygons.filter(p =>
+    if (!cropGridPolygons.length) return [];
+    const vp = stableViewport || mapCenter;
+    if (!vp) {
+      // No viewport yet — show all (capped)
+      console.log('[Grid] No viewport, showing all:', cropGridPolygons.length);
+      return cropGridPolygons.length > 500 ? cropGridPolygons.slice(0, 500) : cropGridPolygons;
+    }
+    const margin = 0.5;
+    const minLat = vp.latitude - vp.latitudeDelta / 2 - margin;
+    const maxLat = vp.latitude + vp.latitudeDelta / 2 + margin;
+    const minLng = vp.longitude - vp.longitudeDelta / 2 - margin;
+    const maxLng = vp.longitude + vp.longitudeDelta / 2 + margin;
+    let filtered = cropGridPolygons.filter(p =>
       p.lat >= minLat && p.lat <= maxLat && p.lng >= minLng && p.lng <= maxLng
     );
-  }, [cropGridPolygons, mapCenter]);
+    if (filtered.length > 500) {
+      filtered = [...filtered].sort((a, b) => parseFloat(b.label) - parseFloat(a.label)).slice(0, 500);
+    }
+    console.log('[Grid] cells totales:', cropGridPolygons.length, 'visibles:', filtered.length);
+    return filtered;
+  }, [cropGridPolygons, stableViewport, mapCenter]);
 
-  // Show labels only when zoomed in enough
-  const showGridLabels = useMemo(() => {
-    return mapCenter ? mapCenter.latitudeDelta < 0.3 : false;
-  }, [mapCenter]);
+  // Live zoom level for label visibility (updated during pan/zoom)
+  const [currentZoom, setCurrentZoom] = useState(0.5);
+  const showGridLabels = currentZoom < 0.5 && visibleGridPolygons.length <= 200;
 
   const exportCSV = async () => {
     if (waypoints.length === 0) {
@@ -573,6 +703,7 @@ export default function ProspectorDashboard() {
 
   const handleRegionChangeComplete = (region: Region) => {
     setMapCenter(region);
+    updateGridViewport(region);
   };
 
   const handleMapPress = (e: MapPressEvent) => {
@@ -838,7 +969,7 @@ export default function ProspectorDashboard() {
           showsCompass={false}
           scrollEnabled={!blockScroll}
           region={mapCenter || undefined}
-          onRegionChange={(region: any) => { if (region.heading !== undefined) { setMapRotation(region.heading); } }}
+          onRegionChange={(region: any) => { if (region.heading !== undefined) { setMapRotation(region.heading); } setCurrentZoom(region.latitudeDelta); }}
           onRegionChangeComplete={handleRegionChangeComplete}
           onPress={handleMapPress}
           onPanDrag={handlePanDrag}
@@ -937,8 +1068,8 @@ export default function ProspectorDashboard() {
               anchor={{ x: 0.5, y: 0.5 }}
               tracksViewChanges={false}
             >
-              <View style={{ backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1 }}>
-                <Text style={{ color: '#fff', fontSize: 9, fontWeight: 'bold' }}>{p.label}t/ha</Text>
+              <View style={{ backgroundColor: 'rgba(0,0,0,0.75)', borderRadius: 3, padding: 2 }}>
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>{p.label}t/ha</Text>
               </View>
             </Marker>
           ))}
@@ -957,9 +1088,10 @@ export default function ProspectorDashboard() {
 
         {/* DEBUG VERSION TAG */}
         <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, zIndex: 50, maxWidth: 220 }}>
-          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v24.3994 / -107.1714</Text>
+          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v6.0</Text>
           <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
         </View>
+
 
         {/* MINI OVERLAY PANELES */}
         {!showStatsBox && (
@@ -992,23 +1124,31 @@ export default function ProspectorDashboard() {
 
         <TouchableOpacity style={styles.locationButton} onPress={() => { if (location) { mapRef.current?.animateToRegion({ latitude: location.coords.latitude, longitude: location.coords.longitude, latitudeDelta: 0.005, longitudeDelta: 0.005 }, 500); } }}><MaterialCommunityIcons name="crosshairs-gps" size={24} color="#FFD700" /></TouchableOpacity>
 
-        {/* AgroCrop heatmap legend */}
-        {showCropHeatmap && cropGridCells.length > 0 && (
-          <View style={{ position: 'absolute', bottom: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.9)', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#4CAF50', zIndex: 25 }}>
-            <Text style={{ color: '#4CAF50', fontSize: 10, fontWeight: 'bold', marginBottom: 6, letterSpacing: 1 }}>RENDIMIENTO ton/ha</Text>
-            {[
-              { color: '#1a5c1a', label: '> 10 t/ha' },
-              { color: '#4caf50', label: '8 - 10' },
-              { color: '#cddc39', label: '6 - 8' },
-              { color: '#ff9800', label: '4 - 6' },
-              { color: '#f44336', label: '< 4' },
-            ].map((item, i) => (
-              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3 }}>
-                <View style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: item.color, marginRight: 6 }} />
-                <Text style={{ color: '#DDD', fontSize: 10 }}>{item.label}</Text>
+        {/* AgroCrop heatmap legend toggle + legend */}
+        {cropGridCells.length > 0 && (
+          <View style={{ position: 'absolute', top: 180, right: 8, zIndex: 999, alignItems: 'flex-end' }}>
+            <TouchableOpacity
+              style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', marginBottom: 4 }}
+              onPress={() => setShowHeatLegend(!showHeatLegend)}
+            >
+              <Text style={{ fontSize: 14 }}>🌡️</Text>
+            </TouchableOpacity>
+            {showHeatLegend && (
+              <View style={{ backgroundColor: 'rgba(0,0,0,0.7)', padding: 6, borderRadius: 6 }}>
+                {[
+                  { color: '#1a5c1a', label: '+10 t/ha' },
+                  { color: '#4caf50', label: '8-10' },
+                  { color: '#cddc39', label: '6-8' },
+                  { color: '#ff9800', label: '4-6' },
+                  { color: '#f44336', label: '<4' },
+                ].map((item, i) => (
+                  <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: item.color, marginRight: 4 }} />
+                    <Text style={{ color: '#DDD', fontSize: 9 }}>{item.label}</Text>
+                  </View>
+                ))}
               </View>
-            ))}
-            <Text style={{ color: '#888', fontSize: 9, marginTop: 4 }}>{cropGridCells.length} celdas activas</Text>
+            )}
           </View>
         )}
 
@@ -1879,101 +2019,102 @@ export default function ProspectorDashboard() {
           </ScrollView>
         </View>
       </Modal>
-
-      {/* ── AGROCROP CONFIG MODAL ──────────────────────────────────────── */}
+      {/* ── AGROCROP CONFIG MODAL (v5.0 con ScrollView) ────────────────── */}
       <Modal visible={showCropModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+          <View style={[styles.modalContent, { maxHeight: '85%' }]}>
             <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15}}>
               <Text style={[styles.modalTitle, { color: '#4CAF50' }]}>AgroCrop</Text>
-              <TouchableOpacity onPress={() => setShowCropModal(false)}>
-                <MaterialCommunityIcons name="close" size={28} color="#4CAF50" />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <TouchableOpacity
+                  style={{ backgroundColor: '#4CAF50', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}
+                  onPress={() => { setShowCropModal(false); startCropAnalysis(); }}
+                >
+                  <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 14 }}>ANALIZAR</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowCropModal(false)}>
+                  <MaterialCommunityIcons name="close" size={28} color="#4CAF50" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 50 }}>
+
+              <Text style={{ color: '#AAA', fontSize: 13, marginBottom: 15 }}>Analisis satelital de biomasa y produccion de cultivos</Text>
+
+              {/* Radio del area */}
+              <View style={{ alignItems: 'center', marginBottom: 6 }}>
+                <Text style={{ color: '#FFF', fontSize: 22, fontWeight: '900' }}>Radio: {cropRadioKm} km</Text>
+                <Text style={{ color: '#888', fontSize: 11, marginTop: 3 }}>Area: ~{Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString()} km2</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 15 }}>
+                {[10, 20, 40, 60, 80].map(r => (
+                  <TouchableOpacity
+                    key={r}
+                    style={{ width: 52, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: cropRadioKm === r ? '#4CAF50' : '#222', borderWidth: 1, borderColor: cropRadioKm === r ? '#4CAF50' : '#444' }}
+                    onPress={() => setCropRadioKm(r)}
+                  >
+                    <Text style={{ color: cropRadioKm === r ? '#FFF' : '#AAA', fontWeight: '900', fontSize: 16 }}>{r}</Text>
+                    <Text style={{ color: cropRadioKm === r ? 'rgba(255,255,255,0.7)' : '#666', fontSize: 9, marginTop: 1 }}>km</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Tipo de cultivo */}
+              <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>TIPO DE CULTIVO</Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 15 }}>
+                {(['riego', 'temporal'] as const).map(tipo => (
+                  <TouchableOpacity
+                    key={tipo}
+                    style={{ flex: 1, padding: 12, borderRadius: 8, borderWidth: 2, borderColor: cropTipoCultivo === tipo ? '#4CAF50' : '#333', backgroundColor: cropTipoCultivo === tipo ? 'rgba(76,175,80,0.2)' : '#222', alignItems: 'center' }}
+                    onPress={() => setCropTipoCultivo(tipo)}
+                  >
+                    <Text style={{ color: cropTipoCultivo === tipo ? '#4CAF50' : '#888', fontWeight: 'bold', fontSize: 14 }}>
+                      {tipo === 'riego' ? 'Maiz Riego' : 'Maiz Temporal'}
+                    </Text>
+                    <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>
+                      {tipo === 'riego' ? '10-12 ton/ha' : '4-6 ton/ha'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Fechas */}
+              <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>PERIODO DE ANALISIS</Text>
+              <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 6, borderWidth: 1, borderColor: '#333', flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ color: '#AAA', fontSize: 12 }}>Desde: <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{cropFechaInicio}</Text></Text>
+                <Text style={{ color: '#AAA', fontSize: 12 }}>Hasta: <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{cropFechaFin}</Text></Text>
+              </View>
+              <Text style={{ color: '#4CAF50', fontSize: 11, marginBottom: 15, textAlign: 'center' }}>Usando imagenes hasta hoy: {new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
+
+              {/* Polygon status */}
+              <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 15, borderWidth: 1, borderColor: '#333' }}>
+                <Text style={{ color: '#AAA', fontSize: 11 }}>
+                  {polygonCoords.length >= 3
+                    ? `Poligono cargado: ${polygonCoords.length} vertices`
+                    : `Sin poligono — se usara area predeterminada Oso Viejo ${cropRadioKm}km`}
+                </Text>
+              </View>
+
+              {/* Oso Viejo shortcut */}
+              <TouchableOpacity
+                style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#4CAF50', borderRadius: 8, padding: 12, marginBottom: 15, alignItems: 'center' }}
+                onPress={() => { loadOsoViejoPolygon(cropRadioKm); setShowCropModal(false); }}
+              >
+                <Text style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: 13 }}>Cargar Area Oso Viejo {cropRadioKm}km</Text>
+                <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>lat 24.3994, lng -107.1714</Text>
               </TouchableOpacity>
-            </View>
 
-            <Text style={{ color: '#AAA', fontSize: 13, marginBottom: 12 }}>Analisis satelital de biomasa y produccion de cultivos</Text>
+              {/* Start button */}
+              <TouchableOpacity
+                style={{ backgroundColor: '#4CAF50', borderRadius: 10, padding: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
+                onPress={() => { setShowCropModal(false); startCropAnalysis(); }}
+              >
+                <MaterialCommunityIcons name="satellite-uplink" size={22} color="#FFF" />
+                <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 16, marginLeft: 10 }}>INICIAR ANALISIS SATELITAL</Text>
+              </TouchableOpacity>
 
-            <TextInput
-              keyboardType="numeric"
-              placeholder="Radio en km (ej: 20)"
-              placeholderTextColor="#666"
-              value={String(cropRadioKm)}
-              onChangeText={(t) => setCropRadioKm(Number(t) || 40)}
-              style={{ backgroundColor: '#333', color: '#FFF', padding: 12, borderRadius: 8, fontSize: 20, textAlign: 'center', marginBottom: 12, borderWidth: 2, borderColor: '#4CAF50' }}
-            />
-            <Text style={{ color: '#888', fontSize: 11, textAlign: 'center', marginBottom: 12 }}>Area: ~{Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString()} km2 | v3.1</Text>
-
-            {/* Radio del area */}
-            <View style={{ alignItems: 'center', marginBottom: 6 }}>
-              <Text style={{ color: '#FFF', fontSize: 22, fontWeight: '900' }}>Radio: {cropRadioKm} km</Text>
-              <Text style={{ color: '#888', fontSize: 11, marginTop: 3 }}>Area: ~{Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString()} km2</Text>
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 15 }}>
-              {[10, 20, 40, 60, 80].map(r => (
-                <TouchableOpacity
-                  key={r}
-                  style={{ width: 52, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: cropRadioKm === r ? '#4CAF50' : '#222', borderWidth: 1, borderColor: cropRadioKm === r ? '#4CAF50' : '#444' }}
-                  onPress={() => setCropRadioKm(r)}
-                >
-                  <Text style={{ color: cropRadioKm === r ? '#FFF' : '#AAA', fontWeight: '900', fontSize: 16 }}>{r}</Text>
-                  <Text style={{ color: cropRadioKm === r ? 'rgba(255,255,255,0.7)' : '#666', fontSize: 9, marginTop: 1 }}>km</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Tipo de cultivo */}
-            <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>TIPO DE CULTIVO</Text>
-            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 15 }}>
-              {(['riego', 'temporal'] as const).map(tipo => (
-                <TouchableOpacity
-                  key={tipo}
-                  style={{ flex: 1, padding: 12, borderRadius: 8, borderWidth: 2, borderColor: cropTipoCultivo === tipo ? '#4CAF50' : '#333', backgroundColor: cropTipoCultivo === tipo ? 'rgba(76,175,80,0.2)' : '#222', alignItems: 'center' }}
-                  onPress={() => setCropTipoCultivo(tipo)}
-                >
-                  <Text style={{ color: cropTipoCultivo === tipo ? '#4CAF50' : '#888', fontWeight: 'bold', fontSize: 14 }}>
-                    {tipo === 'riego' ? 'Maiz Riego' : 'Maiz Temporal'}
-                  </Text>
-                  <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>
-                    {tipo === 'riego' ? '10-12 ton/ha' : '4-6 ton/ha'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Fechas */}
-            <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>PERIODO DE ANALISIS</Text>
-            <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 6, borderWidth: 1, borderColor: '#333', flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={{ color: '#AAA', fontSize: 12 }}>Desde: <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{cropFechaInicio}</Text></Text>
-              <Text style={{ color: '#AAA', fontSize: 12 }}>Hasta: <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{cropFechaFin}</Text></Text>
-            </View>
-            <Text style={{ color: '#4CAF50', fontSize: 11, marginBottom: 15, textAlign: 'center' }}>Usando imagenes hasta hoy: {new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
-
-            {/* Polygon status */}
-            <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 15, borderWidth: 1, borderColor: '#333' }}>
-              <Text style={{ color: '#AAA', fontSize: 11 }}>
-                {polygonCoords.length >= 3
-                  ? `Poligono cargado: ${polygonCoords.length} vertices`
-                  : `Sin poligono — se usara area predeterminada Oso Viejo ${cropRadioKm}km`}
-              </Text>
-            </View>
-
-            {/* Oso Viejo shortcut */}
-            <TouchableOpacity
-              style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#4CAF50', borderRadius: 8, padding: 12, marginBottom: 15, alignItems: 'center' }}
-              onPress={() => { loadOsoViejoPolygon(cropRadioKm); setShowCropModal(false); }}
-            >
-              <Text style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: 13 }}>Cargar Area Oso Viejo {cropRadioKm}km</Text>
-              <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>lat 24.3994, lng -107.1714</Text>
-            </TouchableOpacity>
-
-            {/* Start button */}
-            <TouchableOpacity
-              style={{ backgroundColor: '#4CAF50', borderRadius: 10, padding: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-              onPress={startCropAnalysis}
-            >
-              <MaterialCommunityIcons name="satellite-uplink" size={22} color="#FFF" />
-              <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 16, marginLeft: 10 }}>INICIAR ANALISIS SATELITAL</Text>
-            </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1994,11 +2135,37 @@ export default function ProspectorDashboard() {
                 </TouchableOpacity>
               )}
               {cropGridLoading && <ActivityIndicator size="small" color="#4CAF50" />}
+              {cropData && (
+                <TouchableOpacity onPress={shareAgroCropResults} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#25D366', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                  <MaterialCommunityIcons name="share-variant" size={14} color="#FFF" />
+                  <Text style={{ color: '#FFF', fontSize: 10, fontWeight: 'bold', marginLeft: 3 }}>Compartir</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={() => setShowCropConfig(!showCropConfig)}>
+                <MaterialCommunityIcons name="cog" size={20} color={showCropConfig ? '#4CAF50' : '#888'} />
+              </TouchableOpacity>
               <TouchableOpacity onPress={() => setShowCropResults(false)}>
                 <MaterialCommunityIcons name="close" size={24} color="#4CAF50" />
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Inline config */}
+          {showCropConfig && (
+            <View style={{ backgroundColor: '#1A1A1A', padding: 10, marginBottom: 8, borderRadius: 8, borderWidth: 1, borderColor: '#333' }}>
+              <Text style={{ color: '#888', fontSize: 10, marginBottom: 6 }}>Radio: {cropRadioKm}km | Area: ~{Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString()} km2</Text>
+              <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
+                {[10, 20, 40, 60, 80].map(r => (
+                  <TouchableOpacity key={r} style={{ flex: 1, paddingVertical: 6, borderRadius: 6, alignItems: 'center', backgroundColor: cropRadioKm === r ? '#4CAF50' : '#222', borderWidth: 1, borderColor: cropRadioKm === r ? '#4CAF50' : '#444' }} onPress={() => setCropRadioKm(r)}>
+                    <Text style={{ color: cropRadioKm === r ? '#FFF' : '#AAA', fontWeight: '900', fontSize: 13 }}>{r}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TouchableOpacity style={{ backgroundColor: '#4CAF50', borderRadius: 8, padding: 10, alignItems: 'center' }} onPress={() => { setShowCropConfig(false); startCropAnalysis(); }}>
+                <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 13 }}>RE-ANALIZAR CON {cropRadioKm}km</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <ScrollView style={{ maxHeight: 450 }} showsVerticalScrollIndicator={false}>
             {/* Progress steps */}
@@ -2091,7 +2258,38 @@ export default function ProspectorDashboard() {
                     return 'Baja';
                   })()}</Text></Text>
                   <Text style={{ color: '#666', fontSize: 9, marginTop: 2 }}>{cropData.imagenes_usadas} escenas | {cropData.fecha_inicio} a {cropData.fecha_fin}</Text>
+                  {cropData.confianza_fusion && (
+                    <Text style={{ color: '#4CAF50', fontSize: 10, fontWeight: 'bold', marginTop: 4 }}>✅ {cropData.confianza_fusion} | Frescura: {cropData.frescura_dias}d</Text>
+                  )}
                 </View>
+
+                {/* Satellite sources (collapsible) */}
+                {cropData.fuentes_satelitales && (
+                  <TouchableOpacity
+                    style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#333' }}
+                    onPress={() => setShowSatSources(!showSatSources)}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ color: '#4CAF50', fontSize: 11, fontWeight: 'bold' }}>FUENTES SATELITALES (5)</Text>
+                      <MaterialCommunityIcons name={showSatSources ? 'chevron-up' : 'chevron-down'} size={18} color="#4CAF50" />
+                    </View>
+                    {showSatSources && (
+                      <View style={{ marginTop: 6 }}>
+                        {[
+                          { icon: '🛰️', name: 'Sentinel-2', d: cropData.fuentes_satelitales.sentinel2 },
+                          { icon: '🛰️', name: 'Landsat 8/9', d: cropData.fuentes_satelitales.landsat89 },
+                          { icon: '📡', name: 'Sentinel-1 SAR', d: cropData.fuentes_satelitales.sentinel1 },
+                          { icon: '🌍', name: 'MODIS', d: cropData.fuentes_satelitales.modis },
+                          { icon: '💧', name: 'SMAP', d: cropData.fuentes_satelitales.smap },
+                        ].map((s, i) => (
+                          <Text key={i} style={{ color: '#CCC', fontSize: 10, marginBottom: 2 }}>
+                            {s.icon} {s.name}: {s.d?.fecha || 'N/A'} ({s.d?.imagenes || 0} imgs){(s.d as any)?.humedad_suelo_pct ? ` | Humedad: ${(s.d as any).humedad_suelo_pct}%` : ''}{(s.d as any)?.tipo ? ` | ${(s.d as any).tipo}` : ''}
+                          </Text>
+                        ))}
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                )}
 
                 {/* Claude analysis */}
                 {cropClaudeAnalysis ? (

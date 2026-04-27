@@ -330,7 +330,7 @@ async function geeGet<T>(path: string, params: Record<string, string | number | 
     response = await fetchWithTimeout(url, {
       method: 'GET',
       headers: { Accept: 'application/json' },
-    }, 30000);
+    }, 60000);
   } catch (networkErr: any) {
     const reason = networkErr.name === 'AbortError' ? 'Timeout 30s' : networkErr.message;
     throw new Error(
@@ -451,6 +451,23 @@ export interface BiomassAnalysisResult {
   imagenes_usadas: number;
   fecha_inicio: string;
   fecha_fin: string;
+  fuentes_satelitales?: {
+    sentinel2:  { fecha: string; imagenes: number };
+    landsat89:  { fecha: string; imagenes: number };
+    sentinel1:  { fecha: string; imagenes: number; tipo: string };
+    modis:      { fecha: string; imagenes: number };
+    smap:       { fecha: string; imagenes: number; humedad_suelo_pct: number };
+  };
+  indices_fusionados?: {
+    ndvi_s2: number;
+    ndvi_landsat: number;
+    rvi_radar: number;
+    modis_ndvi: number;
+    soil_moisture_smap: number;
+  };
+  imagen_mas_reciente_global?: string;
+  frescura_dias?: number;
+  confianza_fusion?: string;
 }
 
 /**
@@ -474,7 +491,7 @@ export async function getBiomassAnalysis(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ coordinates, fecha_inicio, fecha_fin }),
-    }, 30000);
+    }, 60000);
   } catch (networkErr: any) {
     const reason = networkErr.name === 'AbortError' ? 'Timeout 30s' : networkErr.message;
     throw new Error(
@@ -547,7 +564,7 @@ export async function getBiomassGrid(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ coordinates, fecha_inicio, fecha_fin, cell_size_km }),
-    }, 30000);
+    }, 60000);
   } catch (networkErr: any) {
     const reason = networkErr.name === 'AbortError' ? 'Timeout 30s' : networkErr.message;
     throw new Error(
