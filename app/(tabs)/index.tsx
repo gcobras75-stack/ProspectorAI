@@ -307,7 +307,7 @@ export default function ProspectorDashboard() {
       }
 
       // Step 1: Satellite query
-      setCropStep('Consultando 5 satelites... (60-90s)');
+      setCropStep('Procesando Sentinel-2... (30-60s)');
       const result = await getBiomassAnalysis(geeCoords, cropFechaInicio, cropFechaFin);
       setCropData(result);
       triggerHaptic('light');
@@ -1107,7 +1107,7 @@ _Datos: ESA Copernicus, NASA, USGS_`;
 
         {/* DEBUG VERSION TAG */}
         <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, zIndex: 50, maxWidth: 220 }}>
-          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v6.2</Text>
+          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v6.3</Text>
           <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
         </View>
 
