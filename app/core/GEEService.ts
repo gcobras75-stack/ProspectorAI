@@ -491,9 +491,9 @@ export async function getBiomassAnalysis(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ coordinates, fecha_inicio, fecha_fin }),
-    }, 60000);
+    }, 120000);
   } catch (networkErr: any) {
-    const reason = networkErr.name === 'AbortError' ? 'Timeout 30s' : networkErr.message;
+    const reason = networkErr.name === 'AbortError' ? 'Timeout 120s (5 satelites)' : networkErr.message;
     throw new Error(
       `[GEE POST] Fallo de red → ${url} | ${reason}`
     );
