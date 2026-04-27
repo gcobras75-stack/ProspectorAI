@@ -338,11 +338,12 @@ export default function ProspectorDashboard() {
     }
   };
 
-  const loadOsoViejoPolygon = () => {
-    const circle = generateCirclePolygon(24.3994, -107.1714, cropRadioKm);
+  const loadOsoViejoPolygon = (radioKm: number) => {
+    console.log('Cargando circulo radio:', radioKm, 'km');
+    const circle = generateCirclePolygon(24.3994, -107.1714, radioKm, 32);
     const coords: Coordinate[] = circle.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
     setPolygonCoords(coords);
-    const delta = Math.max(0.3, (cropRadioKm / 111.32) * 2.5);
+    const delta = Math.max(0.3, (radioKm / 111.32) * 2.5);
     mapRef.current?.animateToRegion({
       latitude: 24.3994,
       longitude: -107.1714,
@@ -973,7 +974,7 @@ export default function ProspectorDashboard() {
           <View style={[styles.panel, { top: 50, left: 10, backgroundColor: 'rgba(0,0,0,0.7)', paddingVertical: 4, paddingHorizontal: 8, alignItems: 'flex-start', borderRadius: 8 }]}>
             <Text style={[styles.statsTextHighlight, {fontSize: 10, marginBottom: 0}]}>ZONA SELECCIONADA</Text>
             <Text style={[styles.statsTextArea, {fontSize: 14}]}>{areaHa} ha</Text>
-            <Text style={[styles.statsTextAreaSm, {fontSize: 8, marginTop: 0}]}>{areaKm2} km² | {infoText}</Text>
+            <Text style={[styles.statsTextAreaSm, {fontSize: 8, marginTop: 0}]}>{areaKm2} km² | Radio: {cropRadioKm}km | {infoText}</Text>
           </View>
         )}
 
@@ -1964,7 +1965,7 @@ export default function ProspectorDashboard() {
             {/* Oso Viejo shortcut */}
             <TouchableOpacity
               style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#4CAF50', borderRadius: 8, padding: 12, marginBottom: 15, alignItems: 'center' }}
-              onPress={() => { loadOsoViejoPolygon(); setShowCropModal(false); }}
+              onPress={() => { loadOsoViejoPolygon(cropRadioKm); setShowCropModal(false); }}
             >
               <Text style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: 13 }}>Cargar Area Oso Viejo {cropRadioKm}km</Text>
               <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>lat 24.3994, lng -107.1714</Text>
