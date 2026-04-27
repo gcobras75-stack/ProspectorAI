@@ -1901,7 +1901,7 @@ export default function ProspectorDashboard() {
               onChangeText={(t) => setCropRadioKm(Number(t) || 40)}
               style={{ backgroundColor: '#333', color: '#FFF', padding: 12, borderRadius: 8, fontSize: 20, textAlign: 'center', marginBottom: 12, borderWidth: 2, borderColor: '#4CAF50' }}
             />
-            <Text style={{ color: '#888', fontSize: 11, textAlign: 'center', marginBottom: 12 }}>Area: ~{Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString()} km2 | v1.0.2</Text>
+            <Text style={{ color: '#888', fontSize: 11, textAlign: 'center', marginBottom: 12 }}>Area: ~{Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString()} km2 | v3.1</Text>
 
             {/* Radio del area */}
             <View style={{ alignItems: 'center', marginBottom: 6 }}>
