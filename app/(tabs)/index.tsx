@@ -15,6 +15,7 @@ import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist, analyzeCropBiomassWithClaude, CropBiomassStats } from '../core/ClaudeServices';
 import { getBiomassAnalysis, BiomassAnalysisResult, generateCirclePolygon, getBiomassGrid, GridCell, getBiomassExtended, BiomassExtendedResult } from '../core/GEEService';
+import { AgroCropPolygon, generatePolygonId, getPolygonColor, extractCoordsFromPhoto, calcConsolidatedSummary } from '../core/AgroCropService';
 
 type Coordinate = { latitude: number; longitude: number };
 type DrawingType = 'none' | 'polygon' | 'rectangle';
@@ -258,6 +259,8 @@ export default function ProspectorDashboard() {
   const [cropAreaMode, setCropAreaMode] = useState<'circle' | 'draw' | 'coords'>('circle');
   const [cropCoordsText, setCropCoordsText] = useState('');
   const [cropDrawing, setCropDrawing] = useState(false);
+  const [cropPolygons, setCropPolygons] = useState<AgroCropPolygon[]>([]);
+  const [ocrProcessing, setOcrProcessing] = useState(false);
   const [cropExtended, setCropExtended] = useState<BiomassExtendedResult | null>(null);
   const [cropExtendedLoading, setCropExtendedLoading] = useState(false);
 
@@ -567,6 +570,87 @@ _Datos: ESA Copernicus, NASA, USGS_`;
     if (polygonCoords.length >= 3) {
       setShowCropModal(true);
     }
+  };
+
+  // ── OCR: Photo of parcel title ────────────────────────────────────────
+  const handlePhotoOCR = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.8,
+        base64: true,
+      });
+      if (result.canceled || !result.assets?.[0]?.base64) return;
+
+      setOcrProcessing(true);
+      setShowCropModal(false);
+      setCropStep('Procesando titulo parcelario con IA...');
+      setShowCropResults(true);
+      setCropAnalyzing(true);
+
+      const ocr = await extractCoordsFromPhoto(result.assets[0].base64);
+      if (!ocr.vertices || ocr.vertices.length < 3) {
+        Alert.alert('Error OCR', 'No se detectaron suficientes coordenadas (min 3)');
+        setShowCropResults(false);
+        return;
+      }
+
+      const coords = ocr.vertices.map(v => ({ latitude: v.lat, longitude: v.lng }));
+      setPolygonCoords(coords);
+      setCropAreaMode('coords');
+
+      // Add to multi-polygon list
+      const newPoly: AgroCropPolygon = {
+        id: generatePolygonId(),
+        nombre: ocr.datos?.ejido || `Parcela OCR`,
+        origen: 'foto_titulo',
+        coords,
+        hectareas: ocr.datos?.superficie_ha || Math.round(calcPolygonArea(coords) / 10000),
+        color: getPolygonColor(cropPolygons.length),
+        datosOCR: { ...ocr.datos, formato_origen: ocr.formato_origen, confianza: ocr.confianza },
+      };
+      setCropPolygons(prev => [...prev, newPoly]);
+
+      // Zoom to polygon
+      const lats = coords.map(c => c.latitude);
+      const lngs = coords.map(c => c.longitude);
+      mapRef.current?.animateToRegion({
+        latitude: (Math.min(...lats) + Math.max(...lats)) / 2,
+        longitude: (Math.min(...lngs) + Math.max(...lngs)) / 2,
+        latitudeDelta: (Math.max(...lats) - Math.min(...lats)) * 1.4,
+        longitudeDelta: (Math.max(...lngs) - Math.min(...lngs)) * 1.4,
+      }, 800);
+
+      Alert.alert('Titulo procesado',
+        `${ocr.vertices.length} vertices detectados\n` +
+        `${ocr.datos?.superficie_ha ? ocr.datos.superficie_ha + ' ha' : ''}\n` +
+        `${ocr.datos?.propietario || ''}\n` +
+        `Confianza: ${ocr.confianza || '?'}`,
+        [{ text: 'Analizar', onPress: () => startCropAnalysis() }, { text: 'Ver en mapa' }]
+      );
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setOcrProcessing(false);
+      setCropAnalyzing(false);
+      setCropStep('');
+    }
+  };
+
+  // Save current polygon to multi-polygon list
+  const saveCurrentPolygon = () => {
+    if (polygonCoords.length < 3) return;
+    const newPoly: AgroCropPolygon = {
+      id: generatePolygonId(),
+      nombre: `Poligono ${cropPolygons.length + 1}`,
+      origen: cropAreaMode === 'draw' ? 'manual' : cropAreaMode === 'coords' ? 'coordenadas' : 'circulo',
+      coords: polygonCoords,
+      hectareas: Math.round(calcPolygonArea(polygonCoords) / 10000),
+      color: getPolygonColor(cropPolygons.length),
+    };
+    setCropPolygons(prev => [...prev, newPoly]);
+    triggerHaptic('success');
   };
 
   // ── Heatmap grid polygon data (memoized) ────────────────────────────────
@@ -1227,7 +1311,7 @@ _Datos: ESA Copernicus, NASA, USGS_`;
 
         {/* DEBUG VERSION TAG */}
         <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, zIndex: 50, maxWidth: 220 }}>
-          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v8.5</Text>
+          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v9.0</Text>
           <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
         </View>
 
@@ -2256,17 +2340,52 @@ _Datos: ESA Copernicus, NASA, USGS_`;
                 </>
               )}
 
+              {/* Photo OCR button */}
+              <TouchableOpacity style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#9C27B0', borderRadius: 8, padding: 10, marginBottom: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }} onPress={handlePhotoOCR}>
+                <MaterialCommunityIcons name="camera-document" size={20} color="#9C27B0" />
+                <View>
+                  <Text style={{ color: '#9C27B0', fontWeight: 'bold', fontSize: 12 }}>Foto titulo parcelario</Text>
+                  <Text style={{ color: '#666', fontSize: 9 }}>OCR automatico con IA</Text>
+                </View>
+                {ocrProcessing && <ActivityIndicator size="small" color="#9C27B0" />}
+              </TouchableOpacity>
+
               {/* Polygon info */}
-              <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: polygonCoords.length >= 3 ? '#4CAF50' : '#333' }}>
+              <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 10, marginBottom: 6, borderWidth: 1, borderColor: polygonCoords.length >= 3 ? '#4CAF50' : '#333' }}>
                 {polygonCoords.length >= 3 ? (
                   <>
-                    <Text style={{ color: '#4CAF50', fontSize: 11, fontWeight: 'bold' }}>Area: {(calcPolygonArea(polygonCoords) / 10000).toFixed(0)} ha ({(calcPolygonArea(polygonCoords) / 1e6).toFixed(1)} km2)</Text>
-                    <Text style={{ color: '#888', fontSize: 10 }}>Vertices: {polygonCoords.length} | Origen: {cropAreaMode === 'circle' ? 'Circulo Oso Viejo' : cropAreaMode === 'draw' ? 'Trazado manual' : 'Coordenadas'}</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View>
+                        <Text style={{ color: '#4CAF50', fontSize: 11, fontWeight: 'bold' }}>Area: {(calcPolygonArea(polygonCoords) / 10000).toFixed(0)} ha</Text>
+                        <Text style={{ color: '#888', fontSize: 10 }}>Vertices: {polygonCoords.length} | {cropAreaMode === 'circle' ? 'Circulo' : cropAreaMode === 'draw' ? 'Manual' : 'Coords'}</Text>
+                      </View>
+                      <TouchableOpacity style={{ backgroundColor: '#333', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }} onPress={saveCurrentPolygon}>
+                        <Text style={{ color: '#FFC107', fontSize: 10, fontWeight: 'bold' }}>+ Guardar</Text>
+                      </TouchableOpacity>
+                    </View>
                   </>
                 ) : (
                   <Text style={{ color: '#888', fontSize: 10 }}>Sin poligono — selecciona un metodo arriba</Text>
                 )}
               </View>
+
+              {/* Multi-polygon list */}
+              {cropPolygons.length > 0 && (
+                <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 8, marginBottom: 10, borderWidth: 1, borderColor: '#FFC107' }}>
+                  <Text style={{ color: '#FFC107', fontSize: 10, fontWeight: 'bold', marginBottom: 4 }}>POLIGONOS GUARDADOS ({cropPolygons.length})</Text>
+                  {cropPolygons.map((p, i) => (
+                    <View key={p.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: p.color }} />
+                        <Text style={{ color: '#CCC', fontSize: 10 }}>{p.nombre} ({p.hectareas} ha) — {p.origen}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setCropPolygons(prev => prev.filter(x => x.id !== p.id))}>
+                        <Text style={{ color: '#F44336', fontSize: 10 }}>X</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
 
               {/* Tipo de cultivo */}
               <Text style={{ color: '#4CAF50', fontSize: 10, fontWeight: 'bold', marginBottom: 4 }}>CULTIVO</Text>
