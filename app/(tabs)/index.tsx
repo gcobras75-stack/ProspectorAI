@@ -255,6 +255,9 @@ export default function ProspectorDashboard() {
   const [cropGridLoading, setCropGridLoading] = useState(false);
   const [showHeatLegend, setShowHeatLegend] = useState(true);
   const [showSatSources, setShowSatSources] = useState(false);
+  const [cropAreaMode, setCropAreaMode] = useState<'circle' | 'draw' | 'coords'>('circle');
+  const [cropCoordsText, setCropCoordsText] = useState('');
+  const [cropDrawing, setCropDrawing] = useState(false);
   const [cropExtended, setCropExtended] = useState<BiomassExtendedResult | null>(null);
   const [cropExtendedLoading, setCropExtendedLoading] = useState(false);
 
@@ -472,6 +475,61 @@ _Datos: ESA Copernicus, NASA, USGS_`;
       longitudeDelta: delta,
     }, 800);
     triggerHaptic('light');
+  };
+
+  const parseCoordsText = (text: string): Coordinate[] | null => {
+    try {
+      const clean = text.trim();
+      let pairs: [number, number][] = [];
+      // GeoJSON array format
+      if (clean.startsWith('[')) {
+        const arr = JSON.parse(clean.startsWith('[[') ? clean : `[${clean}]`);
+        pairs = arr.map((p: number[]) => [p[1], p[0]] as [number, number]); // [lng,lat] → [lat,lng]
+      } else {
+        // Lines or semicolons: "lat, lng" per entry
+        const entries = clean.includes(';') ? clean.split(';') : clean.split('\n');
+        for (const e of entries) {
+          const nums = e.trim().split(/[,\s]+/).map(Number).filter(n => !isNaN(n));
+          if (nums.length >= 2) pairs.push([nums[0], nums[1]]);
+        }
+      }
+      if (pairs.length < 3) return null;
+      const valid = pairs.every(([lat, lng]) => lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180);
+      if (!valid) return null;
+      return pairs.map(([lat, lng]) => ({ latitude: lat, longitude: lng }));
+    } catch { return null; }
+  };
+
+  const applyCoordsFromText = () => {
+    const coords = parseCoordsText(cropCoordsText);
+    if (!coords) {
+      Alert.alert('Error', 'Coordenadas invalidas. Necesitas minimo 3 pares lat,lng.');
+      return;
+    }
+    setPolygonCoords(coords);
+    const lats = coords.map(c => c.latitude);
+    const lngs = coords.map(c => c.longitude);
+    const cLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+    const cLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+    const dLat = Math.max(...lats) - Math.min(...lats);
+    const dLng = Math.max(...lngs) - Math.min(...lngs);
+    mapRef.current?.animateToRegion({ latitude: cLat, longitude: cLng, latitudeDelta: dLat * 1.3, longitudeDelta: dLng * 1.3 }, 800);
+    triggerHaptic('success');
+  };
+
+  const startCropDrawMode = () => {
+    setShowCropModal(false);
+    setCropDrawing(true);
+    setPolygonCoords([]);
+    selectMode('polygon');
+  };
+
+  const finishCropDraw = () => {
+    setCropDrawing(false);
+    selectMode('none');
+    if (polygonCoords.length >= 3) {
+      setShowCropModal(true);
+    }
   };
 
   // ── Heatmap grid polygon data (memoized) ────────────────────────────────
@@ -1105,9 +1163,34 @@ _Datos: ESA Copernicus, NASA, USGS_`;
           </View>
         )}
 
+        {/* CROP DRAW MODE OVERLAY */}
+        {cropDrawing && (
+          <>
+            <View style={{ position: 'absolute', top: 44, left: 10, right: 10, zIndex: 999, backgroundColor: 'rgba(255,193,7,0.95)', padding: 10, borderRadius: 8, alignItems: 'center' }}>
+              <Text style={{ color: '#000', fontWeight: '900', fontSize: 13 }}>TRAZANDO POLIGONO AGROCROP</Text>
+              <Text style={{ color: '#333', fontSize: 10 }}>Toca "Marcar Punto" para agregar vertices ({polygonCoords.length} vertices)</Text>
+            </View>
+            <View style={{ position: 'absolute', bottom: 120, left: 16, right: 16, zIndex: 999, flexDirection: 'row', gap: 8 }}>
+              {polygonCoords.length > 0 && (
+                <TouchableOpacity style={{ flex: 1, backgroundColor: '#333', padding: 12, borderRadius: 8, alignItems: 'center' }} onPress={() => setPolygonCoords(polygonCoords.slice(0, -1))}>
+                  <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>Deshacer</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={{ flex: 1, backgroundColor: '#F44336', padding: 12, borderRadius: 8, alignItems: 'center' }} onPress={() => { setCropDrawing(false); selectMode('none'); setPolygonCoords([]); }}>
+                <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12 }}>Cancelar</Text>
+              </TouchableOpacity>
+              {polygonCoords.length >= 3 && (
+                <TouchableOpacity style={{ flex: 2, backgroundColor: '#4CAF50', padding: 12, borderRadius: 8, alignItems: 'center' }} onPress={finishCropDraw}>
+                  <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 13 }}>FINALIZAR ({polygonCoords.length}v)</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
+        )}
+
         {/* DEBUG VERSION TAG */}
         <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, zIndex: 50, maxWidth: 220 }}>
-          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v6.5</Text>
+          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v7.0</Text>
           <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
         </View>
 
@@ -2059,70 +2142,87 @@ _Datos: ESA Copernicus, NASA, USGS_`;
 
             <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 50 }}>
 
-              <Text style={{ color: '#AAA', fontSize: 13, marginBottom: 15 }}>Analisis satelital de biomasa y produccion de cultivos</Text>
-
-              {/* Radio del area */}
-              <View style={{ alignItems: 'center', marginBottom: 6 }}>
-                <Text style={{ color: '#FFF', fontSize: 22, fontWeight: '900' }}>Radio: {cropRadioKm} km</Text>
-                <Text style={{ color: '#888', fontSize: 11, marginTop: 3 }}>Area: ~{Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString()} km2</Text>
-              </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 15 }}>
-                {[10, 20, 40, 60, 80].map(r => (
-                  <TouchableOpacity
-                    key={r}
-                    style={{ width: 52, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: cropRadioKm === r ? '#4CAF50' : '#222', borderWidth: 1, borderColor: cropRadioKm === r ? '#4CAF50' : '#444' }}
-                    onPress={() => setCropRadioKm(r)}
-                  >
-                    <Text style={{ color: cropRadioKm === r ? '#FFF' : '#AAA', fontWeight: '900', fontSize: 16 }}>{r}</Text>
-                    <Text style={{ color: cropRadioKm === r ? 'rgba(255,255,255,0.7)' : '#666', fontSize: 9, marginTop: 1 }}>km</Text>
+              {/* Area source selector */}
+              <Text style={{ color: '#4CAF50', fontSize: 11, fontWeight: 'bold', marginBottom: 6 }}>FUENTE DEL AREA</Text>
+              <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+                {([
+                  { key: 'circle' as const, icon: 'target', label: 'Circulo' },
+                  { key: 'draw' as const, icon: 'draw-pen', label: 'Trazar' },
+                  { key: 'coords' as const, icon: 'map-marker-multiple', label: 'Coordenadas' },
+                ] as const).map(m => (
+                  <TouchableOpacity key={m.key} style={{ flex: 1, padding: 8, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: cropAreaMode === m.key ? '#4CAF50' : '#444', backgroundColor: cropAreaMode === m.key ? 'rgba(76,175,80,0.2)' : '#222' }} onPress={() => setCropAreaMode(m.key)}>
+                    <MaterialCommunityIcons name={m.icon as any} size={18} color={cropAreaMode === m.key ? '#4CAF50' : '#888'} />
+                    <Text style={{ color: cropAreaMode === m.key ? '#4CAF50' : '#888', fontSize: 10, fontWeight: 'bold', marginTop: 2 }}>{m.label}</Text>
                   </TouchableOpacity>
                 ))}
+              </View>
+
+              {/* Circle mode */}
+              {cropAreaMode === 'circle' && (
+                <>
+                  <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 8 }}>
+                    {[10, 20, 40, 60, 80].map(r => (
+                      <TouchableOpacity key={r} style={{ width: 48, paddingVertical: 8, borderRadius: 8, alignItems: 'center', backgroundColor: cropRadioKm === r ? '#4CAF50' : '#222', borderWidth: 1, borderColor: cropRadioKm === r ? '#4CAF50' : '#444' }} onPress={() => setCropRadioKm(r)}>
+                        <Text style={{ color: cropRadioKm === r ? '#FFF' : '#AAA', fontWeight: '900', fontSize: 14 }}>{r}</Text>
+                        <Text style={{ color: cropRadioKm === r ? 'rgba(255,255,255,0.7)' : '#666', fontSize: 8 }}>km</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <TouchableOpacity style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#4CAF50', borderRadius: 8, padding: 10, marginBottom: 10, alignItems: 'center' }} onPress={() => { loadOsoViejoPolygon(cropRadioKm); }}>
+                    <Text style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: 12 }}>Cargar Oso Viejo {cropRadioKm}km</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {/* Draw mode */}
+              {cropAreaMode === 'draw' && (
+                <TouchableOpacity style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#FFC107', borderRadius: 8, padding: 14, marginBottom: 10, alignItems: 'center' }} onPress={startCropDrawMode}>
+                  <MaterialCommunityIcons name="draw-pen" size={24} color="#FFC107" />
+                  <Text style={{ color: '#FFC107', fontWeight: 'bold', fontSize: 13, marginTop: 4 }}>Trazar poligono en el mapa</Text>
+                  <Text style={{ color: '#888', fontSize: 10, marginTop: 2 }}>Toca puntos en el mapa para crear vertices</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Coordinates mode */}
+              {cropAreaMode === 'coords' && (
+                <>
+                  <TextInput
+                    style={{ backgroundColor: '#222', color: '#FFF', borderRadius: 8, padding: 10, fontSize: 12, borderWidth: 1, borderColor: '#333', height: 80, textAlignVertical: 'top', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginBottom: 6 }}
+                    multiline
+                    placeholder={'24.3994, -107.1714\n24.4100, -107.1500\n24.3800, -107.1200'}
+                    placeholderTextColor="#555"
+                    value={cropCoordsText}
+                    onChangeText={setCropCoordsText}
+                  />
+                  <TouchableOpacity style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#2196F3', borderRadius: 8, padding: 10, marginBottom: 10, alignItems: 'center' }} onPress={applyCoordsFromText}>
+                    <Text style={{ color: '#2196F3', fontWeight: 'bold', fontSize: 12 }}>PROCESAR COORDENADAS</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {/* Polygon info */}
+              <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: polygonCoords.length >= 3 ? '#4CAF50' : '#333' }}>
+                {polygonCoords.length >= 3 ? (
+                  <>
+                    <Text style={{ color: '#4CAF50', fontSize: 11, fontWeight: 'bold' }}>Area: {(calcPolygonArea(polygonCoords) / 10000).toFixed(0)} ha ({(calcPolygonArea(polygonCoords) / 1e6).toFixed(1)} km2)</Text>
+                    <Text style={{ color: '#888', fontSize: 10 }}>Vertices: {polygonCoords.length} | Origen: {cropAreaMode === 'circle' ? 'Circulo Oso Viejo' : cropAreaMode === 'draw' ? 'Trazado manual' : 'Coordenadas'}</Text>
+                  </>
+                ) : (
+                  <Text style={{ color: '#888', fontSize: 10 }}>Sin poligono — selecciona un metodo arriba</Text>
+                )}
               </View>
 
               {/* Tipo de cultivo */}
-              <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>TIPO DE CULTIVO</Text>
-              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 15 }}>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
                 {(['riego', 'temporal'] as const).map(tipo => (
-                  <TouchableOpacity
-                    key={tipo}
-                    style={{ flex: 1, padding: 12, borderRadius: 8, borderWidth: 2, borderColor: cropTipoCultivo === tipo ? '#4CAF50' : '#333', backgroundColor: cropTipoCultivo === tipo ? 'rgba(76,175,80,0.2)' : '#222', alignItems: 'center' }}
-                    onPress={() => setCropTipoCultivo(tipo)}
-                  >
-                    <Text style={{ color: cropTipoCultivo === tipo ? '#4CAF50' : '#888', fontWeight: 'bold', fontSize: 14 }}>
-                      {tipo === 'riego' ? 'Maiz Riego' : 'Maiz Temporal'}
-                    </Text>
-                    <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>
-                      {tipo === 'riego' ? '10-12 ton/ha' : '4-6 ton/ha'}
-                    </Text>
+                  <TouchableOpacity key={tipo} style={{ flex: 1, padding: 8, borderRadius: 8, borderWidth: 1, borderColor: cropTipoCultivo === tipo ? '#4CAF50' : '#333', backgroundColor: cropTipoCultivo === tipo ? 'rgba(76,175,80,0.2)' : '#222', alignItems: 'center' }} onPress={() => setCropTipoCultivo(tipo)}>
+                    <Text style={{ color: cropTipoCultivo === tipo ? '#4CAF50' : '#888', fontWeight: 'bold', fontSize: 12 }}>{tipo === 'riego' ? 'Riego' : 'Temporal'}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              {/* Fechas */}
-              <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>PERIODO DE ANALISIS</Text>
-              <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 6, borderWidth: 1, borderColor: '#333', flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ color: '#AAA', fontSize: 12 }}>Desde: <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{cropFechaInicio}</Text></Text>
-                <Text style={{ color: '#AAA', fontSize: 12 }}>Hasta: <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{cropFechaFin}</Text></Text>
-              </View>
-              <Text style={{ color: '#4CAF50', fontSize: 11, marginBottom: 15, textAlign: 'center' }}>Usando imagenes hasta hoy: {new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
-
-              {/* Polygon status */}
-              <View style={{ backgroundColor: '#1A1A1A', borderRadius: 8, padding: 12, marginBottom: 15, borderWidth: 1, borderColor: '#333' }}>
-                <Text style={{ color: '#AAA', fontSize: 11 }}>
-                  {polygonCoords.length >= 3
-                    ? `Poligono cargado: ${polygonCoords.length} vertices`
-                    : `Sin poligono — se usara area predeterminada Oso Viejo ${cropRadioKm}km`}
-                </Text>
-              </View>
-
-              {/* Oso Viejo shortcut */}
-              <TouchableOpacity
-                style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#4CAF50', borderRadius: 8, padding: 12, marginBottom: 15, alignItems: 'center' }}
-                onPress={() => { loadOsoViejoPolygon(cropRadioKm); setShowCropModal(false); }}
-              >
-                <Text style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: 13 }}>Cargar Area Oso Viejo {cropRadioKm}km</Text>
-                <Text style={{ color: '#666', fontSize: 10, marginTop: 2 }}>lat 24.3994, lng -107.1714</Text>
-              </TouchableOpacity>
+              {/* Dates */}
+              <Text style={{ color: '#4CAF50', fontSize: 10, marginBottom: 10, textAlign: 'center' }}>Imagenes: {cropFechaInicio} → {cropFechaFin}</Text>
 
               {/* Start button */}
               <TouchableOpacity
