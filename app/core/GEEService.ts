@@ -449,6 +449,13 @@ export interface BiomassAnalysisResult {
   factor_ndre: number;
   factor_etapa?: number;
   rendimiento_base?: number;
+  tipo_cultivo?: string;
+  tipo_cultivo_label?: string;
+  mango?: {
+    arboles_estimados: number;
+    frutos_por_arbol: number;
+    valor_cosecha_mxn: number;
+  };
   fecha_imagen: string;
   imagenes_usadas: number;
   fecha_inicio: string;
@@ -481,18 +488,19 @@ export interface BiomassAnalysisResult {
 export async function getBiomassAnalysis(
   coordinates: number[][],
   fecha_inicio: string,
-  fecha_fin: string
+  fecha_fin: string,
+  tipo_cultivo: string = 'maiz_riego'
 ): Promise<BiomassAnalysisResult> {
   const base = getServerUrl();
   const url = `${base}/api/biomass-analysis`;
 
-  console.log(`[GEEService] POST biomass-analysis → ${url}`);
+  console.log(`[GEEService] POST biomass-analysis → ${url} (${tipo_cultivo})`);
   let response: Response;
   try {
     response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ coordinates, fecha_inicio, fecha_fin }),
+      body: JSON.stringify({ coordinates, fecha_inicio, fecha_fin, tipo_cultivo }),
     }, 90000);
   } catch (networkErr: any) {
     const reason = networkErr.name === 'AbortError' ? 'Timeout 90s' : networkErr.message;

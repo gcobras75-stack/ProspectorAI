@@ -268,26 +268,44 @@ export async function analyzeCropBiomassWithClaude(
 ): Promise<string> {
   const API_KEY = getApiKey();
 
-  const prompt = `Eres un agrónomo experto en cultivos de maíz del Valle de Culiacán, Sinaloa.
-Analiza estos índices satelitales Sentinel-2 de un área de ${stats.hectareas_cultivo_activo} hectáreas cerca de Oso Viejo, Sinaloa:
-- NDVI promedio: ${stats.ndvi_mean} (vigor vegetativo)
-- EVI promedio: ${stats.evi_mean} (biomasa)
-- NDRE promedio: ${stats.ndre_mean} (contenido de nitrógeno)
-- LSWI promedio: ${stats.lswi_mean} (estrés hídrico)
-- Clasificación de vigor: ${stats.clasificacion_vigor}
-- Tonelaje estimado: ${stats.tonelaje_estimado} toneladas (rango: ${stats.tonelaje_minimo}-${stats.tonelaje_maximo})
-- Rendimiento estimado: ${stats.rendimiento_por_hectarea} ton/ha
-- Porcentaje de área en condiciones óptimas (NDVI > 0.7): ${stats.porcentaje_area_optima}%
-- Tipo de cultivo: ${tipoCultivo}
+  const isMango = tipoCultivo.toLowerCase().includes('mango');
+  const baseData = `Indices satelitales Sentinel-2 de ${stats.hectareas_cultivo_activo} hectareas, Sinaloa:
+- NDVI: ${stats.ndvi_mean} (vigor)
+- EVI: ${stats.evi_mean} (biomasa)
+- NDRE: ${stats.ndre_mean} (nitrogeno)
+- LSWI: ${stats.lswi_mean} (estres hidrico)
+- Vigor: ${stats.clasificacion_vigor}
+- Tonelaje estimado: ${stats.tonelaje_estimado} ton (${stats.tonelaje_minimo}-${stats.tonelaje_maximo})
+- Rendimiento: ${stats.rendimiento_por_hectarea} ton/ha
+- Area optima: ${stats.porcentaje_area_optima}%
+- Cultivo: ${tipoCultivo}`;
+
+  const prompt = isMango
+    ? `Eres un agronomo experto en cultivos de mango del Valle de Culiacan y Escuinapa, Sinaloa.
+Analiza estos datos de una huerta de ${tipoCultivo}:
+${baseData}
 
 Proporciona:
-1. Diagnóstico del estado actual del cultivo
-2. Estimación de producción con rango mínimo-máximo en toneladas
-3. Factores de riesgo identificados (estrés hídrico, déficit nutricional)
-4. Recomendaciones de manejo agronómico específicas para esta zona
-5. Comparación con el promedio histórico del Valle de Culiacán
+1. Diagnostico del huerto (vigor general, sanidad foliar)
+2. Estimacion de cosecha en toneladas (rango)
+3. Si esta en floracion: pronostico de cuaje
+4. Si esta en cuaje: riesgo de caida de fruto
+5. Recomendaciones de manejo (riego, fertilizacion, control de antracnosis)
+6. Comparativo con promedio Sinaloa (Ataulfo 12, Kent 14, Tommy 16 ton/ha)
 
-Responde en español técnico pero comprensible. Sé específico con los datos numéricos proporcionados.`;
+Responde en espanol tecnico pero comprensible.`
+    : `Eres un agronomo experto en cultivos de maiz del Valle de Culiacan, Sinaloa.
+Analiza estos datos de ${tipoCultivo}:
+${baseData}
+
+Proporciona:
+1. Diagnostico del estado actual del cultivo
+2. Estimacion de produccion con rango min-max en toneladas
+3. Factores de riesgo (estres hidrico, deficit nutricional)
+4. Recomendaciones de manejo agronomico para esta zona
+5. Comparacion con promedio historico del Valle de Culiacan
+
+Responde en espanol tecnico pero comprensible.`;
 
   const payload = {
     model: MODEL_SMART,

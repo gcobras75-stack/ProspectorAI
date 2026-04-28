@@ -242,7 +242,7 @@ export default function ProspectorDashboard() {
   const [cropAnalyzing, setCropAnalyzing] = useState(false);
   const [cropStep, setCropStep] = useState('');
   const [cropRadioKm, setCropRadioKm] = useState(20);
-  const [cropTipoCultivo, setCropTipoCultivo] = useState<'riego' | 'temporal'>('riego');
+  const [cropTipoCultivo, setCropTipoCultivo] = useState('maiz_riego');
   const [cropFechaFin] = useState(() => new Date().toISOString().split('T')[0]);
   const [cropFechaInicio] = useState(() => {
     const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().split('T')[0];
@@ -293,25 +293,36 @@ export default function ProspectorDashboard() {
     triggerHaptic('medium');
 
     try {
-      // Draw circle on map and zoom to it
+      // Build coordinates based on area mode
       let geeCoords: number[][];
-      if (polygonCoords.length >= 3) {
+      console.log('[AgroCrop] Modo area:', cropAreaMode, '| polygonCoords:', polygonCoords.length);
+
+      if (cropAreaMode !== 'circle' && polygonCoords.length >= 3) {
+        // Manual trace or coordinates — use existing polygonCoords
         geeCoords = polygonCoords.map(c => [c.longitude, c.latitude]);
-        geeCoords.push(geeCoords[0]);
+        geeCoords.push(geeCoords[0]); // close ring
+        console.log('[AgroCrop] Usando poligono', cropAreaMode, ':', polygonCoords.length, 'vertices');
+        // Zoom to polygon center
+        const lats = polygonCoords.map(c => c.latitude);
+        const lngs = polygonCoords.map(c => c.longitude);
+        const cLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+        const cLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+        const dLat = (Math.max(...lats) - Math.min(...lats)) * 1.3;
+        const dLng = (Math.max(...lngs) - Math.min(...lngs)) * 1.3;
+        mapRef.current?.animateToRegion({ latitude: cLat, longitude: cLng, latitudeDelta: Math.max(0.1, dLat), longitudeDelta: Math.max(0.1, dLng) }, 800);
       } else {
+        // Circle mode — generate Oso Viejo circle
         geeCoords = generateCirclePolygon(24.3994, -107.1714, cropRadioKm);
-        // Draw the circle on the map
         const mapCoords = geeCoords.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
         setPolygonCoords(mapCoords);
-        console.log('[AgroCrop] Poligono creado:', mapCoords.length, 'vertices, radio:', cropRadioKm, 'km');
-        // Zoom to area
+        console.log('[AgroCrop] Circulo Oso Viejo:', cropRadioKm, 'km,', mapCoords.length, 'vertices');
         const delta = Math.max(0.3, (cropRadioKm / 111.32) * 2.5);
         mapRef.current?.animateToRegion({ latitude: 24.3994, longitude: -107.1714, latitudeDelta: delta, longitudeDelta: delta }, 800);
       }
 
       // Step 1: Satellite query
       setCropStep('Procesando Sentinel-2... (30-60s)');
-      const result = await getBiomassAnalysis(geeCoords, cropFechaInicio, cropFechaFin);
+      const result = await getBiomassAnalysis(geeCoords, cropFechaInicio, cropFechaFin, cropTipoCultivo);
       setCropData(result);
       triggerHaptic('light');
 
@@ -330,7 +341,7 @@ export default function ProspectorDashboard() {
         porcentaje_area_optima: result.porcentaje_area_optima,
         clasificacion_vigor: result.clasificacion_vigor,
       };
-      const tipoLabel = cropTipoCultivo === 'riego' ? 'Maiz de riego' : 'Maiz temporal';
+      const tipoLabel = result.tipo_cultivo_label || cropTipoCultivo;
       const claudeText = await analyzeCropBiomassWithClaude(biomassStats, tipoLabel);
       setCropClaudeAnalysis(claudeText);
       triggerHaptic('success');
@@ -404,7 +415,16 @@ export default function ProspectorDashboard() {
       const areaKm2 = Math.round(Math.PI * cropRadioKm * cropRadioKm).toLocaleString();
       const hoy = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
 
-      const msg = `🌽 *ANALISIS DE BIOMASA - OSO VIEJO, SINALOA*
+      const cropEmoji = cropData.tipo_cultivo?.startsWith('mango') ? '🥭' : '🌽';
+      const mangoSection = cropData.mango ? `
+━━━━━━━━━━━━━━━━━
+🌳 *METRICAS MANGO*
+━━━━━━━━━━━━━━━━━
+🌳 Arboles: ~${cropData.mango.arboles_estimados.toLocaleString()}
+🥭 ~${cropData.mango.frutos_por_arbol} frutos/arbol
+💰 Valor cosecha: $${(cropData.mango.valor_cosecha_mxn / 1e6).toFixed(1)}M MXN` : '';
+
+      const msg = `${cropEmoji} *ANALISIS ${cropData.tipo_cultivo_label?.toUpperCase() || 'BIOMASA'} - SINALOA*
 📅 Analisis: ${hoy}
 🛰️ Imagen satelital: ${cropData.fecha_imagen} (Sentinel-2)
 📍 Centro: 24.3994°N, 107.1714°W
@@ -446,7 +466,9 @@ export default function ProspectorDashboard() {
 ✅ Imagen mas fresca: ${cropData.frescura_dias ?? '?'}d | ${cropData.confianza_fusion || ''}
 
 ━━━━━━━━━━━━━━━━━
-🤖 _Generado con ProspectorAI v6.0_
+${mangoSection}
+
+🤖 _Generado con ProspectorAI v8.0_
 _Datos: ESA Copernicus, NASA, USGS_`;
 
       await Share.share({
@@ -506,7 +528,9 @@ _Datos: ESA Copernicus, NASA, USGS_`;
       Alert.alert('Error', 'Coordenadas invalidas. Necesitas minimo 3 pares lat,lng.');
       return;
     }
+    setCropAreaMode('coords');
     setPolygonCoords(coords);
+    console.log('[AgroCrop] Coordenadas procesadas:', coords.length, 'vertices');
     const lats = coords.map(c => c.latitude);
     const lngs = coords.map(c => c.longitude);
     const cLat = (Math.min(...lats) + Math.max(...lats)) / 2;
@@ -518,15 +542,19 @@ _Datos: ESA Copernicus, NASA, USGS_`;
   };
 
   const startCropDrawMode = () => {
+    setCropAreaMode('draw');
     setShowCropModal(false);
     setCropDrawing(true);
     setPolygonCoords([]);
     selectMode('polygon');
+    console.log('[AgroCrop] Modo trazado iniciado');
   };
 
   const finishCropDraw = () => {
     setCropDrawing(false);
     selectMode('none');
+    setCropAreaMode('draw'); // ensure mode stays draw
+    console.log('[AgroCrop] Trazado finalizado:', polygonCoords.length, 'vertices');
     if (polygonCoords.length >= 3) {
       setShowCropModal(true);
     }
@@ -1190,7 +1218,7 @@ _Datos: ESA Copernicus, NASA, USGS_`;
 
         {/* DEBUG VERSION TAG */}
         <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, zIndex: 50, maxWidth: 220 }}>
-          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v7.0</Text>
+          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v8.0</Text>
           <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
         </View>
 
@@ -2213,10 +2241,18 @@ _Datos: ESA Copernicus, NASA, USGS_`;
               </View>
 
               {/* Tipo de cultivo */}
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
-                {(['riego', 'temporal'] as const).map(tipo => (
-                  <TouchableOpacity key={tipo} style={{ flex: 1, padding: 8, borderRadius: 8, borderWidth: 1, borderColor: cropTipoCultivo === tipo ? '#4CAF50' : '#333', backgroundColor: cropTipoCultivo === tipo ? 'rgba(76,175,80,0.2)' : '#222', alignItems: 'center' }} onPress={() => setCropTipoCultivo(tipo)}>
-                    <Text style={{ color: cropTipoCultivo === tipo ? '#4CAF50' : '#888', fontWeight: 'bold', fontSize: 12 }}>{tipo === 'riego' ? 'Riego' : 'Temporal'}</Text>
+              <Text style={{ color: '#4CAF50', fontSize: 10, fontWeight: 'bold', marginBottom: 4 }}>CULTIVO</Text>
+              <View style={{ flexDirection: 'row', gap: 6, marginBottom: 4 }}>
+                {[{ k: 'maiz_riego', l: 'Maiz Riego' }, { k: 'maiz_temporal', l: 'Maiz Temporal' }].map(c => (
+                  <TouchableOpacity key={c.k} style={{ flex: 1, padding: 6, borderRadius: 6, borderWidth: 1, borderColor: cropTipoCultivo === c.k ? '#4CAF50' : '#333', backgroundColor: cropTipoCultivo === c.k ? 'rgba(76,175,80,0.2)' : '#222', alignItems: 'center' }} onPress={() => setCropTipoCultivo(c.k)}>
+                    <Text style={{ color: cropTipoCultivo === c.k ? '#4CAF50' : '#888', fontWeight: 'bold', fontSize: 11 }}>{c.l}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+                {[{ k: 'mango_ataulfo', l: 'Ataulfo' }, { k: 'mango_kent', l: 'Kent' }, { k: 'mango_tommy', l: 'Tommy' }].map(c => (
+                  <TouchableOpacity key={c.k} style={{ flex: 1, padding: 6, borderRadius: 6, borderWidth: 1, borderColor: cropTipoCultivo === c.k ? '#FF9800' : '#333', backgroundColor: cropTipoCultivo === c.k ? 'rgba(255,152,0,0.15)' : '#222', alignItems: 'center' }} onPress={() => setCropTipoCultivo(c.k)}>
+                    <Text style={{ color: cropTipoCultivo === c.k ? '#FF9800' : '#888', fontWeight: 'bold', fontSize: 11 }}>{c.l}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -2329,7 +2365,19 @@ _Datos: ESA Copernicus, NASA, USGS_`;
                   <Text style={{ color: '#666', fontSize: 12, marginTop: 6 }}>
                     Rango: {cropData.tonelaje_minimo.toLocaleString()} - {cropData.tonelaje_maximo.toLocaleString()} ton
                   </Text>
+                  {cropData.tipo_cultivo_label && <Text style={{ color: '#888', fontSize: 10, marginTop: 4 }}>{cropData.tipo_cultivo_label}</Text>}
                 </View>
+
+                {/* Mango-specific metrics */}
+                {cropData.mango && (
+                  <View style={{ backgroundColor: 'rgba(255,152,0,0.1)', borderRadius: 8, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#FF9800' }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ color: '#FF9800', fontSize: 11 }}>Arboles: ~{cropData.mango.arboles_estimados.toLocaleString()}</Text>
+                      <Text style={{ color: '#FF9800', fontSize: 11 }}>~{cropData.mango.frutos_por_arbol} frutos/arbol</Text>
+                    </View>
+                    <Text style={{ color: '#FFC107', fontSize: 13, fontWeight: '900', marginTop: 4 }}>Valor cosecha: ${(cropData.mango.valor_cosecha_mxn / 1e6).toFixed(1)}M MXN</Text>
+                  </View>
+                )}
 
                 {/* Key metrics grid */}
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
