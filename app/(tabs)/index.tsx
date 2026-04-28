@@ -1218,7 +1218,7 @@ _Datos: ESA Copernicus, NASA, USGS_`;
 
         {/* DEBUG VERSION TAG */}
         <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, zIndex: 50, maxWidth: 220 }}>
-          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v8.0</Text>
+          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v8.1</Text>
           <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
         </View>
 
@@ -2196,9 +2196,28 @@ _Datos: ESA Copernicus, NASA, USGS_`;
                       </TouchableOpacity>
                     ))}
                   </View>
-                  <TouchableOpacity style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#4CAF50', borderRadius: 8, padding: 10, marginBottom: 10, alignItems: 'center' }} onPress={() => { loadOsoViejoPolygon(cropRadioKm); }}>
-                    <Text style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: 12 }}>Cargar Oso Viejo {cropRadioKm}km</Text>
+                  <TouchableOpacity style={{ backgroundColor: '#222', borderWidth: 1, borderColor: '#4CAF50', borderRadius: 8, padding: 8, marginBottom: 6, alignItems: 'center' }} onPress={() => { loadOsoViejoPolygon(cropRadioKm); }}>
+                    <Text style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: 11 }}>Oso Viejo {cropRadioKm}km (Maiz)</Text>
                   </TouchableOpacity>
+                  <Text style={{ color: '#FF9800', fontSize: 10, fontWeight: 'bold', marginBottom: 4 }}>MANGO (Sinaloa Sur)</Text>
+                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+                    {[
+                      { label: 'Escuinapa 10km', lat: 22.8317, lng: -105.7791, r: 10 },
+                      { label: 'Rosario 15km', lat: 22.9939, lng: -105.8533, r: 15 },
+                    ].map((area, i) => (
+                      <TouchableOpacity key={i} style={{ flex: 1, backgroundColor: '#222', borderWidth: 1, borderColor: '#FF9800', borderRadius: 8, padding: 8, alignItems: 'center' }} onPress={() => {
+                        const circle = generateCirclePolygon(area.lat, area.lng, area.r, 32);
+                        setPolygonCoords(circle.map(([lng, lat]) => ({ latitude: lat, longitude: lng })));
+                        setCropTipoCultivo('mango_ataulfo');
+                        setCropAreaMode('circle');
+                        const delta = Math.max(0.2, (area.r / 111.32) * 2.5);
+                        mapRef.current?.animateToRegion({ latitude: area.lat, longitude: area.lng, latitudeDelta: delta, longitudeDelta: delta }, 800);
+                        triggerHaptic('light');
+                      }}>
+                        <Text style={{ color: '#FF9800', fontWeight: 'bold', fontSize: 10 }}>{area.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 </>
               )}
 

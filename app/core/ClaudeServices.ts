@@ -281,17 +281,23 @@ export async function analyzeCropBiomassWithClaude(
 - Cultivo: ${tipoCultivo}`;
 
   const prompt = isMango
-    ? `Eres un agronomo experto en cultivos de mango del Valle de Culiacan y Escuinapa, Sinaloa.
+    ? `Eres agronomo experto en produccion de mango en Escuinapa, Sinaloa (zona #1 productora de Ataulfo en Mexico).
 Analiza estos datos de una huerta de ${tipoCultivo}:
 ${baseData}
 
 Proporciona:
-1. Diagnostico del huerto (vigor general, sanidad foliar)
+1. Estado sanitario del huerto (vigor follaje, densidad copa)
 2. Estimacion de cosecha en toneladas (rango)
-3. Si esta en floracion: pronostico de cuaje
-4. Si esta en cuaje: riesgo de caida de fruto
-5. Recomendaciones de manejo (riego, fertilizacion, control de antracnosis)
-6. Comparativo con promedio Sinaloa (Ataulfo 12, Kent 14, Tommy 16 ton/ha)
+3. Si en floracion (Ene-Feb): pronostico de cuaje
+4. Si en cuaje (Feb-Mar): riesgo de aborto floral
+5. Si en desarrollo (Mar-May): tamano esperado de fruto
+6. Recomendaciones especificas:
+   - Riego (cantidad y frecuencia)
+   - Fertilizacion foliar
+   - Control de antracnosis (Colletotrichum)
+   - Control de mosca de la fruta
+7. Comparativo con promedio Escuinapa: Ataulfo 12, Kent 14, Tommy 16 ton/ha
+8. Valor estimado de cosecha en MXN (Ataulfo $9,500, Kent $11,200, Tommy $7,800/ton)
 
 Responde en espanol tecnico pero comprensible.`
     : `Eres un agronomo experto en cultivos de maiz del Valle de Culiacan, Sinaloa.
