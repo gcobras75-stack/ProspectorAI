@@ -16,7 +16,6 @@ import {
   Platform,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   Animated,
   Dimensions,
 } from 'react-native';
@@ -31,7 +30,8 @@ import {
   DATASET_LABELS,
   EMIT_BAND_IDS,
   MULTISPECTRAL_BAND_IDS,
-  getDefaultDateRange,
+  ASTER_BAND_IDS,
+  ASTER_EXTRA_BAND_IDS,
   getGEETileConfig,
   getGEEPixelValues,
   type BandIndex,
@@ -524,8 +524,14 @@ function GEEView() {
   const [pixelLoading, setPixelLoading] = useState(false);
   const [selectedBand, setSelectedBand] = useState<BandIndex>('IRON_OXIDE');
   const [selectedDataset, setSelectedDataset] = useState<GEEDataset>('SENTINEL2');
-  const [dateRange, setDateRange] = useState(getDefaultDateRange());
   const [maxCloud, setMaxCloud] = useState<number>(20);
+
+  // Default date window: last 90 days → today (used as fallback if auto-latest mode fails)
+  const [geeStartDate] = useState<string>(() => {
+    const d = new Date(); d.setDate(d.getDate() - 90); return d.toISOString().split('T')[0];
+  });
+  const [geeEndDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [nextPassDate, setNextPassDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -571,17 +577,21 @@ function GEEView() {
     })();
   }, []);
 
-  // Days-back per dataset — always computed fresh from today
-  const DAYS_BACK: Record<GEEDataset, number> = { SENTINEL2: 30, LANDSAT8: 30, LANDSAT9: 30, EMIT: 180 };
-
-  // Reset band and date range when switching between EMIT and multispectral
+  // Reset band when switching datasets
   const handleDatasetChange = useCallback((ds: GEEDataset) => {
-    const switchingToEmit = ds === 'EMIT';
-    const currentIsEmit = selectedDataset === 'EMIT';
-    if (switchingToEmit !== currentIsEmit) {
-      setSelectedBand(switchingToEmit ? 'EMIT_AL_CLAY' : 'IRON_OXIDE');
+    const switchingToEmit  = ds === 'EMIT';
+    const switchingToAster = ds === 'ASTER';
+    const currentIsEmit    = selectedDataset === 'EMIT';
+    const currentIsAster   = selectedDataset === 'ASTER';
+
+    if (switchingToEmit && !currentIsEmit) {
+      setSelectedBand('EMIT_AL_CLAY');
+    } else if (!switchingToEmit && currentIsEmit) {
+      setSelectedBand(switchingToAster ? 'IRON_OXIDE' : 'IRON_OXIDE');
+    } else if (switchingToAster && !currentIsAster) {
+      setSelectedBand('IRON_OXIDE'); // default to Fe-Ox (VNIR-only, always works for ASTER)
     }
-    setDateRange(getDefaultDateRange(DAYS_BACK[ds]));
+    setNextPassDate(null);
     setSelectedDataset(ds);
   }, [selectedDataset]);
 
@@ -602,26 +612,41 @@ function GEEView() {
     }).start();
   }, [panelExpanded, panelAnim]);
 
+  // Auto-refresh when next satellite pass is expected (+2 days for GEE processing)
+  useEffect(() => {
+    if (!nextPassDate || !userLocation) return;
+    const passTime  = new Date(nextPassDate + 'T12:00:00Z').getTime();
+    const refreshAt = passTime + 2 * 86_400_000; // +48 h for processing
+    const delay     = refreshAt - Date.now();
+    if (delay <= 0) {
+      fetchTiles();
+      return;
+    }
+    const timer = setTimeout(fetchTiles, Math.min(delay, 24 * 60 * 60 * 1000));
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextPassDate]);
+
   const fetchTiles = useCallback(async () => {
     if (!userLocation) return;
     setLoading(true);
     setPixelValues(null);
     setError(null);
+    setNextPassDate(null);
     try {
-      // Always use fresh dates computed from today — ensures most recent imagery
-      const freshRange = getDefaultDateRange(DAYS_BACK[selectedDataset]);
-      setDateRange(freshRange);
-
+      // Auto-latest mode: no explicit dates → server finds the most recent
+      // cloud-free image automatically (tries 20 → 35 → 50 → 80% cloud thresholds)
       const config = await getGEETileConfig(
         userLocation.lat,
         userLocation.lng,
         selectedBand,
         selectedDataset,
-        freshRange.start,
-        freshRange.end,
+        geeStartDate,
+        geeEndDate,
         maxCloud
       );
       setTileConfig(config);
+      if (config.nextPassDate) setNextPassDate(config.nextPassDate);
 
       // Fetch pixel value at GPS point in parallel (non-blocking for tile display)
       const VISUAL_ONLY: BandIndex[] = ['TRUE_COLOR', 'FALSE_COLOR'];
@@ -632,8 +657,8 @@ function GEEView() {
           userLocation.lng,
           selectedBand,
           selectedDataset,
-          freshRange.start,
-          freshRange.end
+          geeStartDate,
+          geeEndDate
         )
           .then((pv) => setPixelValues(pv))
           .catch(() => setPixelValues(null))
@@ -644,7 +669,7 @@ function GEEView() {
     } finally {
       setLoading(false);
     }
-  }, [userLocation, selectedBand, selectedDataset, dateRange, maxCloud]);
+  }, [userLocation, selectedBand, selectedDataset, maxCloud]);
 
   /** Samples up to 9 points across the polygon and computes zone statistics */
   const analyzePolygon = useCallback(async () => {
@@ -656,7 +681,6 @@ function GEEView() {
     setPolygonAnalysis(null);
     setPanelExpanded(false);
 
-    const freshRange = getDefaultDateRange(DAYS_BACK[selectedDataset]);
     const sampleCoords = samplePointsInPolygon(polygon, 9);
 
     try {
@@ -665,7 +689,8 @@ function GEEView() {
           getGEEPixelValues(
             coord.latitude, coord.longitude,
             selectedBand, selectedDataset,
-            freshRange.start, freshRange.end
+            geeStartDate,
+            geeEndDate
           ).then(pv => ({
             coord,
             value: pv.computedIndex,
@@ -702,7 +727,7 @@ function GEEView() {
     } catch { /* ignore */ } finally {
       setPolygonAnalyzing(false);
     }
-  }, [polygon, selectedBand, selectedDataset, DAYS_BACK]);
+  }, [polygon, selectedBand, selectedDataset]);
 
   const handleCloudStep = (direction: 'up' | 'down') => {
     const idx = CLOUD_STEPS.indexOf(maxCloud);
@@ -718,16 +743,17 @@ function GEEView() {
 
   // Collapsed panel height — shows only summary
   const collapsedHeight = 54;
-  // Expanded panel height — full controls (extra for EMIT note)
-  const expandedHeight = selectedDataset === 'EMIT' ? 290 : 280;
+  // Expanded panel height — adapted per dataset
+  const expandedHeight = selectedDataset === 'EMIT' ? 270 : selectedDataset === 'ASTER' ? 280 : 260;
 
   // ---------------------------------------------------------------------------
   // Render sub-sections
   // ---------------------------------------------------------------------------
 
   function renderBandSelector() {
-    const isEmit = selectedDataset === 'EMIT';
-    const visibleIds = isEmit ? EMIT_BAND_IDS : MULTISPECTRAL_BAND_IDS;
+    const isEmit  = selectedDataset === 'EMIT';
+    const isAster = selectedDataset === 'ASTER';
+    const visibleIds = isEmit ? EMIT_BAND_IDS : (isAster ? ASTER_BAND_IDS : MULTISPECTRAL_BAND_IDS);
     const bands = visibleIds.map((id) => BAND_CONFIGS[id]);
 
     return (
@@ -738,13 +764,22 @@ function GEEView() {
             <Text style={geeStyles.emitBadgeText}>HIPERESPECTRAL · 285 BANDAS · 60 M</Text>
           </View>
         )}
+        {isAster && (
+          <View style={[geeStyles.emitBadge, { paddingTop: 5 }]}>
+            <MaterialCommunityIcons name="history" size={11} color="#FF9900" />
+            <Text style={[geeStyles.emitBadgeText, { color: '#FF9900' }]}>
+              VNIR 15 M · SWIR HISTÓRICO 2000-2008 · 30 M
+            </Text>
+          </View>
+        )}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={geeStyles.bandScrollContent}
         >
           {bands.map((band) => {
-            const isActive = band.id === selectedBand;
+            const isActive     = band.id === selectedBand;
+            const isAsterExtra = ASTER_EXTRA_BAND_IDS.includes(band.id);
             return (
               <TouchableOpacity
                 key={band.id}
@@ -753,6 +788,8 @@ function GEEView() {
                   isActive && geeStyles.bandChipActive,
                   isEmit && geeStyles.bandChipEmit,
                   isActive && isEmit && geeStyles.bandChipEmitActive,
+                  isAsterExtra && geeStyles.bandChipAster,
+                  isActive && isAsterExtra && geeStyles.bandChipAsterActive,
                 ]}
                 onPress={() => setSelectedBand(band.id)}
                 activeOpacity={0.75}
@@ -760,7 +797,7 @@ function GEEView() {
                 <MaterialCommunityIcons
                   name={band.icon as any}
                   size={15}
-                  color={isActive ? '#000' : isEmit ? '#00CCFF' : '#FFD700'}
+                  color={isActive ? '#000' : isEmit ? '#00CCFF' : isAsterExtra ? '#FF9900' : '#FFD700'}
                   style={geeStyles.bandChipIcon}
                 />
                 <Text
@@ -768,6 +805,7 @@ function GEEView() {
                     geeStyles.bandChipText,
                     isActive && geeStyles.bandChipTextActive,
                     isEmit && !isActive && geeStyles.bandChipTextEmit,
+                    isAsterExtra && !isActive && geeStyles.bandChipTextAster,
                   ]}
                   numberOfLines={1}
                 >
@@ -816,15 +854,21 @@ function GEEView() {
             {tileConfig ? (
               <>
                 <Text style={geeStyles.panelSummaryDate}>
-                  {tileConfig.acquisitionDate || dateRange.end}
+                  {tileConfig.acquisitionDate}
                 </Text>
-                <View style={geeStyles.cloudBadge}>
-                  <MaterialCommunityIcons name="cloud-outline" size={12} color="#AAA" />
-                  <Text style={geeStyles.cloudBadgeText}>{tileConfig.cloudCover ?? maxCloud}%</Text>
-                </View>
+                {(() => {
+                  const cc = tileConfig.cloudCover ?? 0;
+                  const cloudColor = cc < 10 ? '#44BB44' : cc < 30 ? '#FFDD00' : cc < 60 ? '#FF9900' : '#FF4444';
+                  return (
+                    <View style={[geeStyles.cloudBadge, { borderWidth: 1, borderColor: cloudColor + '66' }]}>
+                      <MaterialCommunityIcons name="cloud-outline" size={12} color={cloudColor} />
+                      <Text style={[geeStyles.cloudBadgeText, { color: cloudColor }]}>{cc}%</Text>
+                    </View>
+                  );
+                })()}
               </>
             ) : (
-              <Text style={geeStyles.panelSummaryDate}>{dateRange.end}</Text>
+              <Text style={geeStyles.panelSummaryDate}>Cargando...</Text>
             )}
           </View>
           <MaterialCommunityIcons
@@ -844,15 +888,17 @@ function GEEView() {
             {/* Dataset selector */}
             <Text style={geeStyles.controlLabel}>Satélite / Sensor</Text>
             <View style={geeStyles.datasetRow}>
-              {(['SENTINEL2', 'LANDSAT8', 'LANDSAT9', 'EMIT'] as GEEDataset[]).map((ds) => {
+              {(['SENTINEL2', 'LANDSAT9', 'ASTER', 'EMIT'] as GEEDataset[]).map((ds) => {
                 const isActive = ds === selectedDataset;
                 const shortLabels: Record<GEEDataset, string> = {
                   SENTINEL2: 'S-2',
-                  LANDSAT8: 'L8',
-                  LANDSAT9: 'L9',
-                  EMIT: 'EMIT',
+                  LANDSAT8:  'L8',
+                  LANDSAT9:  'L9',
+                  ASTER:     'ASTER',
+                  EMIT:      'EMIT',
                 };
-                const isEmitDs = ds === 'EMIT';
+                const isEmitDs  = ds === 'EMIT';
+                const isAsterDs = ds === 'ASTER';
                 return (
                   <TouchableOpacity
                     key={ds}
@@ -861,6 +907,8 @@ function GEEView() {
                       isActive && geeStyles.dsButtonActive,
                       isEmitDs && geeStyles.dsButtonEmit,
                       isActive && isEmitDs && geeStyles.dsButtonEmitActive,
+                      isAsterDs && geeStyles.dsButtonAster,
+                      isActive && isAsterDs && geeStyles.dsButtonAsterActive,
                     ]}
                     onPress={() => handleDatasetChange(ds)}
                     activeOpacity={0.75}
@@ -869,7 +917,8 @@ function GEEView() {
                       style={[
                         geeStyles.dsButtonText,
                         isActive && geeStyles.dsButtonTextActive,
-                        isEmitDs && !isActive && geeStyles.dsButtonTextEmit,
+                        isEmitDs  && !isActive && geeStyles.dsButtonTextEmit,
+                        isAsterDs && !isActive && geeStyles.dsButtonTextAster,
                       ]}
                     >
                       {shortLabels[ds]}
@@ -878,7 +927,8 @@ function GEEView() {
                       style={[
                         geeStyles.dsResText,
                         isActive && geeStyles.dsButtonTextActive,
-                        isEmitDs && !isActive && geeStyles.dsButtonTextEmit,
+                        isEmitDs  && !isActive && geeStyles.dsButtonTextEmit,
+                        isAsterDs && !isActive && geeStyles.dsButtonTextAster,
                       ]}
                     >
                       {DATASET_LABELS[ds].resolution}
@@ -888,39 +938,31 @@ function GEEView() {
               })}
             </View>
 
-            {/* Date range */}
-            <View style={geeStyles.dateRow}>
-              <View style={geeStyles.dateField}>
-                <Text style={geeStyles.controlLabel}>Desde</Text>
-                <TextInput
-                  style={geeStyles.dateInput}
-                  value={dateRange.start}
-                  onChangeText={(v) => setDateRange((prev) => ({ ...prev, start: v }))}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#555"
-                  keyboardType="numeric"
-                  maxLength={10}
-                />
-              </View>
-              <View style={geeStyles.dateField}>
-                <Text style={geeStyles.controlLabel}>Hasta</Text>
-                <TextInput
-                  style={geeStyles.dateInput}
-                  value={dateRange.end}
-                  onChangeText={(v) => setDateRange((prev) => ({ ...prev, end: v }))}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#555"
-                  keyboardType="numeric"
-                  maxLength={10}
-                />
-              </View>
+            {/* Auto-latest status + next pass */}
+            <View style={geeStyles.autoLatestRow}>
+              <MaterialCommunityIcons name="refresh-auto" size={13} color="#44BB44" />
+              <Text style={geeStyles.autoLatestText}>
+                Imagen más reciente automática
+                {tileConfig?.acquisitionDate
+                  ? ` · ${tileConfig.acquisitionDate}`
+                  : ''}
+              </Text>
             </View>
+            {nextPassDate && (
+              <View style={geeStyles.nextPassRow}>
+                <MaterialCommunityIcons name="satellite-uplink" size={13} color="#888" />
+                <Text style={geeStyles.nextPassText}>
+                  Próximo paso estimado: {nextPassDate}
+                  {` · Revisita: ${currentDatasetCfg.revisit}`}
+                </Text>
+              </View>
+            )}
 
             {/* Cloud cover — hidden for EMIT (uses quality mask, not cloud %) */}
             {selectedDataset !== 'EMIT' ? (
               <View style={geeStyles.cloudRow}>
                 <Text style={geeStyles.controlLabel}>
-                  Cobertura nube máx:{' '}
+                  Nubes máx preferidas:{' '}
                   <Text style={geeStyles.cloudValue}>{maxCloud}%</Text>
                 </Text>
                 <View style={geeStyles.cloudButtons}>
@@ -945,6 +987,14 @@ function GEEView() {
                 <MaterialCommunityIcons name="information-outline" size={13} color="#00CCFF" />
                 <Text style={geeStyles.emitCoverageText}>
                   EMIT no requiere filtro de nubes · Cobertura ISS ±51.6° lat · Datos desde 2022
+                </Text>
+              </View>
+            )}
+            {selectedDataset === 'ASTER' && (
+              <View style={[geeStyles.emitCoverageNote, { borderColor: 'rgba(255,153,0,0.3)', backgroundColor: 'rgba(255,153,0,0.06)' }]}>
+                <MaterialCommunityIcons name="history" size={13} color="#FF9900" />
+                <Text style={[geeStyles.emitCoverageText, { color: '#FF9900' }]}>
+                  ASTER VNIR (15 m): imágenes recientes · SWIR mineral (30 m): archivo 2000-2008 (detector SWIR inactivo desde 2008)
                 </Text>
               </View>
             )}
@@ -1010,9 +1060,13 @@ function GEEView() {
       acqDaysAgo = diffDays <= 1 ? 'Hoy' : `Hace ${diffDays} días`;
     }
 
+    const cloudCover = tileConfig?.cloudCover ?? 0;
+    const cloudColor = cloudCover < 10 ? '#44BB44' : cloudCover < 30 ? '#FFDD00' : cloudCover < 60 ? '#FF9900' : '#FF4444';
+    const cloudLabel = cloudCover < 10 ? 'EXCELENTE' : cloudCover < 30 ? 'BUENA' : cloudCover < 60 ? 'REGULAR' : 'ALTA';
+
     return (
       <View style={geeStyles.resultsCard}>
-        {/* Acquisition date — prominent header */}
+        {/* Acquisition date + cloud quality row */}
         {acqDate && (
           <View style={geeStyles.acqDateRow}>
             <MaterialCommunityIcons name="calendar-check" size={14} color="#FFD700" style={{ marginRight: 5 }} />
@@ -1021,6 +1075,22 @@ function GEEView() {
             <View style={geeStyles.acqDaysAgo}>
               <Text style={geeStyles.acqDaysAgoText}>{acqDaysAgo}</Text>
             </View>
+            {/* Cloud quality badge */}
+            <View style={[geeStyles.cloudQualityBadge, { borderColor: cloudColor + '66', backgroundColor: cloudColor + '18' }]}>
+              <MaterialCommunityIcons name="cloud-outline" size={11} color={cloudColor} />
+              <Text style={[geeStyles.cloudQualityText, { color: cloudColor }]}>
+                {cloudCover}% · {cloudLabel}
+              </Text>
+            </View>
+          </View>
+        )}
+        {/* Next pass estimate */}
+        {nextPassDate && (
+          <View style={geeStyles.nextPassInfoRow}>
+            <MaterialCommunityIcons name="satellite-uplink" size={11} color="#555" />
+            <Text style={geeStyles.nextPassInfoText}>
+              Próximo paso: {nextPassDate} · {currentDatasetCfg.revisit} revisita
+            </Text>
           </View>
         )}
 
@@ -1462,6 +1532,33 @@ const geeStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
+  cloudQualityBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    gap: 3,
+    marginLeft: 2,
+  },
+  cloudQualityText: {
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  nextPassInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingTop: 2,
+  },
+  nextPassInfoText: {
+    color: '#555',
+    fontSize: 9,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
 
   // Results card
   resultsCard: {
@@ -1694,6 +1791,17 @@ const geeStyles = StyleSheet.create({
     backgroundColor: '#00CCFF',
     borderColor: '#00CCFF',
   },
+  bandChipAster: {
+    borderColor: '#553300',
+    backgroundColor: '#1A0D00',
+  },
+  bandChipAsterActive: {
+    backgroundColor: '#FF9900',
+    borderColor: '#FF9900',
+  },
+  bandChipTextAster: {
+    color: '#FF9900',
+  },
   bandChipIcon: {
     marginRight: 5,
   },
@@ -1804,28 +1912,50 @@ const geeStyles = StyleSheet.create({
   dsButtonTextEmit: {
     color: '#00CCFF',
   },
+  dsButtonAster: {
+    borderColor: '#553300',
+    backgroundColor: '#1A0D00',
+  },
+  dsButtonAsterActive: {
+    backgroundColor: 'rgba(255,153,0,0.15)',
+    borderColor: '#FF9900',
+  },
+  dsButtonTextAster: {
+    color: '#FF9900',
+  },
   dsResText: {
     color: '#666',
     fontSize: 9,
     marginTop: 1,
   },
-  // Date range
-  dateRow: {
+  // Auto-latest info row
+  autoLatestRow: {
     flexDirection: 'row',
-    gap: 10,
-  },
-  dateField: {
-    flex: 1,
-  },
-  dateInput: {
-    backgroundColor: '#1A1A1A',
-    borderWidth: 1,
-    borderColor: '#FFD700',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(68,187,68,0.07)',
     borderRadius: 8,
-    color: '#FFF',
     paddingHorizontal: 10,
-    paddingVertical: 7,
-    fontSize: 13,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(68,187,68,0.25)',
+  },
+  autoLatestText: {
+    color: '#44BB44',
+    fontSize: 10,
+    flex: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  nextPassRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 2,
+  },
+  nextPassText: {
+    color: '#666',
+    fontSize: 10,
+    flex: 1,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   // Cloud cover

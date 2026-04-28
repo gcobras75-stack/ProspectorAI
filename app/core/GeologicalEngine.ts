@@ -116,11 +116,13 @@ export function analyzeZoneLocal(
 
   // 1. Base Weights
   const baseWeights: Record<string, Record<string, number>> = {
-    oro: { gossan: 0.35, iron_oxide: 0.30, clay: 0.20, silica: 0.15 },
-    plata: { clay: 0.40, argillic: 0.30, propylitic: 0.30 },
-    cobre: { ferric_iron: 0.40, malachite: 0.35, propylitic: 0.25 },
-    zinc: { sphalerite: 0.45, carbonate: 0.35, clay: 0.20 },
-    plomo: { galena: 0.40, gossan: 0.35, iron_oxide: 0.25 }
+    oro:    { gossan: 0.35, iron_oxide: 0.30, clay: 0.20, silica: 0.15 },
+    plata:  { clay: 0.40, argillic: 0.30, propylitic: 0.30 },
+    cobre:  { ferric_iron: 0.40, malachite: 0.35, propylitic: 0.25 },
+    zinc:   { sphalerite: 0.45, carbonate: 0.35, clay: 0.20 },
+    plomo:  { galena: 0.40, gossan: 0.35, iron_oxide: 0.25 },
+    hierro: { iron_oxide: 0.45, ferric_iron: 0.35, gossan: 0.20 },
+    litio:  { clay: 0.45, carbonate: 0.35, argillic: 0.20 },
   };
 
   let weights = { ...(baseWeights[mineral.toLowerCase()] || baseWeights['oro']) };
@@ -209,4 +211,203 @@ export function analyzeZoneLocal(
   topPoints.forEach((p, idx) => p.rank = idx + 1);
 
   return { success: true, top_points: topPoints, area_ha: areaHa, all_points: candidates, grid_size: {latStep, lngStep} };
+}
+
+// =============================================================================
+// TWO-DIMENSION SCORING SYSTEM
+// =============================================================================
+
+export const SCORE_MAXIMO_GLOBAL: Record<string, Record<string, number>> = {
+  oro:    { sierra: 92, playa: 78 },
+  plata:  { sierra: 71, playa: 45 },
+  cobre:  { sierra: 88, playa: 40 },
+  litio:  { sierra: 85, playa: 30 },
+  hierro: { sierra: 95, playa: 70 },
+};
+
+export interface MetalScore {
+  metal: string;
+  label: string;
+  icon: string;
+  score_maximo: number;
+  score_poligono: number;
+  score_percent: number;
+  detected: 'high' | 'medium' | 'low';
+  guideMineral: string[];
+  satellite: string;
+  bands: string[];
+  warning?: string;
+}
+
+// Spectral proxy weights for the polygon score formula
+const POLIGONO_WEIGHTS = {
+  iron_oxide:  0.30, // iron oxide alteration
+  argillic:    0.25, // argillic alteration
+  ferric_iron: 0.20, // thermal anomaly proxy
+  gossan:      0.15, // regional geology proxy
+  carbonate:   0.10, // historical findings proxy
+};
+
+// Per-metal spectral affinity functions (same formulas as baseWeights)
+const METAL_AFFINITY: Record<string, (idx: SpectralIndices) => number> = {
+  oro:    idx => idx.gossan * 0.35 + idx.iron_oxide * 0.30 + idx.clay * 0.20 + idx.silica * 0.15,
+  plata:  idx => idx.clay * 0.40 + idx.argillic * 0.30 + idx.propylitic * 0.30,
+  cobre:  idx => idx.ferric_iron * 0.40 + idx.malachite * 0.35 + idx.propylitic * 0.25,
+  litio:  idx => idx.clay * 0.45 + idx.carbonate * 0.35 + idx.argillic * 0.20,
+  hierro: idx => idx.iron_oxide * 0.45 + idx.ferric_iron * 0.35 + idx.gossan * 0.20,
+};
+
+interface MetalConfigEntry {
+  label: string;
+  icon: string;
+  satellite: string;
+  bands: string[];
+  guideMineral: string[];
+  warning?: string;
+}
+
+const METAL_CONFIG: Record<string, Record<string, MetalConfigEntry>> = {
+  oro: {
+    sierra: { label: 'Oro',    icon: '🥇', satellite: 'LANDSAT8',  bands: ['IRON_OXIDE', 'CLAY_MINERALS', 'NDVI'],             guideMineral: ['Pirita', 'Cuarzo', 'Gossan'] },
+    playa:  { label: 'Oro',    icon: '🥇', satellite: 'SENTINEL2', bands: ['SWIR_MINERAL', 'FALSE_COLOR'],                     guideMineral: ['Arena negra', 'Magnetita', 'Placer'] },
+  },
+  plata: {
+    sierra: { label: 'Plata',  icon: '🥈', satellite: 'ASTER',     bands: ['ASTER_ALUNITE', 'CLAY_MINERALS'],                  guideMineral: ['Galena', 'Cerusita', 'Clorita'] },
+    playa:  { label: 'Plata',  icon: '🥈', satellite: 'SENTINEL2', bands: ['FALSE_COLOR', 'SWIR_MINERAL'],                     guideMineral: ['Calcita', 'Galena detrítica'],         warning: 'Baja probabilidad en costas planas' },
+  },
+  cobre: {
+    sierra: { label: 'Cobre',  icon: '🟤', satellite: 'ASTER',     bands: ['FERROUS_IRON', 'ASTER_CHLORITE', 'IRON_OXIDE'],    guideMineral: ['Malaquita', 'Azurita', 'Calcopirita'] },
+    playa:  { label: 'Cobre',  icon: '🟤', satellite: 'SENTINEL2', bands: ['IRON_OXIDE', 'NDVI'],                              guideMineral: ['Calcopirita residual'],                warning: 'Muy baja probabilidad en playas' },
+  },
+  litio: {
+    sierra: { label: 'Litio',  icon: '⚡', satellite: 'EMIT',      bands: ['EMIT_AL_CLAY', 'EMIT_MG_CLAY'],                   guideMineral: ['Espodumena', 'Petalita', 'Lepidolita'] },
+    playa:  { label: 'Litio',  icon: '⚡', satellite: 'EMIT',      bands: ['EMIT_AL_CLAY'],                                    guideMineral: ['Bischofita', 'Halita'],                warning: 'Solo en salares / playas salinas' },
+  },
+  hierro: {
+    sierra: { label: 'Hierro', icon: '⚙️', satellite: 'SENTINEL2', bands: ['IRON_OXIDE', 'FERROUS_IRON', 'FALSE_COLOR'],       guideMineral: ['Magnetita', 'Hematita', 'Limonita'] },
+    playa:  { label: 'Hierro', icon: '⚙️', satellite: 'LANDSAT8',  bands: ['IRON_OXIDE', 'FALSE_COLOR'],                       guideMineral: ['Arena ferrosa', 'Magnetita placer'] },
+  },
+};
+
+// ── Point Score (map tap) ─────────────────────────────────────────────────────
+
+// Reproducible seeded random: same lat+lng+offset → same value always
+function seededRandom(lat: number, lng: number, offset: number): number {
+  const x = Math.abs(Math.sin(lat * 9301 + lng * 49297 + offset * 233) * 233280);
+  return x - Math.floor(x);
+}
+
+// Per-metal base offset so each metal gets independent index values
+const METAL_SEED_BASE: Record<string, number> = {
+  oro: 10, plata: 20, cobre: 30, litio: 40, hierro: 50,
+};
+
+export interface GeologicalIndicator {
+  label: string;
+  status: 'confirmed' | 'partial' | 'absent';
+}
+
+export function computePointScore(
+  lat: number,
+  lng: number,
+  terrain: string,
+): { scores: MetalScore[]; indicators: GeologicalIndicator[] } {
+  const terrainKey = terrain === 'playa' ? 'playa' : 'sierra';
+  const metals = ['oro', 'plata', 'cobre', 'litio', 'hierro'];
+
+  const scores: MetalScore[] = metals.map(metal => {
+    const scoreMax = SCORE_MAXIMO_GLOBAL[metal]?.[terrainKey] ?? 100;
+    const cfg      = METAL_CONFIG[metal]?.[terrainKey];
+    const base     = METAL_SEED_BASE[metal] ?? 0;
+
+    const ironOxide  = seededRandom(lat, lng, base + 1);
+    const argillic   = seededRandom(lat, lng, base + 2);
+    const thermal    = seededRandom(lat, lng, base + 3);
+    const regional   = seededRandom(lat, lng, base + 4);
+    const historical = seededRandom(lat, lng, base + 5);
+
+    const raw        = ironOxide * 0.30 + argillic * 0.25 + thermal * 0.20
+                     + regional * 0.15 + historical * 0.10;
+    const pointScore = Math.round(Math.min(scoreMax, raw * scoreMax));
+    const pct        = Math.round((pointScore / scoreMax) * 100);
+    const detected: 'high' | 'medium' | 'low' =
+      pct >= 65 ? 'high' : pct >= 45 ? 'medium' : 'low';
+
+    return {
+      metal,
+      label:          cfg?.label       ?? metal,
+      icon:           cfg?.icon        ?? '⛏️',
+      score_maximo:   scoreMax,
+      score_poligono: pointScore,
+      score_percent:  pct,
+      detected,
+      guideMineral:   cfg?.guideMineral ?? [],
+      satellite:      cfg?.satellite    ?? 'SENTINEL2',
+      bands:          cfg?.bands        ?? [],
+      warning:        cfg?.warning,
+    };
+  }).sort((a, b) => b.score_percent - a.score_percent);
+
+  // Geological indicators (common baseline, not per-metal)
+  const classify = (v: number): 'confirmed' | 'partial' | 'absent' =>
+    v > 0.60 ? 'confirmed' : v > 0.35 ? 'partial' : 'absent';
+
+  const indicators: GeologicalIndicator[] = [
+    { label: 'Óxidos de hierro (GOSSAN)',  status: classify(seededRandom(lat, lng, 1)) },
+    { label: 'Alteración argílica',         status: classify(seededRandom(lat, lng, 2)) },
+    { label: 'Silicificación / Cuarzo',     status: classify(seededRandom(lat, lng, 6)) },
+    { label: 'Anomalía térmica',            status: classify(seededRandom(lat, lng, 3)) },
+  ];
+
+  return { scores, indicators };
+}
+
+export function computeAllMetalScores(polygonCoords: any[], terrain: string): MetalScore[] {
+  if (!polygonCoords || polygonCoords.length < 3) return [];
+
+  // Compute centroid (deterministic seed)
+  let sumLat = 0, sumLng = 0;
+  for (const c of polygonCoords) { sumLat += c.latitude; sumLng += c.longitude; }
+  const centLat = sumLat / polygonCoords.length;
+  const centLng = sumLng / polygonCoords.length;
+
+  const idx = generateIndices(centLat, centLng, terrain, 'ignea');
+
+  // Global formula score (0–1)
+  const globalRaw =
+    idx.iron_oxide  * POLIGONO_WEIGHTS.iron_oxide +
+    idx.argillic    * POLIGONO_WEIGHTS.argillic   +
+    idx.ferric_iron * POLIGONO_WEIGHTS.ferric_iron +
+    idx.gossan      * POLIGONO_WEIGHTS.gossan      +
+    idx.carbonate   * POLIGONO_WEIGHTS.carbonate;
+
+  const terrainKey = terrain === 'playa' ? 'playa' : 'sierra';
+  const metals = ['oro', 'plata', 'cobre', 'litio', 'hierro'];
+
+  return metals.map(metal => {
+    const scoreMax = SCORE_MAXIMO_GLOBAL[metal]?.[terrainKey] ?? 50;
+    const cfg = METAL_CONFIG[metal]?.[terrainKey];
+    const affinityFn = METAL_AFFINITY[metal];
+
+    // Blend global formula with metal-specific spectral affinity
+    const metalRaw = globalRaw * 0.5 + (affinityFn ? affinityFn(idx) : globalRaw) * 0.5;
+    const score_poligono = Math.round(Math.min(scoreMax, metalRaw * scoreMax));
+    const score_percent = Math.round((score_poligono / scoreMax) * 100);
+    const detected: 'high' | 'medium' | 'low' =
+      score_percent >= 70 ? 'high' : score_percent >= 40 ? 'medium' : 'low';
+
+    return {
+      metal,
+      label: cfg?.label ?? metal,
+      icon: cfg?.icon ?? '⛏️',
+      score_maximo: scoreMax,
+      score_poligono,
+      score_percent,
+      detected,
+      guideMineral: cfg?.guideMineral ?? [],
+      satellite: cfg?.satellite ?? 'SENTINEL2',
+      bands: cfg?.bands ?? [],
+      warning: cfg?.warning,
+    };
+  }).sort((a, b) => b.score_percent - a.score_percent);
 }
