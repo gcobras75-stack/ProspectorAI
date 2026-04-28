@@ -432,12 +432,21 @@ export default function ProspectorDashboard() {
 📐 Area total: ${areaKm2} km2
 
 ━━━━━━━━━━━━━━━━━
-💰 *PRODUCCION ESTIMADA*
+📡 *ESTADO ACTUAL*
 ━━━━━━━━━━━━━━━━━
-🎯 Total: *${cropData.tonelaje_estimado.toLocaleString()} toneladas*
-📊 Rango: ${cropData.tonelaje_minimo.toLocaleString()} - ${cropData.tonelaje_maximo.toLocaleString()} ton
-📈 Rendimiento promedio: ${cropData.rendimiento_por_hectarea} ton/ha
-🌾 Hectareas activas: ${cropData.hectareas_cultivo_activo.toLocaleString()} ha
+🎯 Rendimiento medido: ${cropData.rendimiento_por_hectarea} ton/ha
+💰 Total actual: *${cropData.tonelaje_estimado.toLocaleString()} ton*
+🌾 Hectareas: ${cropData.hectareas_cultivo_activo.toLocaleString()} ha
+${(cropData as any).proyeccion ? `
+━━━━━━━━━━━━━━━━━
+📊 *PROYECCION DE COSECHA*
+━━━━━━━━━━━━━━━━━
+🎯 Rendimiento esperado: ${(cropData as any).proyeccion.ton_ha} ton/ha
+💰 Total al cosechar: *${(cropData as any).proyeccion.tonelaje_proyectado.toLocaleString()} ton*
+📈 Incremento: +${(cropData as any).proyeccion.incremento_pct}%
+📅 Fecha cosecha: ${(cropData as any).proyeccion.fecha_cosecha} (${(cropData as any).proyeccion.dias_a_cosecha}d)
+📊 Rango: ${(cropData as any).proyeccion.rango_min.toLocaleString()} - ${(cropData as any).proyeccion.rango_max.toLocaleString()}
+✅ Confianza: ${(cropData as any).proyeccion.confianza}` : ''}
 
 ━━━━━━━━━━━━━━━━━
 🌿 *INDICADORES VEGETATIVOS*
@@ -1218,7 +1227,7 @@ _Datos: ESA Copernicus, NASA, USGS_`;
 
         {/* DEBUG VERSION TAG */}
         <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, zIndex: 50, maxWidth: 220 }}>
-          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v8.1</Text>
+          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v8.5</Text>
           <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
         </View>
 
@@ -2395,6 +2404,20 @@ _Datos: ESA Copernicus, NASA, USGS_`;
                       <Text style={{ color: '#FF9800', fontSize: 11 }}>~{cropData.mango.frutos_por_arbol} frutos/arbol</Text>
                     </View>
                     <Text style={{ color: '#FFC107', fontSize: 13, fontWeight: '900', marginTop: 4 }}>Valor cosecha: ${(cropData.mango.valor_cosecha_mxn / 1e6).toFixed(1)}M MXN</Text>
+                  </View>
+                )}
+
+                {/* Harvest projection */}
+                {(cropData as any).proyeccion && (
+                  <View style={{ backgroundColor: '#1A1A1A', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: (cropData as any).proyeccion.confianza === 'Alta' ? '#4CAF50' : (cropData as any).proyeccion.confianza === 'Media' ? '#FFC107' : '#FF9800' }}>
+                    <Text style={{ color: '#4CAF50', fontSize: 11, fontWeight: 'bold', letterSpacing: 1, marginBottom: 6 }}>PROYECCION DE COSECHA</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <Text style={{ color: '#FFF', fontSize: 11 }}>Cosecha: <Text style={{ fontWeight: 'bold' }}>{(cropData as any).proyeccion.fecha_cosecha}</Text></Text>
+                      <Text style={{ color: '#888', fontSize: 11 }}>({(cropData as any).proyeccion.dias_a_cosecha}d)</Text>
+                    </View>
+                    <Text style={{ color: '#4CAF50', fontSize: 20, fontWeight: '900' }}>{(cropData as any).proyeccion.ton_ha} ton/ha</Text>
+                    <Text style={{ color: '#888', fontSize: 10 }}>+{(cropData as any).proyeccion.incremento_pct}% vs actual | {(cropData as any).proyeccion.tonelaje_proyectado.toLocaleString()} ton total</Text>
+                    <Text style={{ color: '#666', fontSize: 9, marginTop: 2 }}>Rango: {(cropData as any).proyeccion.rango_min.toLocaleString()} - {(cropData as any).proyeccion.rango_max.toLocaleString()} | {(cropData as any).proyeccion.confianza}</Text>
                   </View>
                 )}
 
