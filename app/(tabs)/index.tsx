@@ -11,6 +11,7 @@ import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, computePointScore, MetalScore, GeologicalIndicator } from '../core/GeologicalEngine';
+import type { MiningSpectralResult } from '../core/SatelliteEngine';
 import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist, analyzeCropBiomassWithClaude, CropBiomassStats } from '../core/ClaudeServices';
@@ -1032,7 +1033,13 @@ _Datos: ESA Copernicus, NASA, USGS_`;
     
     try {
       await new Promise(resolve => setTimeout(resolve, 600));
-      const data = analyzeZoneLocal(coordsToUse, selectedMineral, terrainType, depth, rockType, waypoints);
+      // TODO Task 8: replace NO_DATA_OFFLINE_PLACEHOLDER with real satelliteData fetched from SatelliteEngine
+      const NO_DATA_OFFLINE_PLACEHOLDER: MiningSpectralResult = {
+        cells: [], cellIndex: new Map(), acquisition_date: '', cloud_cover: 0,
+        images_used: 0, cell_size_m: 0, coverage_pct: 0,
+        data_source: 'NO_DATA_OFFLINE', source_label: 'Sin datos satelitales',
+      };
+      const data = analyzeZoneLocal(coordsToUse, selectedMineral, terrainType, depth, rockType, waypoints, NO_DATA_OFFLINE_PLACEHOLDER);
       
       if (data.success && data.top_points) {
         let finalPoints = data.top_points;

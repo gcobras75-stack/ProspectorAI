@@ -1,3 +1,6 @@
+import type { MiningSpectralResult } from './SatelliteEngine';
+import { findNearestCell } from './SatelliteEngine';
+
 export interface SpectralIndices {
   iron_oxide: number;
   clay: number;
@@ -25,6 +28,10 @@ export interface AnalysisPoint {
   analisis_integral?: string;
   geologia_interpretada?: string;
   recomendacion?: string;
+  /** 'SENTINEL2_REAL' or 'SENTINEL2_CACHED' when indices come from satellite */
+  data_source?: 'SENTINEL2_REAL' | 'SENTINEL2_CACHED' | 'SIMULATED';
+  utm_zone?: string;
+  epsg?: string;
 }
 
 // Generador pseudo-aleatorio basado en una semilla determinista
@@ -98,15 +105,26 @@ function generateIndices(lat: number, lng: number, terrain: string, rockType: st
 }
 
 export function analyzeZoneLocal(
-  polygonCoords: any[], 
-  mineral: string, 
+  polygonCoords: any[],
+  mineral: string,
   terrain: string,
-  depth: string = '0-5m',
-  rockType: string = 'ignea',
-  waypoints: any[] = []
-): { success: boolean, top_points: AnalysisPoint[], area_ha: number, all_points?: AnalysisPoint[], grid_size?: {latStep: number, lngStep: number} } {
-  
+  depth: string,
+  rockType: string,
+  waypoints: any[],
+  satelliteData: MiningSpectralResult
+): { success: boolean; top_points: AnalysisPoint[]; area_ha: number; all_points?: AnalysisPoint[]; grid_size?: { latStep: number; lngStep: number }; error?: string } {
+
   if (!polygonCoords || polygonCoords.length < 3) return { success: false, top_points: [], area_ha: 0 };
+
+  // Block analysis if no real satellite data is available
+  if (!satelliteData || satelliteData.data_source === 'NO_DATA_OFFLINE') {
+    return {
+      success: false,
+      top_points: [],
+      area_ha: 0,
+      error: 'NO_DATA_OFFLINE',
+    };
+  }
 
   const areaHa = calcAreaHectares(polygonCoords);
   let targetCount = 5;
@@ -177,28 +195,62 @@ export function analyzeZoneLocal(
   const latStep = (maxLat - minLat) / gridSteps;
   const lngStep = (maxLng - minLng) / gridSteps;
 
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
   for (let i = 0; i < gridSteps; i++) {
     for (let j = 0; j < gridSteps; j++) {
       const lat = minLat + latStep * i;
       const lng = minLng + lngStep * j;
       if (pointInPolygon({lat, lng}, polygonCoords)) {
-         
-         const indices = generateIndices(lat, lng, terrain, rockType);
-         let rawScore = 0;
-         for (const key in weights) {
-            rawScore += (indices as any)[key] * weights[key];
-         }
-         // rawScore is 0-1. Convert to 0-100
-         const score100 = rawScore * 100;
-         
-         candidates.push({
-           id: `${lat}-${lng}`,
-           rank: 0,
-           lat,
-           lng,
-           indices,
-           base_score: score100
-         });
+
+        // Use real satellite data (SENTINEL2_REAL or SENTINEL2_CACHED)
+        const nearestCell = satelliteData.cells.length > 0
+          ? findNearestCell(lat, lng, satelliteData.cells)
+          : null;
+
+        let indices: SpectralIndices;
+        const pointDataSource = satelliteData.data_source as 'SENTINEL2_REAL' | 'SENTINEL2_CACHED';
+        let utm_zone: string | undefined;
+        let epsg: string | undefined;
+
+        if (nearestCell && !nearestCell.masked_by_vegetation) {
+          // Map real S2 ratios → normalized 0-1 for weight compatibility
+          const simBase = generateIndices(lat, lng, terrain, rockType);
+          indices = {
+            iron_oxide:  clamp((nearestCell.iron_oxide - 0.5) / 2.5, 0, 1),
+            clay:        clamp((nearestCell.clay       - 0.5) / 2.0, 0, 1),
+            gossan:      clamp((nearestCell.iron_oxide - 0.5) / 2.5, 0, 1),
+            ferric_iron: clamp((nearestCell.iron_oxide - 0.5) / 2.5, 0, 1),
+            propylitic:  clamp((nearestCell.clay       - 0.5) / 2.0, 0, 1),
+            argillic:    clamp((nearestCell.clay       - 0.5) / 2.0, 0, 1),
+            // No direct S2 proxy for these — keep simulated (minor influence on scoring)
+            silica:      simBase.silica,
+            malachite:   simBase.malachite,
+            sphalerite:  simBase.sphalerite,
+            carbonate:   simBase.carbonate,
+            galena:      simBase.galena,
+          };
+          utm_zone = nearestCell.utm_zone;
+          epsg     = nearestCell.epsg;
+        } else {
+          // Cell masked by vegetation or outside coverage — use simBase for this point
+          indices = generateIndices(lat, lng, terrain, rockType);
+        }
+
+        let rawScore = 0;
+        for (const key in weights) rawScore += (indices as any)[key] * (weights as any)[key];
+
+        candidates.push({
+          id: `${lat}-${lng}`,
+          rank: 0,
+          lat,
+          lng,
+          indices,
+          base_score: rawScore * 100,
+          data_source: pointDataSource,
+          utm_zone,
+          epsg,
+        });
       }
     }
   }
