@@ -9,8 +9,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
-import { analyzeZoneLocal, computeAllMetalScores, computePointScore, MetalScore, GeologicalIndicator } from '../core/GeologicalEngine';
-import { fetchMiningSpectralGrid, type MiningSpectralResult } from '../core/SatelliteEngine';
+import { analyzeZoneLocal, computeAllMetalScores, MetalScore } from '../core/GeologicalEngine';
+import { fetchMiningSpectralGrid, findNearestCell, computeAdaptiveCellSize, type MiningSpectralResult, type MiningSpectralCell } from '../core/SatelliteEngine';
 import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
@@ -43,13 +43,6 @@ function calcPolygonArea(coords: Coordinate[]): number {
 
 // ─── Tap-analysis pure helpers (module-level, no hooks) ──────────────────────
 
-const TAP_GLOBAL_MAX: Record<string, Record<string, number>> = {
-  oro:    { sierra: 92, playa: 78 },
-  plata:  { sierra: 71, playa: 45 },
-  cobre:  { sierra: 88, playa: 40 },
-  litio:  { sierra: 85, playa: 30 },
-  hierro: { sierra: 95, playa: 70 },
-};
 
 const TAP_METAL_META: Record<string, { label: string; icon: string; color: string }> = {
   oro:    { label: 'ORO',    icon: '🥇', color: '#B7950B' },
@@ -59,54 +52,38 @@ const TAP_METAL_META: Record<string, { label: string; icon: string; color: strin
   hierro: { label: 'HIERRO', icon: '🔴', color: '#922B21' },
 };
 
-function tapPointScore(lat: number, lng: number, metal: string): number {
-  const s = (mult: number): number => {
-    const v = Math.abs(Math.sin(lat * 9301 * mult + lng * 49297 + metal.length * 233) * 233280);
-    return v - Math.floor(v);
-  };
-  return Math.round(
-    (s(1.0) * 0.30 + s(1.7) * 0.25 + s(2.3) * 0.20 + s(3.1) * 0.15 + s(4.2) * 0.10) * 100
-  );
+// ── Real spectral anomaly from a Sentinel-2 cell ──────────────────────────────
+// Normalises raw satellite ratios to 0-1, then applies per-metal weights that
+// reflect actual hydrothermal proxy literature (no made-up world-maximum).
+function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
+
+function cellAnomalyScore(cell: MiningSpectralCell, metal: string): number {
+  // Raw S2 ratio → 0-1 normalisation (same ranges used in GeologicalEngine)
+  const normIron  = clamp01((cell.iron_oxide - 0.5) / 2.5); // gossan proxy
+  const normClay  = clamp01((cell.clay       - 0.5) / 2.0); // hydrothermal clay
+  const normFerr  = clamp01((cell.ferroso    - 0.3) / 2.7); // ferrous iron
+
+  switch (metal) {
+    case 'oro':    return Math.round((normIron * 0.50 + normClay * 0.30 + normFerr * 0.20) * 100);
+    case 'plata':  return Math.round((normClay * 0.60 + normIron * 0.40)                   * 100);
+    case 'cobre':  return Math.round((normFerr * 0.50 + normIron * 0.30 + normClay * 0.20) * 100);
+    case 'litio':  return Math.round((normClay * 0.80 + normFerr * 0.20)                   * 100);
+    case 'hierro': return Math.round((normIron * 0.70 + normFerr * 0.30)                   * 100);
+    default:       return Math.round((normIron * 0.40 + normClay * 0.40 + normFerr * 0.20) * 100);
+  }
+}
+
+// ── Anomaly level helpers ──────────────────────────────────────────────────────
+function anomalyFromPct(pct: number): { level: 'ALTA' | 'MEDIA' | 'BAJA'; color: string } {
+  if (pct >= 65) return { level: 'ALTA',  color: '#E53935' };
+  if (pct >= 35) return { level: 'MEDIA', color: '#FFA000' };
+  return             { level: 'BAJA',  color: '#546E7A' };
 }
 
 function tapMessage(pct: number): { text: string; color: string } {
-  if (pct >= 80) return { text: '⭐ Anomalía fuerte — visita prioritaria',   color: '#C0392B' };
-  if (pct >= 65) return { text: '🟠 Señal significativa — planifica visita', color: '#E67E22' };
-  if (pct >= 45) return { text: '🟡 Señal moderada — registrar y comparar',  color: '#F39C12' };
-  if (pct >= 25) return { text: '🟢 Señal débil — baja prioridad',           color: '#27AE60' };
-  return              { text: '⚫ Sin anomalía detectable',                   color: '#7F8C8D' };
-}
-
-function getIndicatorsForPoint(
-  lat: number, lng: number, metal: string, terrain: string
-): { label: string; status: string }[] {
-  const s  = (m: number): number => Math.abs(Math.sin(lat * m + lng * m * 1.3) * 100) % 100;
-  const st = (m: number): string => s(m) > 35 ? '✅' : s(m) > 20 ? '⚠️' : '❌';
-  if (metal === 'oro' && terrain === 'sierra') return [
-    { label: 'Óxidos de hierro (GOSSAN)',  status: st(7.1)  },
-    { label: 'Alteración argílica',         status: st(11.3) },
-    { label: 'Cuarzo asociado',             status: st(13.7) },
-    { label: 'Anomalía térmica',            status: st(17.9) },
-  ];
-  if (metal === 'oro' && terrain === 'playa') return [
-    { label: 'Sedimento oscuro (magnetita)', status: st(7.1)  },
-    { label: 'Gradiente granulométrico',     status: st(11.3) },
-    { label: 'Zona de baja energía',         status: st(13.7) },
-  ];
-  if (metal === 'cobre') return [
-    { label: 'Malachita detectable',   status: st(7.1)  },
-    { label: 'Alteración propilítica', status: st(11.3) },
-    { label: 'Pórfido probable',       status: st(13.7) },
-  ];
-  if (metal === 'hierro') return [
-    { label: 'Óxidos de hierro', status: st(7.1)  },
-    { label: 'Hematita',         status: st(11.3) },
-    { label: 'Magnetita',        status: st(13.7) },
-  ];
-  return [
-    { label: 'Alteración argílica', status: st(7.1)  },
-    { label: 'Firma espectral',     status: st(11.3) },
-  ];
+  if (pct >= 65) return { text: '⭐ Anomalía significativa',           color: '#E53935' };
+  if (pct >= 35) return { text: '🟡 Señal moderada — registrar zona', color: '#FFA000' };
+  return              { text: '⚫ Sin anomalía detectable',            color: '#546E7A' };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -189,8 +166,6 @@ export default function ProspectorDashboard() {
 
   // Map tap point analysis
   const [tapPoint, setTapPoint] = useState<{lat: number; lng: number} | null>(null);
-  const [tapScores, setTapScores] = useState<MetalScore[]>([]);
-  const [tapIndicators, setTapIndicators] = useState<GeologicalIndicator[]>([]);
   const [selectedPoint, setSelectedPoint] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [mapRotation, setMapRotation] = useState(0);
@@ -447,9 +422,6 @@ export default function ProspectorDashboard() {
     if (drawingType === 'none') {
       const lat = coord.latitude;
       const lng = coord.longitude;
-      const { scores, indicators } = computePointScore(lat, lng, terrainType);
-      setTapScores(scores);
-      setTapIndicators(indicators);
       setTapPoint({ lat, lng });
       setShowResults(false);
       triggerHaptic('light');
@@ -563,10 +535,14 @@ export default function ProspectorDashboard() {
     
     try {
       await new Promise(resolve => setTimeout(resolve, 600));
+      // ── Adaptive cell size based on polygon area ──────────────────────────────
+      const polygonAreaHa = calcPolygonArea(coordsToUse) / 10_000;
+      const cellSizeM     = computeAdaptiveCellSize(polygonAreaHa);
+
       // ── Fetch real satellite data (3-state: REAL / CACHED / NO_DATA_OFFLINE) ─
       let satData: MiningSpectralResult;
       try {
-        satData = await fetchMiningSpectralGrid(coordsToUse);
+        satData = await fetchMiningSpectralGrid(coordsToUse, { cell_size_m: cellSizeM });
       } catch (e: any) {
         // fetchMiningSpectralGrid never throws — this is a safety net
         satData = {
@@ -1015,24 +991,37 @@ export default function ProspectorDashboard() {
 
             <ScrollView style={{maxHeight: 400}} showsVerticalScrollIndicator={false}>
 
-              {/* ── Etiqueta honesta de fuente de datos ─────────────────── */}
-              {satelliteData && (
-                <View style={{
-                  backgroundColor: satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90
-                    ? '#2A2A00' : '#0A2A0A',
-                  borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6,
-                  marginHorizontal: 8, marginBottom: 8,
-                }}>
-                  <Text style={{ fontSize: 11, color: '#DDDDDD', textAlign: 'center' }}>
-                    {satelliteData.source_label}
-                  </Text>
-                  {satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90 && (
-                    <Text style={{ fontSize: 10, color: '#FF9800', textAlign: 'center', marginTop: 2 }}>
-                      ⚠️ Datos de hace {satelliteData.cache_age_days} días — actualiza con conexión
+              {/* ── Fuente de datos + malla adaptativa ──────────────────── */}
+              {satelliteData && (() => {
+                const csm  = satelliteData.cell_size_m || computeAdaptiveCellSize(parseFloat(areaHa));
+                const isLarge = parseFloat(areaHa) > 50_000;
+                return (
+                  <View style={{
+                    backgroundColor: satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90
+                      ? '#2A2A00' : '#0A2A0A',
+                    borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6,
+                    marginHorizontal: 8, marginBottom: 8,
+                  }}>
+                    <Text style={{ fontSize: 11, color: '#DDDDDD', textAlign: 'center' }}>
+                      {satelliteData.source_label}
                     </Text>
-                  )}
-                </View>
-              )}
+                    <Text style={{ fontSize: 10, color: '#4CAF50', textAlign: 'center', marginTop: 3 }}>
+                      Malla: {csm >= 1000 ? `${csm / 1000} km` : `${csm} m`} × {csm >= 1000 ? `${csm / 1000} km` : `${csm} m`}
+                      {analysisPoints.length > 0 ? `  ·  ${analysisPoints.length} puntos` : ''}
+                    </Text>
+                    {satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90 && (
+                      <Text style={{ fontSize: 10, color: '#FF9800', textAlign: 'center', marginTop: 2 }}>
+                        ⚠️ Datos de hace {satelliteData.cache_age_days} días — actualiza con conexión
+                      </Text>
+                    )}
+                    {isLarge && (
+                      <Text style={{ fontSize: 10, color: '#FF9800', textAlign: 'center', marginTop: 3 }}>
+                        Zona amplia — dibuja un polígono más chico sobre las anomalías para ver detalle de 20 m
+                      </Text>
+                    )}
+                  </View>
+                );
+              })()}
 
               {/* ── ScoreCards por metal ──────────────────────────────────── */}
               {metalScores.map((ms) => (
@@ -1108,122 +1097,135 @@ export default function ProspectorDashboard() {
         <View style={styles.tapPanel}>
 
           {/* Header */}
-          <View style={styles.resultsHeader}>
-            <View style={{flex: 1}}>
-              <Text style={styles.resultsTitle}>📍 ANÁLISIS DEL PUNTO</Text>
-              <Text style={{ fontSize: 10, color: '#FF6B35', marginTop: 2 }}>
-                ⚠️ SIMULADO — indicador exploratorio sin datos satelitales reales
-              </Text>
-              <Text style={{color: '#555', fontSize: 10, marginTop: 2, fontFamily: 'monospace'}}>
-                {tapPoint.lat.toFixed(6)}, {tapPoint.lng.toFixed(6)}
-              </Text>
-              <Text style={{color: '#555', fontSize: 10, marginTop: 1}}>
-                Terreno: {terrainType.charAt(0).toUpperCase() + terrainType.slice(1)}
-                {'  ·  '}Metal activo: {selectedMineral.toUpperCase()}
-              </Text>
-            </View>
-            <TouchableOpacity onPress={() => setTapPoint(null)} hitSlop={{top:10,bottom:10,left:10,right:10}}>
-              <MaterialCommunityIcons name="close" size={24} color="#FFD700" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={{maxHeight: 420}} showsVerticalScrollIndicator={false}>
-            {(() => {
-              const { lat, lng } = tapPoint;
-              const terrKey = terrainType === 'playa' ? 'playa' : 'sierra';
-              const BARS    = 20;
-
-              return (
-                <>
-                  {/* ── Anomalía por cada metal ───────────────────────── */}
-                  {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const).map(metal => {
-                    const maxScore     = TAP_GLOBAL_MAX[metal]?.[terrKey] ?? 100;
-                    const ptScore      = Math.min(tapPointScore(lat, lng, metal), maxScore);
-                    const pct          = Math.round((ptScore / maxScore) * 100);
-                    const msg          = tapMessage(pct);
-                    const meta         = TAP_METAL_META[metal];
-                    const color        = meta?.color ?? '#FFD700';
-                    const ptBars       = Math.round((pct / 100) * BARS);
-                    const anomalyLevel = pct >= 65 ? 'ALTA' : pct >= 35 ? 'MEDIA' : 'BAJA';
-                    const anomalyColor = pct >= 65 ? '#E53935' : pct >= 35 ? '#FFA000' : '#546E7A';
-
-                    return (
-                      <View key={metal} style={{
-                        marginBottom: 14,
-                        paddingBottom: 14,
-                        borderBottomWidth: 1,
-                        borderBottomColor: '#1C1C1C',
-                      }}>
-                        {/* Metal title + anomaly level */}
-                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 9, justifyContent: 'space-between'}}>
-                          <Text style={{fontWeight: '900', fontSize: 15, color, letterSpacing: 0.5}}>
-                            {meta?.icon}  {meta?.label}
-                          </Text>
-                          <View style={{borderWidth: 1.5, borderColor: anomalyColor, borderRadius: 5,
-                            paddingHorizontal: 8, paddingVertical: 2, backgroundColor: `${anomalyColor}22`}}>
-                            <Text style={{color: anomalyColor, fontWeight: '900', fontSize: 11, letterSpacing: 0.5}}>
-                              {anomalyLevel}
-                            </Text>
-                          </View>
-                        </View>
-
-                        {/* Intensity bar */}
-                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 6}}>
-                          <Text style={{fontSize: 11, color: '#666', width: 122}}>
-                            Intensidad señal:
-                          </Text>
-                          <Text style={{fontFamily: 'monospace', fontSize: 12, color: anomalyColor, flex: 1}}>
-                            {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
-                          </Text>
-                        </View>
-
-                        {/* Message */}
-                        <Text style={{fontSize: 11, color: msg.color, marginLeft: 122, lineHeight: 16}}>
-                          {msg.text}
-                        </Text>
-                      </View>
-                    );
-                  })}
-
-                  {/* ── Indicadores del metal activo ─────────────────── */}
-                  <View style={{
-                    backgroundColor: '#0C0C0C',
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: '#252525',
-                    padding: 12,
-                    marginBottom: 8,
-                    marginTop: 4,
-                  }}>
+          {(() => {
+            const nearestCell = satelliteData?.cells?.length
+              ? findNearestCell(tapPoint.lat, tapPoint.lng, satelliteData.cells)
+              : null;
+            const hasReal = nearestCell !== null;
+            return (
+              <>
+                <View style={styles.resultsHeader}>
+                  <View style={{flex: 1}}>
+                    <Text style={styles.resultsTitle}>📍 PUNTO TOCADO</Text>
                     <Text style={{
-                      color: '#AAA', fontWeight: '900', fontSize: 10,
-                      letterSpacing: 1, marginBottom: 10,
+                      fontSize: 10, marginTop: 2,
+                      color: hasReal ? '#4CAF50' : '#FF6B35',
                     }}>
-                      INDICADORES DETECTADOS
+                      {hasReal
+                        ? `✅ Sentinel-2 real · celda a ${
+                            Math.round(Math.sqrt(
+                              ((nearestCell!.lat - tapPoint.lat)**2 + (nearestCell!.lng - tapPoint.lng)**2)
+                            ) * 111000)
+                          } m`
+                        : '⚠️ Sin datos reales — dibuja un polígono sobre esta zona'}
                     </Text>
-                    {getIndicatorsForPoint(lat, lng, selectedMineral, terrainType).map((ind, i) => {
-                      const isOk  = ind.status === '✅';
-                      const isWrn = ind.status === '⚠️';
-                      const clr   = isOk ? '#00C853' : isWrn ? '#FFA500' : '#484848';
-                      return (
-                        <View key={i} style={{
-                          paddingVertical: 7,
-                          borderBottomWidth: i < getIndicatorsForPoint(lat, lng, selectedMineral, terrainType).length - 1 ? 1 : 0,
-                          borderBottomColor: '#1A1A1A',
-                        }}>
-                          <Text style={{fontSize: 13, fontWeight: '600', color: clr}}>
-                            {ind.status}{'  '}{ind.label}
-                          </Text>
-                        </View>
-                      );
-                    })}
+                    <Text style={{color: '#555', fontSize: 10, marginTop: 2, fontFamily: 'monospace'}}>
+                      {tapPoint.lat.toFixed(6)}, {tapPoint.lng.toFixed(6)}
+                    </Text>
                   </View>
+                  <TouchableOpacity onPress={() => setTapPoint(null)} hitSlop={{top:10,bottom:10,left:10,right:10}}>
+                    <MaterialCommunityIcons name="close" size={24} color="#FFD700" />
+                  </TouchableOpacity>
+                </View>
 
-                  <View style={{height: 14}} />
-                </>
-              );
-            })()}
-          </ScrollView>
+                <ScrollView style={{maxHeight: 420}} showsVerticalScrollIndicator={false}>
+                  {hasReal ? (
+                    // ── REAL DATA: anomaly from nearest Sentinel-2 cell ────────
+                    (() => {
+                      const cell = nearestCell!;
+                      const BARS = 20;
+                      return (
+                        <>
+                          {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const).map(metal => {
+                            const score        = cellAnomalyScore(cell, metal);
+                            const { level, color: aColor } = anomalyFromPct(score);
+                            const msg          = tapMessage(score);
+                            const meta         = TAP_METAL_META[metal];
+                            const ptBars       = Math.round((score / 100) * BARS);
+                            return (
+                              <View key={metal} style={{marginBottom: 14, paddingBottom: 14,
+                                borderBottomWidth: 1, borderBottomColor: '#1C1C1C'}}>
+                                <View style={{flexDirection: 'row', alignItems: 'center',
+                                  marginBottom: 8, justifyContent: 'space-between'}}>
+                                  <Text style={{fontWeight: '900', fontSize: 14,
+                                    color: meta?.color ?? '#FFD700', letterSpacing: 0.4}}>
+                                    {meta?.icon}  {meta?.label}
+                                  </Text>
+                                  <View style={{borderWidth: 1.5, borderColor: aColor,
+                                    borderRadius: 5, paddingHorizontal: 8, paddingVertical: 2,
+                                    backgroundColor: `${aColor}22`}}>
+                                    <Text style={{color: aColor, fontWeight: '900',
+                                      fontSize: 11, letterSpacing: 0.5}}>{level}</Text>
+                                  </View>
+                                </View>
+                                <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 5}}>
+                                  <Text style={{fontSize: 10, color: '#666', width: 116}}>
+                                    Alteración:
+                                  </Text>
+                                  <Text style={{fontFamily: 'monospace', fontSize: 11,
+                                    color: aColor, flex: 1}}>
+                                    {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
+                                  </Text>
+                                </View>
+                                <Text style={{fontSize: 11, color: msg.color, marginLeft: 116}}>
+                                  {msg.text}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                          {/* Raw spectral indices for transparency */}
+                          <View style={{backgroundColor: '#0A0A0A', borderRadius: 8,
+                            borderWidth: 1, borderColor: '#1E1E1E', padding: 10, marginTop: 4}}>
+                            <Text style={{color: '#444', fontSize: 9, letterSpacing: 0.8, marginBottom: 6}}>
+                              ÍNDICES SENTINEL-2 (celda {cell.lat.toFixed(4)}, {cell.lng.toFixed(4)})
+                            </Text>
+                            {[
+                              { label: 'Óxido de Fe (B4/B2)', value: cell.iron_oxide.toFixed(3) },
+                              { label: 'Arcilla (B11/B12)',   value: cell.clay.toFixed(3)       },
+                              { label: 'Ferroso (B11/B8)',    value: cell.ferroso.toFixed(3)    },
+                              { label: 'NDVI',                value: cell.ndvi.toFixed(3)       },
+                            ].map(({ label, value }) => (
+                              <View key={label} style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3}}>
+                                <Text style={{color: '#555', fontSize: 10}}>{label}</Text>
+                                <Text style={{color: '#888', fontSize: 10, fontFamily: 'monospace'}}>{value}</Text>
+                              </View>
+                            ))}
+                            {cell.masked_by_vegetation && (
+                              <Text style={{color: '#FF9800', fontSize: 9, marginTop: 4}}>
+                                ⚠️ NDVI alto — señal mineral puede estar atenuada por vegetación
+                              </Text>
+                            )}
+                          </View>
+                          <Text style={{color: '#333', fontSize: 9, marginTop: 10, fontStyle: 'italic'}}>
+                            Indicador exploratorio — requiere verificación en campo
+                          </Text>
+                          <View style={{height: 14}} />
+                        </>
+                      );
+                    })()
+                  ) : (
+                    // ── NO DATA: invite to draw polygon ────────────────────────
+                    <View style={{alignItems: 'center', paddingVertical: 28, paddingHorizontal: 16}}>
+                      <Text style={{fontSize: 28, marginBottom: 12}}>🛰️</Text>
+                      <Text style={{color: '#888', fontSize: 13, fontWeight: '700',
+                        textAlign: 'center', marginBottom: 8}}>
+                        Sin datos reales en esta zona
+                      </Text>
+                      <Text style={{color: '#555', fontSize: 11, textAlign: 'center', lineHeight: 17}}>
+                        Dibuja un polígono sobre esta área y presiona{' '}
+                        <Text style={{color: '#FFD700', fontWeight: '700'}}>ANALIZAR</Text>
+                        {' '}para ver anomalías reales de Sentinel-2.
+                      </Text>
+                      <Text style={{color: '#3A3A3A', fontSize: 10, textAlign: 'center',
+                        marginTop: 12, fontStyle: 'italic'}}>
+                        No se muestran scores sin datos satelitales reales.
+                      </Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </>
+            );
+          })()}
         </View>
       )}
 
@@ -1246,96 +1248,86 @@ export default function ProspectorDashboard() {
 
             <ScrollView style={{maxHeight: '100%'}}>
               {selectedPoint && (() => {
-                const lat     = selectedPoint.lat;
-                const lng     = selectedPoint.lng;
-                const terrKey = terrainType === 'playa' ? 'playa' : 'sierra';
-                const BARS    = 18;
-
-                // Primary metal score → drives recommendation
-                const primMax = TAP_GLOBAL_MAX[selectedMineral]?.[terrKey] ?? 100;
-                const primPt  = Math.min(tapPointScore(lat, lng, selectedMineral), primMax);
-                const primPct = Math.round((primPt / primMax) * 100);
-
-                const recText = primPct >= 80
-                  ? 'Este punto tiene anomalía fuerte. Prioriza la visita de campo. Busca gossan (zona rojiza) y venas de cuarzo en la superficie.'
-                  : primPct >= 65
-                  ? 'Señal positiva confirmada. Planifica visita en tu próxima salida. Lleva lupa y UV.'
-                  : primPct >= 45
-                  ? 'Señal moderada. Registra el punto y compara con otros del área antes de decidir.'
-                  : 'Señal débil. Baja prioridad. Enfoca tu tiempo en los puntos con mayor score.';
+                const BARS      = 18;
+                // selectedPoint.base_score is real (derived from Sentinel-2 in analyzeZoneLocal)
+                const realScore = Math.round(selectedPoint.base_score || selectedPoint.score || 0);
+                const { level: primLevel, color: primColor } = anomalyFromPct(realScore);
+                // Use nearest cell for multi-metal breakdown (point IS inside the polygon)
+                const nearestCell = satelliteData?.cells?.length
+                  ? findNearestCell(selectedPoint.lat, selectedPoint.lng, satelliteData.cells)
+                  : null;
 
                 return (
                   <>
-                    {/* ── Anomalía por metal ──────────────────────────── */}
-                    {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const).map(metal => {
-                      const maxScore     = TAP_GLOBAL_MAX[metal]?.[terrKey] ?? 100;
-                      const ptScore      = Math.min(tapPointScore(lat, lng, metal), maxScore);
-                      const pct          = Math.round((ptScore / maxScore) * 100);
-                      const msg          = tapMessage(pct);
-                      const meta         = TAP_METAL_META[metal];
-                      const ptBars       = Math.round((pct / 100) * BARS);
-                      const anomalyLevel = pct >= 65 ? 'ALTA' : pct >= 35 ? 'MEDIA' : 'BAJA';
-                      const anomalyColor = pct >= 65 ? '#E53935' : pct >= 35 ? '#FFA000' : '#546E7A';
+                    {/* ── Data source label ────────────────────────────── */}
+                    <Text style={{fontSize: 10, color: '#4CAF50', marginBottom: 12}}>
+                      ✅ Datos Sentinel-2 reales · {satelliteData?.source_label ?? ''}
+                    </Text>
 
-                      return (
-                        <View key={metal} style={{marginBottom: 13, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: '#1C1C1C'}}>
-                          {/* Metal + anomaly badge */}
-                          <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 7, justifyContent: 'space-between'}}>
-                            <Text style={{fontWeight: '900', fontSize: 14, color: meta?.color ?? '#FFD700', letterSpacing: 0.3}}>
-                              {meta?.icon}{'  '}{meta?.label}
-                            </Text>
-                            <View style={{borderWidth: 1.5, borderColor: anomalyColor, borderRadius: 5,
-                              paddingHorizontal: 7, paddingVertical: 2, backgroundColor: `${anomalyColor}22`}}>
-                              <Text style={{color: anomalyColor, fontWeight: '900', fontSize: 10, letterSpacing: 0.5}}>
-                                {anomalyLevel}
-                              </Text>
-                            </View>
-                          </View>
-
-                          {/* Intensity bar */}
-                          <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 5}}>
-                            <Text style={{fontSize: 10, color: '#666', width: 116}}>Intensidad señal:</Text>
-                            <Text style={{fontFamily: 'monospace', fontSize: 11, color: anomalyColor, flex: 1}}>
-                              {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
-                            </Text>
-                          </View>
-
-                          {/* Message */}
-                          <Text style={{fontSize: 11, color: msg.color, marginLeft: 116, lineHeight: 16}}>
-                            {msg.text}
-                          </Text>
+                    {/* ── Primary mineral (from real grid score) ───────── */}
+                    <View style={{backgroundColor: '#0D1A0D', borderRadius: 8, borderWidth: 1,
+                      borderColor: '#1E3A1E', padding: 12, marginBottom: 12}}>
+                      <Text style={{color: '#888', fontSize: 9, letterSpacing: 0.8, marginBottom: 6}}>
+                        MINERAL SELECCIONADO — {selectedMineral.toUpperCase()}
+                      </Text>
+                      <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8}}>
+                        <Text style={{color: METAL_COLORS[selectedMineral] ?? '#FFD700',
+                          fontWeight: '900', fontSize: 16}}>
+                          {TAP_METAL_META[selectedMineral]?.icon}  {TAP_METAL_META[selectedMineral]?.label}
+                        </Text>
+                        <View style={{borderWidth: 1.5, borderColor: primColor, borderRadius: 5,
+                          paddingHorizontal: 10, paddingVertical: 3, backgroundColor: `${primColor}22`}}>
+                          <Text style={{color: primColor, fontWeight: '900', fontSize: 13}}>{primLevel}</Text>
                         </View>
-                      );
-                    })}
-
-                    {/* ── Indicadores ──────────────────────────────────── */}
-                    <View style={{marginTop: 6, marginBottom: 14}}>
-                      <Text style={{color: '#AAA', fontWeight: '900', fontSize: 10, letterSpacing: 1, marginBottom: 8}}>
-                        INDICADORES DETECTADOS
-                      </Text>
-                      {getIndicatorsForPoint(lat, lng, selectedMineral, terrainType).map((ind, i) => {
-                        const isOk  = ind.status === '✅';
-                        const isWrn = ind.status === '⚠️';
-                        const clr   = isOk ? '#00C853' : isWrn ? '#FFA500' : '#484848';
-                        return (
-                          <View key={i} style={{paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#1A1A1A'}}>
-                            <Text style={{fontSize: 13, fontWeight: '600', color: clr}}>
-                              {ind.status}{'  '}{ind.label}
-                            </Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-
-                    {/* ── Recomendación automática ─────────────────────── */}
-                    <View style={{marginBottom: 20}}>
-                      <Text style={{color: '#AAA', fontWeight: '900', fontSize: 10, letterSpacing: 1, marginBottom: 6}}>
-                        RECOMENDACIÓN
-                      </Text>
-                      <Text style={{color: '#FFD700', backgroundColor: '#111', padding: 10, borderRadius: 5, fontSize: 12, fontWeight: 'bold', lineHeight: 18, overflow: 'hidden'}}>
-                        {recText}
+                      </View>
+                      <View style={{height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden', marginBottom: 6}}>
+                        <View style={{height: '100%', width: `${realScore}%`,
+                          backgroundColor: primColor, borderRadius: 3}} />
+                      </View>
+                      <Text style={{color: '#555', fontSize: 9, fontStyle: 'italic'}}>
+                        Intensidad de alteración calculada de índices espectrales reales
                       </Text>
                     </View>
+
+                    {/* ── Other metals from nearest cell ───────────────── */}
+                    {nearestCell && (
+                      <>
+                        <Text style={{color: '#444', fontSize: 9, letterSpacing: 0.8, marginBottom: 8}}>
+                          OTROS METALES — celda Sentinel-2 más cercana
+                        </Text>
+                        {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const)
+                          .filter(m => m !== selectedMineral)
+                          .map(metal => {
+                            const score        = cellAnomalyScore(nearestCell, metal);
+                            const { level, color: aColor } = anomalyFromPct(score);
+                            const meta         = TAP_METAL_META[metal];
+                            const ptBars       = Math.round((score / 100) * BARS);
+                            return (
+                              <View key={metal} style={{flexDirection: 'row', alignItems: 'center',
+                                marginBottom: 9, paddingBottom: 9,
+                                borderBottomWidth: 1, borderBottomColor: '#151515'}}>
+                                <Text style={{color: meta?.color ?? '#888', fontWeight: '700',
+                                  fontSize: 12, width: 80}}>
+                                  {meta?.icon} {meta?.label}
+                                </Text>
+                                <Text style={{fontFamily: 'monospace', fontSize: 10,
+                                  color: aColor, flex: 1}}>
+                                  {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
+                                </Text>
+                                <View style={{borderWidth: 1, borderColor: aColor, borderRadius: 4,
+                                  paddingHorizontal: 6, paddingVertical: 1, marginLeft: 6,
+                                  backgroundColor: `${aColor}22`}}>
+                                  <Text style={{color: aColor, fontWeight: '700', fontSize: 9}}>{level}</Text>
+                                </View>
+                              </View>
+                            );
+                          })}
+                      </>
+                    )}
+
+                    <Text style={{color: '#333', fontSize: 9, marginTop: 8, marginBottom: 16, fontStyle: 'italic'}}>
+                      Indicador exploratorio — requiere verificación en campo
+                    </Text>
                   </>
                 );
               })()}

@@ -302,6 +302,18 @@ export async function fetchAsterGrid(
 }
 
 // ---------------------------------------------------------------------------
+// Utility: adaptive cell size based on polygon area
+// ---------------------------------------------------------------------------
+// Returns the appropriate spectral cell size in metres for a given area,
+// targeting ~400-900 total cells while respecting Sentinel-2 SWIR resolution.
+export function computeAdaptiveCellSize(areaHa: number): number {
+  if (areaHa <=     100) return   20;  // 20 m — SWIR native resolution
+  if (areaHa <=   1_000) return   60;  // ~50-60 m
+  if (areaHa <=  10_000) return  200;  // 200 m
+  if (areaHa <= 100_000) return  500;  // 500 m
+  return 1_000;                        // >100,000 ha — reconnaissance mode
+}
+
 // Utility: nearest-neighbor lookup for GeologicalEngine
 // ---------------------------------------------------------------------------
 

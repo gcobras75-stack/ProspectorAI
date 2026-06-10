@@ -1,5 +1,5 @@
 import type { MiningSpectralResult } from './SatelliteEngine';
-import { findNearestCell } from './SatelliteEngine';
+import { findNearestCell, computeAdaptiveCellSize } from './SatelliteEngine';
 
 export interface SpectralIndices {
   iron_oxide: number;
@@ -189,16 +189,27 @@ export function analyzeZoneLocal(
       if (pt.longitude > maxLng) maxLng = pt.longitude;
   }
 
+  // Adaptive grid: step size matches satellite resolution — no false precision
+  const cellSizeM    = satelliteData.cell_size_m > 0
+    ? satelliteData.cell_size_m
+    : computeAdaptiveCellSize(areaHa);
+  // Convert metres → degrees (1° lat ≈ 111 km)
+  const degPerCell   = cellSizeM / 111_000;
+  const bboxHeightDeg = maxLat - minLat;
+  const bboxWidthDeg  = maxLng - minLng;
+  // Steps: bbox / cell size, capped 5–45 per axis
+  const stepsLat = Math.max(5, Math.min(45, Math.round(bboxHeightDeg / degPerCell)));
+  const stepsLng = Math.max(5, Math.min(45, Math.round(bboxWidthDeg  / degPerCell)));
+
   // Grid search to find candidates inside polygon
   const candidates: AnalysisPoint[] = [];
-  const gridSteps = 30; // 30x30 grid ~ 900 points tested
-  const latStep = (maxLat - minLat) / gridSteps;
-  const lngStep = (maxLng - minLng) / gridSteps;
+  const latStep = (maxLat - minLat) / stepsLat;
+  const lngStep = (maxLng - minLng) / stepsLng;
 
   const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
-  for (let i = 0; i < gridSteps; i++) {
-    for (let j = 0; j < gridSteps; j++) {
+  for (let i = 0; i < stepsLat; i++) {
+    for (let j = 0; j < stepsLng; j++) {
       const lat = minLat + latStep * i;
       const lng = minLng + lngStep * j;
       if (pointInPolygon({lat, lng}, polygonCoords)) {
