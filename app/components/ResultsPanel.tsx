@@ -117,7 +117,11 @@ export default function ResultsPanel({
               const pct = Math.round((score / selGlobalMax) * 100);
               const anomalyLevel = pct >= 65 ? 'ALTA' : pct >= 35 ? 'MEDIA' : 'BAJA';
               const anomalyColor = pct >= 65 ? '#E53935' : pct >= 35 ? '#FFA000' : '#546E7A';
+              const isPriority  = p.consensus === 'PRIORITY_TARGET';
               const isConfirmed = p.consensus === 'CONFIRMED';
+              const badgeColor  = isPriority ? '#FFD700' : isConfirmed ? '#00E676' : anomalyColor;
+              const badgeLabel  = isPriority ? 'OBJ.' : isConfirmed ? 'CONF.' : anomalyLevel;
+              const badgeSub    = isPriority ? 'S2+ASTER+Estr.' : isConfirmed ? 'S2+ASTER' : 'alteracion';
               return (
                 <TouchableOpacity
                   key={i}
@@ -133,14 +137,14 @@ export default function ResultsPanel({
                   <View style={{ flex: 1, marginHorizontal: 10 }}>
                     <Text style={styles.rankingCoord}>{p.lat.toFixed(5)}, {p.lng.toFixed(5)}</Text>
                     <View style={styles.rankingTrack}>
-                      <View style={[styles.rankingFill, { width: `${pct}%`, backgroundColor: anomalyColor }]} />
+                      <View style={[styles.rankingFill, { width: `${pct}%`, backgroundColor: badgeColor }]} />
                     </View>
                   </View>
-                  <View style={{ alignItems: 'flex-end', minWidth: 56 }}>
-                    <Text style={[styles.rankingScore, { color: isConfirmed ? '#00E676' : anomalyColor, fontSize: 11 }]}>
-                      {isConfirmed ? '✅ CONF.' : anomalyLevel}
+                  <View style={{ alignItems: 'flex-end', minWidth: 64 }}>
+                    <Text style={[styles.rankingScore, { color: badgeColor, fontSize: 11 }]}>
+                      {isPriority ? '\uD83C\uDFAF ' : isConfirmed ? '\u2705 ' : ''}{badgeLabel}
                     </Text>
-                    <Text style={styles.rankingPct}>{isConfirmed ? 'S2+ASTER' : 'alteración'}</Text>
+                    <Text style={styles.rankingPct}>{badgeSub}</Text>
                   </View>
                 </TouchableOpacity>
               );

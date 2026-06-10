@@ -20,9 +20,23 @@ function formatContext(
   const topPoints = points.slice(0, 5).map((p, i) => {
     const score = p.score ?? p.base_score ?? 0;
     const level = score >= 65 ? 'ALTA' : score >= 35 ? 'MEDIA' : 'BAJA';
-    const conf = p.consensus === 'CONFIRMED' ? ' ✅ CONFIRMADA S2+ASTER' : '';
+    const conf = p.consensus === 'PRIORITY_TARGET'
+      ? ' 🎯 OBJETIVO PRIORITARIO S2+ASTER+Estructura'
+      : p.consensus === 'CONFIRMED' ? ' ✅ CONFIRMADA S2+ASTER' : '';
     return `  #${i + 1} Lat:${p.lat?.toFixed(5)}, Lng:${p.lng?.toFixed(5)} — ${level} alteración (score:${Math.round(score)})${conf}`;
   }).join('\n');
+
+  // Structural lineament and priority target summaries
+  const lineamentCount  = points.filter((p: any) => p.near_lineament).length;
+  const priorityCount   = points.filter((p: any) => p.consensus === 'PRIORITY_TARGET').length;
+  const structuralLines: string[] = [];
+  if (lineamentCount > 0) {
+    structuralLines.push(`LINEAMIENTOS: ${lineamentCount} punto${lineamentCount > 1 ? 's' : ''} cruzan con estructuras (posibles fallas/fracturas)`);
+  }
+  if (priorityCount > 0) {
+    structuralLines.push(`OBJETIVOS PRIORITARIOS: ${priorityCount} zona${priorityCount > 1 ? 's' : ''} con anomalía espectral confirmada + control estructural`);
+  }
+  const structuralSection = structuralLines.length > 0 ? `\n${structuralLines.join('\n')}` : '';
 
   const sampleLines = samples.slice(0, 5).map((s, i) => {
     const ia = s.analisis_ia ? JSON.parse(s.analisis_ia) : null;
@@ -44,7 +58,7 @@ Terreno: ${analysis.terrain}  Roca: ${analysis.rock_type}
 Fuente: ${source}${dateStr}${area}
 
 Anomalías detectadas (top ${Math.min(5, points.length)} de ${points.length}):
-${topPoints || '  (sin datos)'}
+${topPoints || '  (sin datos)'}${structuralSection}
 ${samples.length > 0 ? `\nMuestras de campo (${samples.length} total):\n${sampleLines}` : ''}
 
 Responde con:
