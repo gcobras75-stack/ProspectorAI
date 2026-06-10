@@ -1,7 +1,7 @@
-import { MiningSpectralResult, AsterSpectralResult, AsterSpectralCell, findNearestCell } from './SatelliteEngine';
+import { MiningSpectralResult, AsterSpectralResult, AsterSpectralCell, StructuralResult, StructuralCell, findNearestCell } from './SatelliteEngine';
 import { cellAnomalyScore } from './spectralHelpers';
 
-export type ConsensusLevel = 'CONFIRMED' | 'SINGLE' | 'VEGETATION' | 'NO_DATA';
+export type ConsensusLevel = 'PRIORITY_TARGET' | 'CONFIRMED' | 'SINGLE' | 'VEGETATION' | 'NO_DATA';
 
 export interface ConsensusPoint {
   lat: number;
@@ -11,6 +11,9 @@ export interface ConsensusPoint {
   score: number;
   s2Score: number;
   asterScore: number | null;
+  structuralScore: number | null;
+  near_lineament: boolean;
+  evidence: string;
   consensus: ConsensusLevel;
   supportedBy: ('S2' | 'ASTER')[];
   // pass-through fields from AnalysisPoint
@@ -51,17 +54,32 @@ export function fuseAnalysisPoints(
   points: Array<{ lat: number; lng: number; rank: number; base_score: number; score?: number; [key: string]: any }>,
   s2Data: MiningSpectralResult,
   asterData: AsterSpectralResult | null,
+  structuralData: StructuralResult | null,
   metal: string
 ): ConsensusPoint[] {
-  const order: Record<ConsensusLevel, number> = { CONFIRMED: 0, SINGLE: 1, VEGETATION: 2, NO_DATA: 3 };
+  const order: Record<ConsensusLevel, number> = {
+    PRIORITY_TARGET: 0, CONFIRMED: 1, SINGLE: 2, VEGETATION: 3, NO_DATA: 4,
+  };
 
   const fused: ConsensusPoint[] = points.map(p => {
-    const s2Cell    = s2Data.cells.length    ? findNearestCell(p.lat, p.lng, s2Data.cells)    : null;
-    const asterCell = asterData?.cells.length ? findNearestCell(p.lat, p.lng, asterData.cells) : null;
+    const s2Cell         = s2Data.cells.length         ? findNearestCell(p.lat, p.lng, s2Data.cells)         : null;
+    const asterCell      = asterData?.cells.length      ? findNearestCell(p.lat, p.lng, asterData.cells)      : null;
+    const structuralCell = structuralData?.cells.length ? findNearestCell(p.lat, p.lng, structuralData.cells) : null;
 
-    const s2Score    = s2Cell    ? cellAnomalyScore(s2Cell, metal) : 0;
-    const asterScore = asterCell ? asterAnomalyScore(asterCell, metal) : null;
-    const masked     = s2Cell?.masked_by_vegetation ?? false;
+    const s2Score        = s2Cell         ? cellAnomalyScore(s2Cell, metal) : 0;
+    const asterScore     = asterCell      ? asterAnomalyScore(asterCell, metal) : null;
+    const structuralScore = structuralCell
+      ? Math.round(structuralCell.lineament_density * 100)
+      : null;
+    const nearLineament  = structuralCell?.near_lineament ?? false;
+    const masked         = s2Cell?.masked_by_vegetation ?? false;
+
+    // Build evidence string
+    const evidenceParts: string[] = [];
+    if (s2Score >= 35)                                 evidenceParts.push('S2 \u2713');
+    if (asterScore !== null && asterScore >= 35)       evidenceParts.push('ASTER \u2713');
+    if (nearLineament)                                 evidenceParts.push('Estructura \u2713');
+    const evidence = evidenceParts.join(' \u00B7 ') || 'sin anomal\u00EDa';
 
     let consensus:   ConsensusLevel;
     let supportedBy: ('S2' | 'ASTER')[];
@@ -69,6 +87,10 @@ export function fuseAnalysisPoints(
     if (masked) {
       consensus   = 'VEGETATION';
       supportedBy = [];
+    } else if (s2Score >= 65 && asterScore !== null && asterScore >= 65 && nearLineament) {
+      // Highest tier: spectral confirmation (both sensors) + structural control
+      consensus   = 'PRIORITY_TARGET';
+      supportedBy = ['S2', 'ASTER'];
     } else if (s2Score >= 65 && asterScore !== null && asterScore >= 65) {
       consensus   = 'CONFIRMED';
       supportedBy = ['S2', 'ASTER'];
@@ -80,14 +102,21 @@ export function fuseAnalysisPoints(
       supportedBy = [];
     }
 
-    const boostedScore = consensus === 'CONFIRMED'
-      ? Math.min(100, Math.round(Math.max(s2Score, asterScore ?? 0) * 1.15))
-      : (p.score ?? p.base_score);
+    let boostedScore: number;
+    if (consensus === 'PRIORITY_TARGET') {
+      boostedScore = Math.min(100, Math.round(Math.max(s2Score, asterScore ?? 0) * 1.25));
+    } else if (consensus === 'CONFIRMED') {
+      boostedScore = Math.min(100, Math.round(Math.max(s2Score, asterScore ?? 0) * 1.15));
+    } else {
+      boostedScore = p.score ?? p.base_score;
+    }
 
     return {
       ...p,
       score: boostedScore,
       s2Score, asterScore,
+      structuralScore, near_lineament: nearLineament,
+      evidence,
       consensus, supportedBy,
     } as ConsensusPoint;
   });

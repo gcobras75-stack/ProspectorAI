@@ -411,6 +411,125 @@ export async function fetchMiningAsterGrid(
 }
 
 // ---------------------------------------------------------------------------
+// Public: fetchStructuralGrid  (3-state pipeline: REAL / CACHED / NO_DATA_OFFLINE)
+// ---------------------------------------------------------------------------
+
+export interface StructuralCell {
+  lat: number;
+  lng: number;
+  lineament_density: number;
+  near_lineament: boolean;
+  slope_deg: number;
+  vv_mean: number;
+  vv_texture: number;
+}
+
+export interface StructuralResult {
+  cells: StructuralCell[];
+  cell_size_m: number;
+  data_source: 'STRUCTURAL_REAL' | 'STRUCTURAL_CACHED' | 'NO_DATA_OFFLINE';
+  source_label: string;
+  acquisition_note: string;
+}
+
+function computeStructuralCacheKey(
+  coords: Array<{ lat: number; lng: number }>
+): string {
+  if (!coords || coords.length === 0) return 'invalid';
+  let sumLat = 0, sumLng = 0;
+  for (const c of coords) { sumLat += c.lat; sumLng += c.lng; }
+  const centLat = (sumLat / coords.length).toFixed(2);
+  const centLng = (sumLng / coords.length).toFixed(2);
+  const R = 6378137;
+  const avgLat = (sumLat / coords.length) * Math.PI / 180;
+  const pts = coords.map(c => ({
+    x: c.lng * Math.PI / 180 * R * Math.cos(avgLat),
+    y: c.lat * Math.PI / 180 * R,
+  }));
+  let area = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+    area += (p1.x * p2.y - p2.x * p1.y);
+  }
+  const areaHa = Math.round(Math.abs(area / 2) / 10000 / 10) * 10;
+  return `structural_${centLat}_${centLng}_${areaHa}ha`;
+}
+
+export async function fetchStructuralGrid(
+  coords: Array<{ lat: number; lng: number }>,
+  options?: { cell_size_m?: number }
+): Promise<StructuralResult> {
+  const cacheKey  = computeStructuralCacheKey(coords);
+  const serverUrl = getServerUrl();
+  const body: Record<string, unknown> = { coords };
+  if (options?.cell_size_m) body.cell_size_m = options.cell_size_m;
+
+  // ── 1. Try server ─────────────────────────────────────────────────────────
+  try {
+    const response = await fetchWithTimeout(
+      `${serverUrl}/api/structural/grid`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      60000
+    );
+    if (!response.ok) {
+      const errText = await response.text().catch(() => response.statusText);
+      throw new Error(`Server ${response.status}: ${errText}`);
+    }
+    const raw = await response.json();
+    if (raw.error && (!raw.cells || raw.cells.length === 0)) {
+      throw new Error(raw.error);
+    }
+    const cells: StructuralCell[] = raw.cells || [];
+
+    saveSpectralCache(cacheKey, {
+      cells_json:       JSON.stringify(cells),
+      acquisition_date: raw.acquisition_note || '',
+      cloud_cover:      0,
+      coverage_pct:     cells.length > 0 ? 100 : 0,
+      images_used:      0,
+      cell_size_m:      raw.cell_size_m || options?.cell_size_m || 500,
+    }).catch(e => console.warn('[SatelliteEngine] Structural cache write failed:', e.message));
+
+    return {
+      cells,
+      cell_size_m:      raw.cell_size_m || options?.cell_size_m || 500,
+      data_source:      'STRUCTURAL_REAL',
+      source_label:     'Sentinel-1 + DEM · tiempo real',
+      acquisition_note: raw.acquisition_note || '',
+    };
+  } catch (networkErr: any) {
+    console.warn('[SatelliteEngine] Structural server unreachable:', networkErr.message);
+  }
+
+  // ── 2. Try SQLite cache ───────────────────────────────────────────────────
+  try {
+    const cached = await loadSpectralCache(cacheKey);
+    if (cached) {
+      const cells: StructuralCell[] = JSON.parse(cached.cells_json);
+      const days = cached.age_days;
+      return {
+        cells,
+        cell_size_m:      cached.cell_size_m,
+        data_source:      'STRUCTURAL_CACHED',
+        source_label:     `Sentinel-1 + DEM · cache (${days}d)`,
+        acquisition_note: cached.acquisition_date || '',
+      };
+    }
+  } catch (cacheErr: any) {
+    console.warn('[SatelliteEngine] Structural cache read failed:', cacheErr.message);
+  }
+
+  // ── 3. No data ────────────────────────────────────────────────────────────
+  return {
+    cells:            [],
+    cell_size_m:      options?.cell_size_m || 500,
+    data_source:      'NO_DATA_OFFLINE',
+    source_label:     'Estructura no disponible · sin conexion',
+    acquisition_note: '',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Utility: adaptive cell size based on polygon area
 // ---------------------------------------------------------------------------
 // Returns the appropriate spectral cell size in metres for a given area,
