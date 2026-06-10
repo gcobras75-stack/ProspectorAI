@@ -1,0 +1,161 @@
+import React from 'react';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { findNearestCell, type MiningSpectralResult } from '../core/SatelliteEngine';
+import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct, tapMessage } from '../core/spectralHelpers';
+
+interface TapPanelProps {
+  tapPoint: { lat: number; lng: number };
+  satelliteData: MiningSpectralResult | null;
+  onClose: () => void;
+}
+
+export default function TapPanel({ tapPoint, satelliteData, onClose }: TapPanelProps) {
+  const nearestCell = satelliteData?.cells?.length
+    ? findNearestCell(tapPoint.lat, tapPoint.lng, satelliteData.cells)
+    : null;
+  const hasReal = nearestCell !== null;
+  const BARS = 20;
+
+  return (
+    <View style={styles.panel}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>📍 PUNTO TOCADO</Text>
+          <Text style={{ fontSize: 10, marginTop: 2, color: hasReal ? '#4CAF50' : '#FF6B35' }}>
+            {hasReal
+              ? `✅ Sentinel-2 real · celda a ${
+                  Math.round(Math.sqrt(
+                    ((nearestCell!.lat - tapPoint.lat) ** 2 + (nearestCell!.lng - tapPoint.lng) ** 2)
+                  ) * 111000)
+                } m`
+              : '⚠️ Sin datos reales — dibuja un polígono sobre esta zona'}
+          </Text>
+          <Text style={{ color: '#555', fontSize: 10, marginTop: 2, fontFamily: 'monospace' }}>
+            {tapPoint.lat.toFixed(6)}, {tapPoint.lng.toFixed(6)}
+          </Text>
+        </View>
+        <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <MaterialCommunityIcons name="close" size={24} color="#FFD700" />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+        {hasReal ? (
+          <>
+            {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const).map(metal => {
+              const score = cellAnomalyScore(nearestCell!, metal);
+              const { level, color: aColor } = anomalyFromPct(score);
+              const msg = tapMessage(score);
+              const meta = TAP_METAL_META[metal];
+              const ptBars = Math.round((score / 100) * BARS);
+              return (
+                <View key={metal} style={styles.metalRow}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, justifyContent: 'space-between' }}>
+                    <Text style={{ fontWeight: '900', fontSize: 14, color: meta?.color ?? '#FFD700', letterSpacing: 0.4 }}>
+                      {meta?.icon}  {meta?.label}
+                    </Text>
+                    <View style={{ borderWidth: 1.5, borderColor: aColor, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: `${aColor}22` }}>
+                      <Text style={{ color: aColor, fontWeight: '900', fontSize: 11, letterSpacing: 0.5 }}>{level}</Text>
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
+                    <Text style={{ fontSize: 10, color: '#666', width: 116 }}>Alteración:</Text>
+                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: aColor, flex: 1 }}>
+                      {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 11, color: msg.color, marginLeft: 116 }}>{msg.text}</Text>
+                </View>
+              );
+            })}
+
+            {/* Raw spectral indices */}
+            <View style={styles.indicesBox}>
+              <Text style={{ color: '#444', fontSize: 9, letterSpacing: 0.8, marginBottom: 6 }}>
+                ÍNDICES SENTINEL-2 (celda {nearestCell!.lat.toFixed(4)}, {nearestCell!.lng.toFixed(4)})
+              </Text>
+              {[
+                { label: 'Óxido de Fe (B4/B2)', value: nearestCell!.iron_oxide.toFixed(3) },
+                { label: 'Arcilla (B11/B12)',   value: nearestCell!.clay.toFixed(3)       },
+                { label: 'Ferroso (B11/B8)',    value: nearestCell!.ferroso.toFixed(3)    },
+                { label: 'NDVI',                value: nearestCell!.ndvi.toFixed(3)       },
+              ].map(({ label, value }) => (
+                <View key={label} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                  <Text style={{ color: '#555', fontSize: 10 }}>{label}</Text>
+                  <Text style={{ color: '#888', fontSize: 10, fontFamily: 'monospace' }}>{value}</Text>
+                </View>
+              ))}
+              {nearestCell!.masked_by_vegetation && (
+                <Text style={{ color: '#FF9800', fontSize: 9, marginTop: 4 }}>
+                  ⚠️ NDVI alto — señal mineral puede estar atenuada por vegetación
+                </Text>
+              )}
+            </View>
+            <Text style={{ color: '#333', fontSize: 9, marginTop: 10, fontStyle: 'italic' }}>
+              Indicador exploratorio — requiere verificación en campo
+            </Text>
+            <View style={{ height: 14 }} />
+          </>
+        ) : (
+          <View style={{ alignItems: 'center', paddingVertical: 28, paddingHorizontal: 16 }}>
+            <Text style={{ fontSize: 28, marginBottom: 12 }}>🛰️</Text>
+            <Text style={{ color: '#888', fontSize: 13, fontWeight: '700', textAlign: 'center', marginBottom: 8 }}>
+              Sin datos reales en esta zona
+            </Text>
+            <Text style={{ color: '#555', fontSize: 11, textAlign: 'center', lineHeight: 17 }}>
+              Dibuja un polígono sobre esta área y presiona{' '}
+              <Text style={{ color: '#FFD700', fontWeight: '700' }}>ANALIZAR</Text>
+              {' '}para ver anomalías reales de Sentinel-2.
+            </Text>
+            <Text style={{ color: '#3A3A3A', fontSize: 10, textAlign: 'center', marginTop: 12, fontStyle: 'italic' }}>
+              No se muestran scores sin datos satelitales reales.
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  panel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    maxHeight: '62%',
+    backgroundColor: 'rgba(0,0,0,0.97)',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 2,
+    borderTopColor: '#00FFFF',
+    padding: 12,
+    zIndex: 101,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FFD700',
+    paddingBottom: 8,
+  },
+  title: { color: '#FFD700', fontSize: 16, fontWeight: 'bold' },
+  metalRow: {
+    marginBottom: 14,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1C1C1C',
+  },
+  indicesBox: {
+    backgroundColor: '#0A0A0A',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1E1E1E',
+    padding: 10,
+    marginTop: 4,
+  },
+});
