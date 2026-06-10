@@ -16,6 +16,7 @@ export default function TapPanel({ tapPoint, satelliteData, onClose }: TapPanelP
     : null;
   const hasReal = nearestCell !== null;
   const BARS = 20;
+  const [showIndices, setShowIndices] = React.useState(false);
 
   return (
     <View style={styles.panel}>
@@ -60,19 +61,30 @@ export default function TapPanel({ tapPoint, satelliteData, onClose }: TapPanelP
                       <Text style={{ color: aColor, fontWeight: '900', fontSize: 11, letterSpacing: 0.5 }}>{level}</Text>
                     </View>
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
-                    <Text style={{ fontSize: 10, color: '#666', width: 116 }}>Alteración:</Text>
-                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: aColor, flex: 1 }}>
-                      {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
-                    </Text>
-                  </View>
-                  <Text style={{ fontSize: 11, color: msg.color, marginLeft: 116 }}>{msg.text}</Text>
+                  {nearestCell!.masked_by_vegetation === true ? (
+                    <Text style={{ color: '#FF9800', fontSize: 10, marginLeft: 116 }}>⚠️ Sin lectura confiable (vegetación)</Text>
+                  ) : (
+                    <>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
+                        <Text style={{ fontSize: 10, color: '#666', width: 116 }}>Alteración:</Text>
+                        <Text style={{ fontFamily: 'monospace', fontSize: 11, color: aColor, flex: 1 }}>
+                          {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 11, color: msg.color, marginLeft: 116 }}>{msg.text}</Text>
+                    </>
+                  )}
                 </View>
               );
             })}
 
             {/* Raw spectral indices */}
-            <View style={styles.indicesBox}>
+            <TouchableOpacity onPress={() => setShowIndices(v => !v)}>
+              <Text style={{ color: '#444', fontSize: 10, letterSpacing: 0.8, marginBottom: 6 }}>
+                {showIndices ? '▼' : '▶'} Contexto mineralógico
+              </Text>
+            </TouchableOpacity>
+            {showIndices && <View style={styles.indicesBox}>
               <Text style={{ color: '#444', fontSize: 9, letterSpacing: 0.8, marginBottom: 6 }}>
                 ÍNDICES SENTINEL-2 (celda {nearestCell!.lat.toFixed(4)}, {nearestCell!.lng.toFixed(4)})
               </Text>
@@ -92,7 +104,7 @@ export default function TapPanel({ tapPoint, satelliteData, onClose }: TapPanelP
                   ⚠️ NDVI alto — señal mineral puede estar atenuada por vegetación
                 </Text>
               )}
-            </View>
+            </View>}
             <Text style={{ color: '#333', fontSize: 9, marginTop: 10, fontStyle: 'italic' }}>
               Indicador exploratorio — requiere verificación en campo
             </Text>

@@ -88,12 +88,18 @@ export default function SelectedPointModal({
                         <Text style={{ color: meta?.color ?? '#888', fontWeight: '700', fontSize: 12, width: 80 }}>
                           {meta?.icon} {meta?.label}
                         </Text>
-                        <Text style={{ fontFamily: 'monospace', fontSize: 10, color: aColor, flex: 1 }}>
-                          {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
-                        </Text>
-                        <View style={{ borderWidth: 1, borderColor: aColor, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 6, backgroundColor: `${aColor}22` }}>
-                          <Text style={{ color: aColor, fontWeight: '700', fontSize: 9 }}>{level}</Text>
-                        </View>
+                        {nearestCell.masked_by_vegetation === true ? (
+                          <Text style={{ color: '#FF9800', fontSize: 9, flex: 1 }}>⚠️ Vegetación — sin lectura confiable</Text>
+                        ) : (
+                          <>
+                            <Text style={{ fontFamily: 'monospace', fontSize: 10, color: aColor, flex: 1 }}>
+                              {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
+                            </Text>
+                            <View style={{ borderWidth: 1, borderColor: aColor, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 6, backgroundColor: `${aColor}22` }}>
+                              <Text style={{ color: aColor, fontWeight: '700', fontSize: 9 }}>{level}</Text>
+                            </View>
+                          </>
+                        )}
                       </View>
                     );
                   })}

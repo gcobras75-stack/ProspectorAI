@@ -469,6 +469,24 @@ export default function ProspectorDashboard() {
     }
   };
 
+function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: string; fecha_fin?: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth(); // 0-indexed
+  // NW Mexico arid zone: dry season Feb–May
+  if (centLat >= 20 && centLat <= 32 && centLng >= -118 && centLng <= -103) {
+    const startYear = m >= 5 ? y : y - 1; // if we're past May, this year's dry season just ended; else use last year
+    return { fecha_inicio: `${startYear}-02-01`, fecha_fin: `${startYear}-05-31` };
+  }
+  // Tropical/south Mexico: dry season Nov–Apr (spans year boundary)
+  if (centLat >= 14 && centLat < 20 && centLng >= -95 && centLng <= -86) {
+    const startYear = m >= 4 ? y : y - 1;
+    return { fecha_inicio: `${startYear}-11-01`, fecha_fin: `${startYear + 1}-04-30` };
+  }
+  // Other zones: let GEE auto-select (no override)
+  return {};
+}
+
   const analyzeZone = async (overrideCoords?: Coordinate[]) => {
     console.log('=== INICIO ANALISIS OFFLINE ===');
     const localCoords = overrideCoords || polygonCoords;
@@ -503,7 +521,10 @@ export default function ProspectorDashboard() {
       // ── Fetch real satellite data (3-state: REAL / CACHED / NO_DATA_OFFLINE) ─
       let satData: MiningSpectralResult;
       try {
-        satData = await fetchMiningSpectralGrid(coordsToUse, { cell_size_m: cellSizeM });
+        const centLat = coordsToUse.reduce((s, c) => s + c.latitude, 0) / coordsToUse.length;
+        const centLng = coordsToUse.reduce((s, c) => s + c.longitude, 0) / coordsToUse.length;
+        const dryDates = getDrySeasonDates(centLat, centLng);
+        satData = await fetchMiningSpectralGrid(coordsToUse, { cell_size_m: cellSizeM, ...dryDates });
       } catch (e: any) {
         // fetchMiningSpectralGrid never throws — this is a safety net
         satData = {

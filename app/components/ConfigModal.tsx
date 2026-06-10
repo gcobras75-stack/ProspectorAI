@@ -72,7 +72,7 @@ export default function ConfigModal({
 
           <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>TIPO DE TERRENO</Text>
           <View style={styles.chips}>
-            {['sierra', 'playa'].map(m => (
+            {['sierra', 'playa', 'árido'].map(m => (
               <TouchableOpacity key={m} style={[styles.chip, terrainType === m && styles.chipActive]} onPress={() => setTerrainType(m)}>
                 <Text style={[styles.chipText, terrainType === m && styles.chipTextActive]}>{m}</Text>
               </TouchableOpacity>
