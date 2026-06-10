@@ -13,13 +13,14 @@ import { analyzeZoneLocal, computeAllMetalScores, MetalScore } from '../core/Geo
 import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult } from '../core/SatelliteEngine';
 import { fuseAnalysisPoints } from '../core/ConsensusFusion';
 import ChatModal from '../components/ChatModal';
+import FieldModeButton from '../components/FieldModeButton';
 import HistoryModal from '../components/HistoryModal';
 import ConfigModal from '../components/ConfigModal';
 import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
 import WaypointModal from '../components/WaypointModal';
 import ResultsPanel from '../components/ResultsPanel';
-import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, listProjects, createProject } from '../core/Database';
+import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, loadProjectState, listProjects, createProject } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
 
 type Coordinate = { latitude: number; longitude: number };
@@ -173,6 +174,9 @@ export default function ProspectorDashboard() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
 
+  // Field mode offline package
+  const [geologoResumen, setGeologoResumen] = useState('');
+
 
   const sendChatMessage = async () => {
     if (!chatInput.trim() || isTypingChat) return;
@@ -290,6 +294,18 @@ export default function ProspectorDashboard() {
         }
         await initDB();
         await loadMuestras();
+
+        // Load geologist summary from current project's chat history
+        const pid = (await AsyncStorage.getItem('currentProjectId')) || 'default';
+        setCurrentProjectId(pid);
+        const proj = await loadProjectState(pid);
+        if (proj?.chat_history && proj.chat_history.length > 0) {
+          // Use the last assistant message as the resumen
+          const lastAssistant = [...proj.chat_history]
+            .reverse()
+            .find((m: { role: string; content: string }) => m.role === 'assistant');
+          if (lastAssistant) setGeologoResumen(lastAssistant.content);
+        }
       } catch (e) {}
     };
     loadSaved();
@@ -956,6 +972,14 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                  <MaterialCommunityIcons name="content-save" size={20} color={isFieldMode ? '#000' : '#4CAF50'} />
                  <Text style={[{ color: '#4CAF50', fontSize: 9, fontWeight: 'bold', marginTop: 2 }, isFieldMode && { color: '#000' }]}>Guardar</Text>
                </TouchableOpacity>
+
+            <FieldModeButton
+              projectId={currentProjectId}
+              analysisPoints={analysisPoints}
+              geologoResumen={geologoResumen}
+              zoneCoords={polygonCoords.map(c => ({ lat: c.latitude, lng: c.longitude }))}
+              isConnected={isConnected}
+            />
 
             <TouchableOpacity style={[{ width: 55, height: 55, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#FFD700' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }]} onPress={() => setShowConfigModal(true)}>
                <MaterialCommunityIcons name="cog" size={20} color={isFieldMode ? "#000" : "#FFD700"} />

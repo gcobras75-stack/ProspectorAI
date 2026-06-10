@@ -4,8 +4,9 @@ import {
   ActivityIndicator, StyleSheet, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { askClaudeGeologoExperto } from '../core/ClaudeServices';
-import { loadLastAnalysis, getMuestras, saveProjectChatHistory, loadProjectState } from '../core/Database';
+import { loadLastAnalysis, getMuestras, saveProjectChatHistory, loadProjectState, loadFieldPackage } from '../core/Database';
 
 const PROJ_KEY = 'currentProjectId';
 
@@ -77,13 +78,34 @@ export default function GeologoScreen() {
   const [isTyping, setIsTyping]     = useState(false);
   const [projectId, setProjectId]   = useState('default');
   const [hasAnalysis, setHasAnalysis] = useState(false);
+  const [isConnected, setIsConnected] = useState(true);
+  const [fieldPackage, setFieldPackage] = useState<{
+    preparado_at: string;
+    resumen_geologo: string;
+    analisis_json: string;
+    mapa_b64: string;
+    size_kb: number;
+  } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsConnected(!!(state.isConnected && state.isInternetReachable));
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => { initialize(); }, []);
 
   const initialize = async () => {
     const pid = (await AsyncStorage.getItem(PROJ_KEY)) || 'default';
     setProjectId(pid);
+
+    // Load field package for offline banner
+    try {
+      const pkg = await loadFieldPackage(pid);
+      setFieldPackage(pkg);
+    } catch (_) {}
 
     // Try to restore saved chat history
     const proj = await loadProjectState(pid);
@@ -172,6 +194,13 @@ export default function GeologoScreen() {
           <Text style={styles.refreshText}>↺ Nuevo análisis</Text>
         </TouchableOpacity>
       </View>
+
+      {!isConnected && fieldPackage && fieldPackage.resumen_geologo ? (
+        <View style={{ backgroundColor: '#1A2A1A', padding: 10, borderRadius: 8, margin: 8, borderWidth: 1, borderColor: '#2E4A2E' }}>
+          <Text style={{ color: '#4CAF50', fontSize: 10, fontWeight: '900' }}>RESUMEN GUARDADO — sin conexion</Text>
+          <Text style={{ color: '#CCC', fontSize: 11, marginTop: 4 }}>{fieldPackage.resumen_geologo}</Text>
+        </View>
+      ) : null}
 
       <ScrollView
         ref={scrollRef}
