@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Platform, TouchableOpacity, Alert, Pressable, Modal, TextInput, ScrollView, Switch, Image } from 'react-native';
+import { StyleSheet, View, Text, ActivityIndicator, Platform, TouchableOpacity, Alert, Pressable, ScrollView } from 'react-native';
 import MapView, { Marker, Polygon, Region, MapPressEvent, PanDragEvent } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -10,15 +10,14 @@ import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, MetalScore } from '../core/GeologicalEngine';
-import { fetchMiningSpectralGrid, findNearestCell, computeAdaptiveCellSize, type MiningSpectralResult, type MiningSpectralCell } from '../core/SatelliteEngine';
-import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct, tapMessage } from '../core/spectralHelpers';
-import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
+import { fetchMiningSpectralGrid, computeAdaptiveCellSize, type MiningSpectralResult } from '../core/SatelliteEngine';
 import ChatModal from '../components/ChatModal';
 import HistoryModal from '../components/HistoryModal';
 import ConfigModal from '../components/ConfigModal';
 import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
 import WaypointModal from '../components/WaypointModal';
+import ResultsPanel from '../components/ResultsPanel';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
 
@@ -925,134 +924,18 @@ export default function ProspectorDashboard() {
         </View>
       </View>
 
-      {showResults && (() => {
-        // Regional average for the selected mineral (from grid points)
-        const regionalAvg = analysisPoints.length > 0
-          ? analysisPoints.reduce((s, p) => s + (p.base_score || 0), 0) / analysisPoints.length
-          : undefined;
-        // Global max for selected mineral (for ranking section)
-        const selMs = metalScores.find(ms => ms.metal === selectedMineral);
-        const selGlobalMax = selMs?.score_maximo ?? 100;
-        const selColor = METAL_COLORS[selectedMineral] ?? '#FFD700';
-
-        return (
-          <View style={styles.resultsPanel}>
-            {/* ── Header ─────────────────────────────────────────────────── */}
-            <View style={styles.resultsHeader}>
-              <View>
-                <Text style={styles.resultsTitle}>📊 ANÁLISIS MINERAL</Text>
-                <Text style={{color: '#666', fontSize: 10, marginTop: 1}}>
-                  {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
-                  {analysisPoints.length > 0 ? `  ·  ${analysisPoints.length} puntos` : ''}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowResults(false)}>
-                <MaterialCommunityIcons name="close" size={24} color="#FFD700" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={{maxHeight: 400}} showsVerticalScrollIndicator={false}>
-
-              {/* ── Fuente de datos + malla adaptativa ──────────────────── */}
-              {satelliteData && (() => {
-                const csm  = satelliteData.cell_size_m || computeAdaptiveCellSize(parseFloat(areaHa));
-                const isLarge = parseFloat(areaHa) > 50_000;
-                return (
-                  <View style={{
-                    backgroundColor: satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90
-                      ? '#2A2A00' : '#0A2A0A',
-                    borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6,
-                    marginHorizontal: 8, marginBottom: 8,
-                  }}>
-                    <Text style={{ fontSize: 11, color: '#DDDDDD', textAlign: 'center' }}>
-                      {satelliteData.source_label}
-                    </Text>
-                    <Text style={{ fontSize: 10, color: '#4CAF50', textAlign: 'center', marginTop: 3 }}>
-                      Malla: {csm >= 1000 ? `${csm / 1000} km` : `${csm} m`} × {csm >= 1000 ? `${csm / 1000} km` : `${csm} m`}
-                      {analysisPoints.length > 0 ? `  ·  ${analysisPoints.length} puntos` : ''}
-                    </Text>
-                    {satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90 && (
-                      <Text style={{ fontSize: 10, color: '#FF9800', textAlign: 'center', marginTop: 2 }}>
-                        ⚠️ Datos de hace {satelliteData.cache_age_days} días — actualiza con conexión
-                      </Text>
-                    )}
-                    {isLarge && (
-                      <Text style={{ fontSize: 10, color: '#FF9800', textAlign: 'center', marginTop: 3 }}>
-                        Zona amplia — dibuja un polígono más chico sobre las anomalías para ver detalle de 20 m
-                      </Text>
-                    )}
-                  </View>
-                );
-              })()}
-
-              {/* ── ScoreCards por metal ──────────────────────────────────── */}
-              {metalScores.map((ms) => (
-                <ScoreCard
-                  key={ms.metal}
-                  metal={ms.metal}
-                  terrain={terrainType}
-                  metalLabel={ms.label}
-                  metalIcon={ms.icon}
-                  pointScore={ms.score_poligono}
-                  globalMax={ms.score_maximo}
-                  regionalAvg={ms.metal === selectedMineral ? regionalAvg : undefined}
-                  guideMineral={ms.guideMineral}
-                  warning={ms.warning}
-                />
-              ))}
-
-              {/* ── Ranking por intensidad de anomalía ────────────────────── */}
-              {analysisPoints.length > 0 && (
-                <View style={styles.rankingSection}>
-                  <View style={styles.rankingHeader}>
-                    <Text style={styles.rankingTitle}>
-                      ZONAS PRIORITARIAS — {selectedMineral.toUpperCase()} {terrainType.toUpperCase()}
-                    </Text>
-                  </View>
-
-                  {analysisPoints.slice(0, 5).map((p, i) => {
-                    const score = Math.round(p.score || p.base_score || 0);
-                    const pct   = Math.round((score / selGlobalMax) * 100);
-                    const anomalyLevel = pct >= 65 ? 'ALTA' : pct >= 35 ? 'MEDIA' : 'BAJA';
-                    const anomalyColor = pct >= 65 ? '#E53935' : pct >= 35 ? '#FFA000' : '#546E7A';
-                    return (
-                      <TouchableOpacity
-                        key={i}
-                        style={styles.rankingItem}
-                        onPress={() => {
-                          mapRef.current?.animateToRegion({
-                            latitude: p.lat,
-                            longitude: p.lng,
-                            latitudeDelta: 0.005,
-                            longitudeDelta: 0.005,
-                          }, 500);
-                        }}
-                      >
-                        <Text style={styles.rankingRank}>#{p.rank}</Text>
-                        <View style={{flex: 1, marginHorizontal: 10}}>
-                          <Text style={styles.rankingCoord}>
-                            {p.lat.toFixed(5)}, {p.lng.toFixed(5)}
-                          </Text>
-                          <View style={styles.rankingTrack}>
-                            {/* anomaly intensity bar */}
-                            <View style={[styles.rankingFill, {width: `${pct}%`, backgroundColor: anomalyColor}]} />
-                          </View>
-                        </View>
-                        <View style={{alignItems: 'flex-end', minWidth: 56}}>
-                          <Text style={[styles.rankingScore, {color: anomalyColor, fontSize: 11}]}>{anomalyLevel}</Text>
-                          <Text style={styles.rankingPct}>alteración</Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-
-              <View style={{height: 14}} />
-            </ScrollView>
-          </View>
-        );
-      })()}
+      {showResults && (
+        <ResultsPanel
+          satelliteData={satelliteData}
+          metalScores={metalScores}
+          analysisPoints={analysisPoints}
+          selectedMineral={selectedMineral}
+          terrainType={terrainType}
+          areaHa={areaHa}
+          mapRef={mapRef}
+          onClose={() => setShowResults(false)}
+        />
+      )}
 
       {/* ── TAP POINT ANALYSIS PANEL ────────────────────────────────────────── */}
       {tapPoint && (
