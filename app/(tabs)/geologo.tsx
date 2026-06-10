@@ -36,6 +36,10 @@ function formatContext(
   if (priorityCount > 0) {
     structuralLines.push(`OBJETIVOS PRIORITARIOS: ${priorityCount} zona${priorityCount > 1 ? 's' : ''} con anomalía espectral confirmada + control estructural`);
   }
+  const emitCount = points.filter((p: any) => p.emitScore !== null && p.emitScore !== undefined && p.emitScore >= 65).length;
+  if (emitCount > 0) {
+    structuralLines.push(`EMIT hiperspectral: ${emitCount} celdas con señal mineral ≥65`);
+  }
   const structuralSection = structuralLines.length > 0 ? `\n${structuralLines.join('\n')}` : '';
 
   const sampleLines = samples.slice(0, 5).map((s, i) => {

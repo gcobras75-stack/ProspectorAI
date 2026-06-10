@@ -495,6 +495,159 @@ app.post('/api/structural/grid', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/emit/grid
+// Body: { coords: [{lat, lng}][], cell_size_m?: number }
+// Returns EMIT L2A hyperspectral mineral indices per grid cell.
+// Indices: ferric_emit, al_clay_emit, mg_clay_emit, carbonate_emit
+// ---------------------------------------------------------------------------
+app.post('/api/emit/grid', async (req, res) => {
+  const { coords, cell_size_m } = req.body || {};
+
+  if (!Array.isArray(coords) || coords.length < 3) {
+    return res.status(400).json({ error: 'coords debe ser un array de al menos 3 objetos {lat, lng}.' });
+  }
+  for (const c of coords) {
+    if (typeof c.lat !== 'number' || typeof c.lng !== 'number') {
+      return res.status(400).json({ error: 'Cada elemento de coords debe tener {lat: number, lng: number}.' });
+    }
+  }
+
+  try {
+    const cellSize = (typeof cell_size_m === 'number' && cell_size_m > 0) ? cell_size_m : 500;
+
+    const lats = coords.map(c => c.lat);
+    const lngs = coords.map(c => c.lng);
+    const latMin = Math.min(...lats);
+    const latMax = Math.max(...lats);
+    const lngMin = Math.min(...lngs);
+    const lngMax = Math.max(...lngs);
+
+    const region = ee.Geometry.Rectangle([lngMin, latMin, lngMax, latMax]);
+
+    // EMIT L2A reflectance collection — mosaic by median over all available scenes
+    const emitCol = ee.ImageCollection('NASA/EMIT/L2A/RFL').filterBounds(region);
+    const sceneCount = emitCol.size();
+
+    // Select the bands needed for the four mineral indices (0-based indices)
+    // Band 43 (~700nm), Band 70 (~900nm), Band 239 (~2165nm), Band 245 (~2200nm),
+    // Band 263 (~2325nm), Band 266 (~2350nm)
+    const BAND_NAMES = ['reflectance_43', 'reflectance_70', 'reflectance_239',
+                        'reflectance_245', 'reflectance_263', 'reflectance_266'];
+    const emitMedian = emitCol.select(BAND_NAMES).median();
+
+    // Compute indices as separate expressions
+    // ferric_emit    = reflectance_70 / (reflectance_43 + 0.001)
+    // al_clay_emit   = reflectance_239 / (reflectance_245 + 0.001)
+    // mg_clay_emit   = reflectance_263 / (reflectance_245 + 0.001)
+    // carbonate_emit = reflectance_266 / (reflectance_263 + 0.001)
+    const eps = 0.001;
+    const b43  = emitMedian.select('reflectance_43');
+    const b70  = emitMedian.select('reflectance_70');
+    const b239 = emitMedian.select('reflectance_239');
+    const b245 = emitMedian.select('reflectance_245');
+    const b263 = emitMedian.select('reflectance_263');
+    const b266 = emitMedian.select('reflectance_266');
+
+    const ferricEmit   = b70.divide(b43.add(eps)).rename('ferric_emit');
+    const alClayEmit   = b239.divide(b245.add(eps)).rename('al_clay_emit');
+    const mgClayEmit   = b263.divide(b245.add(eps)).rename('mg_clay_emit');
+    const carbonateEmit = b266.divide(b263.add(eps)).rename('carbonate_emit');
+
+    const combined = ferricEmit
+      .addBands(alClayEmit)
+      .addBands(mgClayEmit)
+      .addBands(carbonateEmit);
+
+    // Build regular point grid at cellSize metres
+    const latStepDeg = cellSize / 111320;
+    const avgLat     = (latMin + latMax) / 2;
+    const lngStepDeg = cellSize / (111320 * Math.cos(avgLat * Math.PI / 180));
+
+    const gridPoints = [];
+    for (let lat = latMin + latStepDeg / 2; lat < latMax; lat += latStepDeg) {
+      for (let lng = lngMin + lngStepDeg / 2; lng < lngMax; lng += lngStepDeg) {
+        gridPoints.push([lng, lat]);
+      }
+    }
+
+    if (gridPoints.length === 0) {
+      return res.json({ cells: [], cell_size_m: cellSize, acquisition_note: 'Zona demasiado pequeña para generar celdas.' });
+    }
+
+    // Cap at 1500 points to stay within GEE limits
+    const maxPoints = 1500;
+    const sampledPoints = gridPoints.length > maxPoints
+      ? gridPoints.filter((_, i) => i % Math.ceil(gridPoints.length / maxPoints) === 0)
+      : gridPoints;
+
+    const fcPoints = ee.FeatureCollection(
+      sampledPoints.map(([lng, lat]) => ee.Feature(ee.Geometry.Point([lng, lat])))
+    );
+
+    // Sample indices + scene count in parallel
+    const sampled = combined.sampleRegions({
+      collection: fcPoints,
+      scale: cellSize,
+      geometries: true,
+      tileScale: 4,
+    });
+
+    const [features, nScenes] = await new Promise((resolve, reject) => {
+      const featList = sampled.toList(sampledPoints.length);
+      ee.List([featList, sceneCount]).evaluate((result, err) => {
+        if (err) reject(new Error(err));
+        else resolve(result);
+      });
+    });
+
+    if (!Array.isArray(features) || features.length === 0) {
+      return res.json({
+        cells: [],
+        cell_size_m: cellSize,
+        acquisition_note: 'EMIT L2A — sin cobertura en esta zona',
+        error: 'No EMIT coverage for this region',
+      });
+    }
+
+    const cells = [];
+    for (const feat of features) {
+      const props = feat.properties || {};
+      const geom  = feat.geometry;
+      if (!geom || !geom.coordinates) continue;
+
+      const lng = geom.coordinates[0];
+      const lat = geom.coordinates[1];
+
+      const ferric    = typeof props.ferric_emit    === 'number' ? Math.round(props.ferric_emit    * 10000) / 10000 : null;
+      const alClay    = typeof props.al_clay_emit   === 'number' ? Math.round(props.al_clay_emit   * 10000) / 10000 : null;
+      const mgClay    = typeof props.mg_clay_emit   === 'number' ? Math.round(props.mg_clay_emit   * 10000) / 10000 : null;
+      const carbonate = typeof props.carbonate_emit === 'number' ? Math.round(props.carbonate_emit * 10000) / 10000 : null;
+
+      // Skip cells where all indices are null (no EMIT coverage)
+      if (ferric === null && alClay === null && mgClay === null && carbonate === null) continue;
+
+      cells.push({
+        lat:  Math.round(lat * 100000) / 100000,
+        lng:  Math.round(lng * 100000) / 100000,
+        ferric_emit:    ferric    ?? 1.0,
+        al_clay_emit:   alClay    ?? 0.0,
+        mg_clay_emit:   mgClay    ?? 0.0,
+        carbonate_emit: carbonate ?? 1.0,
+      });
+    }
+
+    const nSc = typeof nScenes === 'number' ? nScenes : '?';
+    const acquisitionNote = `EMIT L2A · ${nSc} escenas · mediana`;
+
+    res.json({ cells, cell_size_m: cellSize, acquisition_note: acquisitionNote });
+
+  } catch (err) {
+    console.error('[emit/grid]', err.message);
+    res.status(500).json({ cells: [], error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // 404 handler
 // ---------------------------------------------------------------------------
 

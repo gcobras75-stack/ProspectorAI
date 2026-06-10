@@ -10,7 +10,7 @@ import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, MetalScore } from '../core/GeologicalEngine';
-import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult } from '../core/SatelliteEngine';
+import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult } from '../core/SatelliteEngine';
 import { fuseAnalysisPoints } from '../core/ConsensusFusion';
 import ChatModal from '../components/ChatModal';
 import HistoryModal from '../components/HistoryModal';
@@ -123,6 +123,7 @@ export default function ProspectorDashboard() {
 
   const [analysisPoints, setAnalysisPoints] = useState<any[]>([]);
   const [asterData, setAsterData]         = useState<AsterSpectralResult | null>(null);
+  const [emitData, setEmitData]           = useState<EmitSpectralResult | null>(null);
   const [structuralData, setStructuralData] = useState<StructuralResult | null>(null);
   const [deepAnalysis, setDeepAnalysis] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState('default');
@@ -582,7 +583,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
            }
         }
 
-        // ── Optional ASTER + structural deep analysis + consensus fusion ─────
+        // ── Optional ASTER + EMIT + structural deep analysis + consensus fusion
         if (deepAnalysis) {
           let asterResult: AsterSpectralResult | null = null;
           try {
@@ -602,6 +603,19 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             console.warn('[analyzeZone] ASTER failed:', asterErr.message);
           }
 
+          // ── EMIT hyperspectral grid ─────────────────────────────────────────
+          let emitResult: EmitSpectralResult | null = null;
+          try {
+            const emitCoords = coordsToUse.map(c => ({ lat: c.latitude, lng: c.longitude }));
+            const emit = await fetchEmitGrid(emitCoords, { cell_size_m: cellSizeM });
+            setEmitData(emit);
+            if (emit.data_source !== 'NO_DATA_OFFLINE') {
+              emitResult = emit;
+            }
+          } catch (emitErr: any) {
+            console.warn('[analyzeZone] EMIT failed:', emitErr.message);
+          }
+
           // ── Structural grid (Sentinel-1 + DEM) ─────────────────────────────
           let structuralResult: StructuralResult | null = null;
           try {
@@ -616,9 +630,9 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           }
 
           // Fuse all available layers
-          if (asterResult || structuralResult) {
+          if (asterResult || emitResult || structuralResult) {
             finalPoints = fuseAnalysisPoints(
-              finalPoints, satData, asterResult, structuralResult, selectedMineral
+              finalPoints, satData, asterResult, emitResult, structuralResult, selectedMineral
             ) as any[];
           }
         }

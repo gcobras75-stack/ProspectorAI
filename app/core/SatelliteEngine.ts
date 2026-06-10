@@ -530,6 +530,124 @@ export async function fetchStructuralGrid(
 }
 
 // ---------------------------------------------------------------------------
+// Public: fetchEmitGrid  (3-state pipeline: EMIT_REAL / EMIT_CACHED / NO_DATA_OFFLINE)
+// ---------------------------------------------------------------------------
+
+export interface EmitSpectralCell {
+  lat: number;
+  lng: number;
+  ferric_emit: number;
+  al_clay_emit: number;
+  mg_clay_emit: number;
+  carbonate_emit: number;
+}
+
+export interface EmitSpectralResult {
+  cells: EmitSpectralCell[];
+  cell_size_m: number;
+  data_source: 'EMIT_REAL' | 'EMIT_CACHED' | 'NO_DATA_OFFLINE';
+  source_label: string;
+  acquisition_note: string;
+}
+
+function computeEmitCacheKey(
+  coords: Array<{ lat: number; lng: number }>
+): string {
+  if (!coords || coords.length === 0) return 'invalid';
+  let sumLat = 0, sumLng = 0;
+  for (const c of coords) { sumLat += c.lat; sumLng += c.lng; }
+  const centLat = (sumLat / coords.length).toFixed(2);
+  const centLng = (sumLng / coords.length).toFixed(2);
+  const R = 6378137;
+  const avgLat = (sumLat / coords.length) * Math.PI / 180;
+  const pts = coords.map(c => ({
+    x: c.lng * Math.PI / 180 * R * Math.cos(avgLat),
+    y: c.lat * Math.PI / 180 * R,
+  }));
+  let area = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+    area += (p1.x * p2.y - p2.x * p1.y);
+  }
+  const areaHa = Math.round(Math.abs(area / 2) / 10000 / 10) * 10;
+  return `emit_mining_${centLat}_${centLng}_${areaHa}ha`;
+}
+
+export async function fetchEmitGrid(
+  coords: Array<{ lat: number; lng: number }>,
+  options?: { cell_size_m?: number }
+): Promise<EmitSpectralResult> {
+  const cacheKey  = computeEmitCacheKey(coords);
+  const serverUrl = getServerUrl();
+  const body: Record<string, unknown> = { coords };
+  if (options?.cell_size_m) body.cell_size_m = options.cell_size_m;
+
+  // ── 1. Try server ─────────────────────────────────────────────────────────
+  try {
+    const response = await fetchWithTimeout(
+      `${serverUrl}/api/emit/grid`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      60000
+    );
+    if (!response.ok) {
+      const errText = await response.text().catch(() => response.statusText);
+      throw new Error(`Server ${response.status}: ${errText}`);
+    }
+    const raw = await response.json();
+    if (raw.error && (!raw.cells || raw.cells.length === 0)) {
+      throw new Error(raw.error);
+    }
+    const cells: EmitSpectralCell[] = raw.cells || [];
+
+    saveSpectralCache(cacheKey, {
+      cells_json:       JSON.stringify(cells),
+      acquisition_date: raw.acquisition_note || '',
+      cloud_cover:      0,
+      coverage_pct:     cells.length > 0 ? 100 : 0,
+      images_used:      0,
+      cell_size_m:      raw.cell_size_m || options?.cell_size_m || 500,
+    }).catch(e => console.warn('[SatelliteEngine] EMIT cache write failed:', e.message));
+
+    return {
+      cells,
+      cell_size_m:      raw.cell_size_m || options?.cell_size_m || 500,
+      data_source:      'EMIT_REAL',
+      source_label:     '\uD83C\uDF08 EMIT Hiperspectral \u00B7 tiempo real',
+      acquisition_note: raw.acquisition_note || '',
+    };
+  } catch (networkErr: any) {
+    console.warn('[SatelliteEngine] EMIT server unreachable:', networkErr.message);
+  }
+
+  // ── 2. Try SQLite cache ───────────────────────────────────────────────────
+  try {
+    const cached = await loadSpectralCache(cacheKey);
+    if (cached) {
+      const cells: EmitSpectralCell[] = JSON.parse(cached.cells_json);
+      const days = cached.age_days;
+      return {
+        cells,
+        cell_size_m:      cached.cell_size_m,
+        data_source:      'EMIT_CACHED',
+        source_label:     `\uD83D\uDCE6 EMIT Hiperspectral \u00B7 cach\u00E9 (${days}d)`,
+        acquisition_note: cached.acquisition_date || '',
+      };
+    }
+  } catch (cacheErr: any) {
+    console.warn('[SatelliteEngine] EMIT cache read failed:', cacheErr.message);
+  }
+
+  // ── 3. No data ────────────────────────────────────────────────────────────
+  return {
+    cells:            [],
+    cell_size_m:      options?.cell_size_m || 500,
+    data_source:      'NO_DATA_OFFLINE',
+    source_label:     '\uD83D\uDCF5 EMIT no disponible \u00B7 sin conexi\u00F3n',
+    acquisition_note: '',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Utility: adaptive cell size based on polygon area
 // ---------------------------------------------------------------------------
 // Returns the appropriate spectral cell size in metres for a given area,
