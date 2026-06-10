@@ -14,6 +14,7 @@ import { fetchMiningSpectralGrid, findNearestCell, computeAdaptiveCellSize, type
 import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct, tapMessage } from '../core/spectralHelpers';
 import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
 import ChatModal from '../components/ChatModal';
+import HistoryModal from '../components/HistoryModal';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
 
@@ -1447,43 +1448,14 @@ export default function ProspectorDashboard() {
         isFieldMode={isFieldMode}
       />
 
-      {/* HISTORY MODAL */}
-      <Modal visible={showHistoryModal} transparent animationType="slide">
-        <View style={[styles.modalOverlay, {backgroundColor: 'rgba(0,0,0,0.85)'}]}>
-          <View style={[{backgroundColor: '#000', borderColor: '#FFD700', borderWidth: 2, borderRadius: 20, padding: 20, width: '92%', maxHeight: '85%', flex: 1}, isFieldMode && styles.modalContentLight]}>
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#333', paddingBottom: 10 }}>
-               <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#FFD700' }}>📋 HISTORIAL</Text>
-               <TouchableOpacity onPress={() => setShowHistoryModal(false)}>
-                 <MaterialCommunityIcons name="close" size={28} color={isFieldMode ? "#000" : "#FFD700"} />
-               </TouchableOpacity>
-            </View>
-            <Text style={{ fontSize: 12, color: '#FFF', marginBottom: 10 }}>{waypoints.length} Muestras almacenadas localmente.</Text>
-            
-            <ScrollView style={{flex: 1, marginBottom: 20}}>
-              {waypoints.map((wp, i) => (
-                 <View key={i} style={{paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#333', marginBottom: 8}}>
-                    <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
-                      <Text style={{color: '#888', fontSize: 11}}>{new Date(wp.fecha_hora || wp.timestamp).toLocaleString()}</Text>
-                      <Text style={{color: '#000', fontSize: 10, fontWeight: 'bold', backgroundColor: '#00FFFF', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4}}>{wp.proyecto_id || wp.project || 'Sin Proyecto'}</Text>
-                    </View>
-                    <Text style={{color: '#FFF', fontSize: 11, marginTop: 5}}>Lat: {parseFloat(wp.lat || wp.latitude || 0).toFixed(6)} | Lng: {parseFloat(wp.lng || wp.longitude || 0).toFixed(6)}</Text>
-                    <Text style={{color: '#FFD700', fontSize: 12, fontWeight: 'bold', marginTop: 4}}>{wp.mineral_detectado ? `💎 ${wp.mineral_detectado.toUpperCase()} (${wp.score_ia}%)` : (wp.descripcion_texto || wp.note || 'Muestra sin IA')}</Text>
-                 </View>
-              ))}
-              {waypoints.length === 0 && <Text style={{color: '#888', textAlign: 'center', marginTop: 50, fontSize: 12}}>Aún no capturas ninguna muestra</Text>}
-            </ScrollView>
-
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 10}}>
-              <TouchableOpacity style={{ flex: 1, backgroundColor: 'transparent', borderColor: '#FF3B30', borderWidth: 2, minWidth: 120, padding: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center' }} onPress={async () => { await clearMuestras(); loadMuestras(); }}>
-                 <Text style={{color: '#FF3B30', fontWeight: 'bold', fontSize: 14}}>Borrar BD</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={{ flex: 1, backgroundColor: '#000', borderColor: '#FFD700', borderWidth: 2, minWidth: 120, padding: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center' }} onPress={exportCSV}>
-                  <Text style={{color: '#FFD700', fontWeight: 'bold', fontSize: 14}}>Exportar CSV</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <HistoryModal
+        visible={showHistoryModal}
+        waypoints={waypoints}
+        isFieldMode={isFieldMode}
+        onClose={() => setShowHistoryModal(false)}
+        onClear={async () => { await clearMuestras(); loadMuestras(); }}
+        onExport={exportCSV}
+      />
 
       {/* CONFIGURATION MODAL */}
       <Modal visible={showConfigModal} transparent animationType="slide">
