@@ -5,6 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ScoreCard, { METAL_COLORS } from './ScoreCard';
 import { MetalScore } from '../core/GeologicalEngine';
 import { computeAdaptiveCellSize, type MiningSpectralResult } from '../core/SatelliteEngine';
+import { Colors, Typography, Spacing, Radii, anomalyFromPct } from '../core/theme';
 
 interface ResultsPanelProps {
   satelliteData: MiningSpectralResult | null;
@@ -34,7 +35,7 @@ export default function ResultsPanel({
     <View style={styles.panel}>
       {/* Header — subtitle only */}
       <View style={styles.header}>
-        <Text style={{ color: '#666', fontSize: 10 }}>
+        <Text style={{ color: Colors.textSub, ...Typography.caption }}>
           {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
           {analysisPoints.length > 0 ? `  ·  ${analysisPoints.length} puntos` : ''}
         </Text>
@@ -87,13 +88,13 @@ export default function ResultsPanel({
             <View style={styles.assocChips}>
               {metalScores.filter(ms => ms.metal !== selectedMineral).map(ms => {
                 const pct   = Math.round((ms.score_poligono / (ms.score_maximo ?? 100)) * 100);
-                const level = pct >= 65 ? 'ALTA' : pct >= 35 ? 'MEDIA' : 'BAJA';
-                const col   = pct >= 65 ? '#E53935' : pct >= 35 ? '#FFA000' : '#546E7A';
+                const anomaly = anomalyFromPct(pct);
+                const col   = anomaly.color;
                 return (
                   <View key={ms.metal} style={[styles.assocChip, { borderColor: col, backgroundColor: `${col}18` }]}>
                     <Text style={{ fontSize: 12 }}>{ms.icon}</Text>
-                    <Text style={{ color: '#CCC', fontSize: 10, fontWeight: '700', marginLeft: 4 }}>{ms.label}</Text>
-                    <Text style={{ color: col, fontSize: 9, fontWeight: '900', marginLeft: 4 }}>{level}</Text>
+                    <Text style={{ color: Colors.text, ...Typography.caption, fontWeight: '700', marginLeft: 4 }}>{ms.label}</Text>
+                    <Text style={{ color: col, ...Typography.caption, fontWeight: '900', marginLeft: 4 }}>{anomaly.label}</Text>
                   </View>
                 );
               })}
@@ -115,13 +116,13 @@ export default function ResultsPanel({
             {analysisPoints.slice(0, 20).map((p, i) => {
               const score = Math.round(p.score || p.base_score || 0);
               const pct = Math.round((score / selGlobalMax) * 100);
-              const anomalyLevel = pct >= 65 ? 'ALTA' : pct >= 35 ? 'MEDIA' : 'BAJA';
-              const anomalyColor = pct >= 65 ? '#E53935' : pct >= 35 ? '#FFA000' : '#546E7A';
+              const anomaly = anomalyFromPct(pct);
+              const anomalyColor = anomaly.color;
               const isPriority      = p.consensus === 'PRIORITY_TARGET';
               const isTripleSpectral = p.consensus === 'TRIPLE_SPECTRAL';
               const isConfirmed     = p.consensus === 'CONFIRMED';
-              const badgeColor  = isPriority ? '#FFD700' : isTripleSpectral ? '#00BCD4' : isConfirmed ? '#00E676' : anomalyColor;
-              const badgeLabel  = isPriority ? 'OBJ.' : isTripleSpectral ? '\uD83C\uDF08 3\u00D7' : isConfirmed ? 'CONF.' : anomalyLevel;
+              const badgeColor  = isPriority ? Colors.priorityTarget : isTripleSpectral ? Colors.tripleSpectral : isConfirmed ? Colors.confirmed : anomalyColor;
+              const badgeLabel  = isPriority ? 'OBJ.' : isTripleSpectral ? '\uD83C\uDF08 3\u00D7' : isConfirmed ? 'CONF.' : anomaly.label;
               const badgeSub    = isPriority ? 'S2+ASTER+Estr.' : isTripleSpectral ? 'S2+ASTER+EMIT' : isConfirmed ? 'S2+ASTER' : 'alteracion';
               return (
                 <TouchableOpacity
@@ -142,7 +143,7 @@ export default function ResultsPanel({
                     </View>
                   </View>
                   <View style={{ alignItems: 'flex-end', minWidth: 64 }}>
-                    <Text style={[styles.rankingScore, { color: badgeColor, fontSize: 11 }]}>
+                    <Text style={[styles.rankingScore, { color: badgeColor }]}>
                       {isPriority ? '\uD83C\uDFAF ' : isTripleSpectral ? '' : isConfirmed ? '\u2705 ' : ''}{badgeLabel}
                     </Text>
                     <Text style={styles.rankingPct}>{badgeSub}</Text>
@@ -180,14 +181,14 @@ const styles = StyleSheet.create({
   },
   rankingSection: { marginTop: 4, borderTopWidth: 1, borderTopColor: '#222', paddingTop: 12 },
   rankingHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  rankingTitle: { color: '#FFD700', fontWeight: '900', fontSize: 10, letterSpacing: 0.8, flex: 1 },
-  rankingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1A1A1A' },
-  rankingRank: { color: '#FFD700', fontWeight: '900', fontSize: 12, width: 24 },
-  rankingCoord: { color: '#555', fontSize: 9, marginBottom: 4, fontFamily: 'monospace' },
+  rankingTitle: { color: Colors.primary, fontWeight: '900', ...Typography.caption, letterSpacing: 0.8, flex: 1 },
+  rankingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: Colors.surface3 },
+  rankingRank: { color: Colors.primary, fontWeight: '900', fontSize: 14, width: 24 },
+  rankingCoord: { color: Colors.textDim, ...Typography.micro, marginBottom: 4, fontFamily: 'monospace' },
   rankingTrack: { width: '100%', height: 5, backgroundColor: '#111', borderRadius: 3, overflow: 'hidden' },
   rankingFill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 3, opacity: 0.85 },
-  rankingScore: { fontWeight: '900', fontSize: 12 },
-  rankingPct: { color: '#555', fontSize: 9, marginTop: 2 },
+  rankingScore: { fontWeight: '900', ...Typography.caption },
+  rankingPct: { color: Colors.textDim, ...Typography.micro, marginTop: 2 },
   assocBox: {
     backgroundColor: '#0A0A0A',
     borderRadius: 8,

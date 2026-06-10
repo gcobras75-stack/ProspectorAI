@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Colors, Typography } from '../core/theme';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -140,9 +141,9 @@ const styles = StyleSheet.create({
     marginBottom: 11,
   },
   metalTitle: {
-    color: '#FFFFFF',
+    color: Colors.text,
     fontWeight: '900',
-    fontSize: 13,
+    ...Typography.body,
     letterSpacing: 0.4,
     flex: 1,
   },
@@ -155,15 +156,15 @@ const styles = StyleSheet.create({
   },
   levelBadgeText: {
     fontWeight: '900',
-    fontSize: 12,
+    ...Typography.caption,
     letterSpacing: 0.5,
   },
   barSection: {
     marginBottom: 10,
   },
   barLabel: {
-    color: '#666',
-    fontSize: 9,
+    color: Colors.textDim,
+    ...Typography.micro,
     letterSpacing: 0.8,
     marginBottom: 5,
   },
@@ -183,38 +184,37 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   regionalNote: {
-    color: '#555',
-    fontSize: 10,
+    color: Colors.textSub,
+    ...Typography.caption,
     marginTop: 5,
   },
   assocRow: {
     marginBottom: 4,
   },
   assocLabel: {
-    color: '#444',
-    fontSize: 10,
+    color: Colors.textDim,
+    ...Typography.caption,
     letterSpacing: 0.3,
   },
   assocText: {
-    color: '#777',
-    fontSize: 10,
-    lineHeight: 15,
+    color: Colors.textSub,
+    ...Typography.body,
     marginBottom: 8,
     fontStyle: 'italic',
   },
   guideText: {
-    color: '#4A4A4A',
-    fontSize: 10,
+    color: Colors.textSub,
+    ...Typography.body,
     marginTop: 6,
   },
   warningText: {
-    color: '#FF9800',
-    fontSize: 10,
+    color: Colors.warning,
+    ...Typography.body,
     marginTop: 5,
   },
   disclaimer: {
-    color: '#3A3A3A',
-    fontSize: 9,
+    color: Colors.textDisabled,
+    ...Typography.micro,
     marginTop: 8,
     fontStyle: 'italic',
     letterSpacing: 0.2,

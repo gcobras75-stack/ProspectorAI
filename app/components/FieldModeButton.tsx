@@ -11,11 +11,13 @@ interface FieldModeButtonProps {
   isConnected: boolean;
 }
 
-function daysSince(isoDate: string): number {
-  if (!isoDate) return 0;
-  const then = new Date(isoDate).getTime();
-  const now = Date.now();
-  return Math.floor((now - then) / 86400000);
+function daysSince(dateStr: string): number {
+  if (!dateStr) return 0;
+  // SQLite datetime('now') returns "2026-06-10 23:11:40" (no 'T', no 'Z')
+  // Force UTC parsing by replacing space with 'T' and appending 'Z'
+  const normalized = dateStr.replace(' ', 'T') + (dateStr.includes('T') ? '' : 'Z');
+  const ms = Date.now() - new Date(normalized).getTime();
+  return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
 }
 
 export default function FieldModeButton({
@@ -126,8 +128,9 @@ export default function FieldModeButton({
     const days = daysSince(packageInfo!.preparado_at);
     btnColor = '#4CAF50';
     btnIcon = '';
-    btnLabel = 'Listo para campo';
-    subLabel = `hace ${days} día${days !== 1 ? 's' : ''} · ${packageInfo!.size_kb} KB`;
+    const whenLabel = days === 0 ? 'hoy' : days === 1 ? 'ayer' : `hace ${days} días`;
+    btnLabel = `✅ Listo para campo · ${whenLabel}`;
+    subLabel = `${packageInfo!.size_kb} KB`;
   } else if (!isConnected) {
     btnColor = '#FF5722';
     btnIcon = '';

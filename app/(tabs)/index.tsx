@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { router } from 'expo-router';
 import { StyleSheet, View, Text, ActivityIndicator, Platform, TouchableOpacity, Alert, Pressable, ScrollView } from 'react-native';
 import MapView, { Marker, Polygon, Region, MapPressEvent, PanDragEvent } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -10,6 +11,7 @@ import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, MetalScore } from '../core/GeologicalEngine';
+import { Colors, Typography, Spacing, Radii, Touch } from '../core/theme';
 import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult } from '../core/SatelliteEngine';
 import { fuseAnalysisPoints } from '../core/ConsensusFusion';
 import ChatModal from '../components/ChatModal';
@@ -137,6 +139,7 @@ export default function ProspectorDashboard() {
   const [tapPoint, setTapPoint] = useState<{lat: number; lng: number} | null>(null);
   const [selectedPoint, setSelectedPoint] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState('');
   const [mapRotation, setMapRotation] = useState(0);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [zoneColors, setZoneColors] = useState<any[]>([]);
@@ -607,7 +610,8 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
     }
     
     setIsAnalyzing(true);
-    
+    setAnalysisStep('Consultando Sentinel-2...');
+
     try {
       await new Promise(resolve => setTimeout(resolve, 600));
       // ── Adaptive cell size based on polygon area ──────────────────────────────
@@ -651,6 +655,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         
         if (useAI && isConnected) {
            try {
+              setAnalysisStep('Analizando con IA... (1/4)');
               const claudeResults = await analyzeSpectralCandidatesBatch(data.top_points, selectedMineral, terrainType, rockType);
               if (claudeResults && claudeResults.length > 0) {
                  wasAnalyzed = true;
@@ -677,6 +682,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         if (deepAnalysis) {
           let asterResult: AsterSpectralResult | null = null;
           try {
+            setAnalysisStep('Consultando ASTER... (2/4)');
             const asterCentLat = coordsToUse.reduce((s, c) => s + c.latitude,  0) / coordsToUse.length;
             const asterCentLng = coordsToUse.reduce((s, c) => s + c.longitude, 0) / coordsToUse.length;
             const coverage = await fetchAsterCoverage(asterCentLat, asterCentLng);
@@ -696,6 +702,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           // ── EMIT hyperspectral grid ─────────────────────────────────────────
           let emitResult: EmitSpectralResult | null = null;
           try {
+            setAnalysisStep('Consultando EMIT hiperspectral... (3/4)');
             const emitCoords = coordsToUse.map(c => ({ lat: c.latitude, lng: c.longitude }));
             const emit = await fetchEmitGrid(emitCoords, { cell_size_m: cellSizeM });
             setEmitData(emit);
@@ -709,6 +716,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           // ── Structural grid (Sentinel-1 + DEM) ─────────────────────────────
           let structuralResult: StructuralResult | null = null;
           try {
+            setAnalysisStep('Consultando Sentinel-1 + DEM... (4/4)');
             const structCoords = coordsToUse.map(c => ({ lat: c.latitude, lng: c.longitude }));
             const structural = await fetchStructuralGrid(structCoords, { cell_size_m: cellSizeM });
             setStructuralData(structural);
@@ -778,6 +786,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
       Alert.alert('Error', 'Conexión fallida: ' + error.message);
     } finally {
       setIsAnalyzing(false);
+      setAnalysisStep('');
     }
   };
 
@@ -945,15 +954,17 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           </View>
         )}
 
-        {/* ZOOM BOTONES */}
-        <View style={styles.zoomControlsContainer}>
-          <TouchableOpacity style={styles.zoomBtn} onPress={zoomIn}>
-            <MaterialCommunityIcons name="plus" size={24} color="#000" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.zoomBtn} onPress={zoomOut}>
-            <MaterialCommunityIcons name="minus" size={24} color="#000" />
-          </TouchableOpacity>
-        </View>
+        {/* ZOOM BOTONES — ocultos durante trazado para no interferir con vértices */}
+        {drawingType !== 'polygon' && (
+          <View style={styles.zoomControlsContainer}>
+            <TouchableOpacity style={styles.zoomBtn} onPress={zoomIn}>
+              <MaterialCommunityIcons name="plus" size={24} color="#000" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.zoomBtn} onPress={zoomOut}>
+              <MaterialCommunityIcons name="minus" size={24} color="#000" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         <TouchableOpacity style={styles.locationButton} onPress={() => { if (location) { mapRef.current?.animateToRegion({ latitude: location.coords.latitude, longitude: location.coords.longitude, latitudeDelta: 0.005, longitudeDelta: 0.005 }, 500); } }}><MaterialCommunityIcons name="crosshairs-gps" size={24} color="#FFD700" /></TouchableOpacity>
 
@@ -1126,9 +1137,9 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                      </Text>
                    )}
                    <View style={{flexDirection: 'row', width: '100%', justifyContent: 'center', gap: 8, paddingHorizontal: 10}}>
-                     <Pressable 
-                       style={({ pressed }) => [{ backgroundColor: '#FFD700', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 40, flex: 1, borderRadius: 8, borderWidth: 1, borderColor: '#000' }, isFieldMode ? { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 2 } : null, pressed && { opacity: 0.7 }, isAnalyzing && { backgroundColor: '#555' }]} 
-                       onPress={() => analyzeZone()} 
+                     <Pressable
+                       style={({ pressed }) => [{ backgroundColor: '#FFD700', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 40, flex: 1, borderRadius: 8, borderWidth: 1, borderColor: '#000' }, isFieldMode ? { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 2 } : null, pressed && { opacity: 0.7 }, isAnalyzing && { backgroundColor: '#555' }]}
+                       onPress={() => analyzeZone()}
                        disabled={isAnalyzing}
                      >
                        {isAnalyzing ? <ActivityIndicator color={isFieldMode ? "#000" : "#FFF"} size="small" /> : <MaterialCommunityIcons name="brain" size={16} color="#000" />}
@@ -1138,6 +1149,11 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                         <Text style={[{ color: '#FF3B30', fontWeight: 'bold', fontSize: 10 }]}>BORRAR</Text>
                      </TouchableOpacity>
                    </View>
+                   {isAnalyzing && analysisStep ? (
+                     <Text style={{ color: Colors.textSub, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
+                       {analysisStep}
+                     </Text>
+                   ) : null}
                  </>
                ) : (
                  <Text style={[styles.instructionText, { color: '#888' }]}>Toca "Trazar" para delimitar una zona de 3 vértices</Text>
@@ -1146,6 +1162,16 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           )}
         </View>
       </View>
+
+      {showResults && !isAnalyzing && (
+        <TouchableOpacity
+          style={styles.nextStepBanner}
+          onPress={() => router.push('/(tabs)/geologo')}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.nextStepText}>🧑‍🔬 Pregunta al geólogo sobre este análisis →</Text>
+        </TouchableOpacity>
+      )}
 
       {showResults && (
         <ResultsPanel
@@ -1465,6 +1491,31 @@ const styles = StyleSheet.create({
   modalBtnTextBlack: { color: '#000', fontWeight: 'bold', fontSize: 18 },
   
   resultRecom: { color: '#00FFFF', fontSize: 11, fontWeight: 'bold', marginTop: 2 },
+
+  nextStepBanner: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: Colors.primarySoft,
+    borderTopWidth: 1,
+    borderTopColor: Colors.primary,
+    borderRadius: 0,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    marginHorizontal: 0,
+    marginBottom: 0,
+    minHeight: Touch.min,
+    justifyContent: 'center',
+    zIndex: 99,
+  },
+  nextStepText: {
+    color: Colors.primary,
+    fontSize: Typography.bodyBold.fontSize,
+    fontWeight: Typography.bodyBold.fontWeight,
+    lineHeight: Typography.bodyBold.lineHeight,
+    textAlign: 'center',
+  },
   sectionLabelModal: { color: '#FFD700', fontSize: 12, fontWeight: 'bold', marginTop: 15, marginBottom: 8, letterSpacing: 1 },
   sectionHeader: { fontSize: 15, marginTop: 15, marginBottom: 5, letterSpacing: 0.5 },
   chipsRowModal: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
