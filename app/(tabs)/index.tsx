@@ -66,7 +66,7 @@ export default function ProspectorDashboard() {
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
       const online = state.isConnected && state.isInternetReachable;
-      if (online && !isConnected && !isSyncing) {
+      if (online && !isConnected && !isSyncing && autoSyncRef.current) {
          syncPendingAnalyses();
       }
       setIsConnected(!!online);
@@ -165,6 +165,9 @@ export default function ProspectorDashboard() {
   const [uvLamp, setUvLamp] = useState('Ninguna'); 
   const [microscopeConnected, setMicroscopeConnected] = useState(false);
   const [autoSync, setAutoSync] = useState(false);
+  // Ref so the NetInfo closure always reads the latest autoSync value
+  const autoSyncRef = useRef(false);
+  useEffect(() => { autoSyncRef.current = autoSync; }, [autoSync]);
 
   // History & Apperance
   const [showHistoryModal, setShowHistoryModal] = useState(false);

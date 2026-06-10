@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 interface HistoryModalProps {
@@ -58,7 +58,16 @@ export default function HistoryModal({
           </ScrollView>
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
-            <TouchableOpacity style={styles.btnClear} onPress={onClear}>
+            <TouchableOpacity style={styles.btnClear} onPress={() => {
+              Alert.alert(
+                'Borrar todas las muestras',
+                `¿Eliminar permanentemente las ${waypoints.length} muestras guardadas? Esta acción no se puede deshacer.`,
+                [
+                  { text: 'Cancelar', style: 'cancel' },
+                  { text: 'Borrar todo', style: 'destructive', onPress: onClear },
+                ]
+              );
+            }}>
               <Text style={{ color: '#FF3B30', fontWeight: 'bold', fontSize: 14 }}>Borrar BD</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.btnExport} onPress={onExport}>

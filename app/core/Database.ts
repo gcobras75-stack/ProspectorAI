@@ -122,14 +122,17 @@ export const clearMuestras = async () => {
 export const savePoligonoCache = async (data: any) => {
   const db = await initDB();
   await db.runAsync(
-    `INSERT OR REPLACE INTO poligonos_cache (id, mineral, terrain, rock_type, coordenadas, fecha, analisis_resultado, estado) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO poligonos_cache
+       (id, mineral, terrain, rock_type, coordenadas, fecha, analisis_resultado, estado, satdata_source, acquisition_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      data.id, data.mineral, data.terrain, data.rock_type, 
+      data.id, data.mineral, data.terrain, data.rock_type,
       typeof data.coordenadas === 'string' ? data.coordenadas : JSON.stringify(data.coordenadas),
       new Date().toISOString(),
       typeof data.analisis_resultado === 'string' ? data.analisis_resultado : JSON.stringify(data.analisis_resultado),
-      data.estado || 'OFFLINE'
+      data.estado || 'OFFLINE',
+      data.satdata_source || '',
+      data.acquisition_date || '',
     ]
   );
 };
