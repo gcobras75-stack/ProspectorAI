@@ -19,7 +19,7 @@ import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
 import WaypointModal from '../components/WaypointModal';
 import ResultsPanel from '../components/ResultsPanel';
-import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
+import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, listProjects, createProject } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
 
 type Coordinate = { latitude: number; longitude: number };
@@ -124,6 +124,7 @@ export default function ProspectorDashboard() {
   const [analysisPoints, setAnalysisPoints] = useState<any[]>([]);
   const [asterData, setAsterData]     = useState<AsterSpectralResult | null>(null);
   const [deepAnalysis, setDeepAnalysis] = useState(false);
+  const [currentProjectId, setCurrentProjectId] = useState('default');
   const [metalScores, setMetalScores] = useState<MetalScore[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [satelliteData, setSatelliteData] = useState<MiningSpectralResult | null>(null);
@@ -602,7 +603,9 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
 
         await savePoligonoCache({
            id: 'poly_' + Date.now(), mineral: selectedMineral, terrain: terrainType, rock_type: rockType,
-           coordenadas: coordsToUse, analisis_resultado: finalPoints, estado: wasAnalyzed ? 'SYNCED' : 'OFFLINE'
+           coordenadas: coordsToUse, analisis_resultado: finalPoints, estado: wasAnalyzed ? 'SYNCED' : 'OFFLINE',
+           satdata_source: satData.data_source,
+           acquisition_date: satData.acquisition_date,
         });
 
         setAnalysisPoints(finalPoints);
@@ -891,7 +894,30 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                <MaterialCommunityIcons name="history" size={20} color={isFieldMode ? "#000" : "#FFD700"} />
                <Text style={[{ color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 4 }, isFieldMode && { color: '#000' }]}>Historial</Text>
             </TouchableOpacity>
-            
+
+               <TouchableOpacity
+                 style={[{ width: 46, height: 46, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#4CAF50' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }]}
+                 onPress={async () => {
+                   try {
+                     await saveProjectState(currentProjectId, {
+                       mineral: selectedMineral,
+                       terrain: terrainType,
+                       depth,
+                       rock_type: rockType,
+                       coordenadas: polygonCoords,
+                       analisis_resultado: analysisPoints,
+                       area_ha: parseFloat(areaHa) || 0,
+                     });
+                     Alert.alert('Guardado', 'Proyecto actualizado correctamente.');
+                   } catch (e: any) {
+                     Alert.alert('Error', 'No se pudo guardar: ' + e.message);
+                   }
+                 }}
+               >
+                 <MaterialCommunityIcons name="content-save" size={20} color={isFieldMode ? '#000' : '#4CAF50'} />
+                 <Text style={[{ color: '#4CAF50', fontSize: 9, fontWeight: 'bold', marginTop: 2 }, isFieldMode && { color: '#000' }]}>Guardar</Text>
+               </TouchableOpacity>
+
             <TouchableOpacity style={[{ width: 55, height: 55, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#FFD700' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }]} onPress={() => setShowConfigModal(true)}>
                <MaterialCommunityIcons name="cog" size={20} color={isFieldMode ? "#000" : "#FFD700"} />
                <Text style={[{ color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 4 }, isFieldMode && { color: '#000' }]}>Ajustes</Text>

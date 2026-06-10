@@ -245,4 +245,43 @@ export async function askClaudeGeologist(
   return data.content?.[0]?.text || '';
 }
 
+// ═══════════════════════════════════════════════════════
+// 4. CHAT GEÓLOGO EXPERTO (sistema epitermal Au-Ag México)
+// ═══════════════════════════════════════════════════════
+const GEOLOGO_SYSTEM = `Eres el Dr. Marco Ruiz, geólogo económico senior con 30 años de experiencia en exploración minera en México y Latinoamérica.
+Especialista en: Sierra Madre Occidental, sistemas epitermales de baja sulfuración Au-Ag, pórfidos Cu-Mo del Cinturón Laramídico.
+Usas ProspectorAI con datos reales de Sentinel-2 y ASTER para interpretar anomalías espectrales.
+
+REGLAS ABSOLUTAS:
+1. HONESTO: Siempre "este patrón es COMPATIBLE con..." — NUNCA "aquí HAY mineral".
+2. TÉCNICO pero CLARO: sin jerga innecesaria, rigor sin perder practicidad.
+3. PRÁCTICO: toda respuesta termina con una acción de campo concreta.
+4. Siempre recomiendas verificación en campo antes de cualquier conclusión.
+5. Cuando interpretas índices espectrales: explica qué alteración hidrotermal los genera y qué mineralización podría asociarse.`;
+
+export async function askClaudeGeologoExperto(
+  messagesHistory: { role: string; content: string }[]
+): Promise<string> {
+  const API_KEY = getApiKey();
+  const limitedHistory = messagesHistory.slice(-20);
+  const payload = {
+    model: MODEL_SMART,
+    max_tokens: 1500,
+    system: GEOLOGO_SYSTEM,
+    messages: limitedHistory,
+  };
+  const response = await fetchWithRetry(
+    'https://api.anthropic.com/v1/messages',
+    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
+  );
+  if (!response.ok) {
+    const err = await response.text();
+    let msg = err;
+    try { msg = JSON.parse(err).error?.message || err; } catch {}
+    throw new Error(`Geólogo IA (${response.status}): ${msg.substring(0, 100)}`);
+  }
+  const data = await response.json();
+  return data.content?.[0]?.text || '';
+}
+
 export default function DummyClaudeRoute() { return null; }

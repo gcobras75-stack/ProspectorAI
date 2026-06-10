@@ -52,6 +52,26 @@ export const initDB = async () => {
     );
   `);
 
+  // ── Schema migration: add new columns (safe to re-run) ──────────────────
+  const migrations = [
+    `ALTER TABLE proyectos ADD COLUMN mineral      TEXT    DEFAULT 'oro'`,
+    `ALTER TABLE proyectos ADD COLUMN terrain      TEXT    DEFAULT 'sierra'`,
+    `ALTER TABLE proyectos ADD COLUMN depth        TEXT    DEFAULT '0-5m'`,
+    `ALTER TABLE proyectos ADD COLUMN rock_type    TEXT    DEFAULT 'ignea'`,
+    `ALTER TABLE proyectos ADD COLUMN coordenadas  TEXT    DEFAULT '[]'`,
+    `ALTER TABLE proyectos ADD COLUMN analisis_resultado TEXT DEFAULT '[]'`,
+    `ALTER TABLE proyectos ADD COLUMN satdata_source    TEXT DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN acquisition_date  TEXT DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN area_ha      REAL    DEFAULT 0`,
+    `ALTER TABLE proyectos ADD COLUMN chat_history TEXT    DEFAULT '[]'`,
+    `ALTER TABLE proyectos ADD COLUMN notas        TEXT    DEFAULT ''`,
+    `ALTER TABLE poligonos_cache ADD COLUMN satdata_source   TEXT DEFAULT ''`,
+    `ALTER TABLE poligonos_cache ADD COLUMN acquisition_date TEXT DEFAULT ''`,
+  ];
+  for (const sql of migrations) {
+    try { await dbCache.execAsync(sql); } catch (_) { /* column already exists */ }
+  }
+
   const hasDefault = await dbCache.getFirstAsync('SELECT id FROM proyectos WHERE id = ?', ['default']);
   if (!hasDefault) {
     await dbCache.runAsync(
@@ -177,6 +197,115 @@ export const loadSpectralCache = async (cacheKey: string): Promise<{
     cell_size_m:      row.cell_size_m,
     fecha_guardado:   row.fecha_guardado,
     age_days:         ageDays,
+  };
+};
+
+// ─── PROJECT MANAGEMENT ────────────────────────────────────────────────────
+
+export const listProjects = async (): Promise<Array<{ id: string; nombre: string; ultimo_acceso: string }>> => {
+  const db = await initDB();
+  return await db.getAllAsync('SELECT id, nombre, ultimo_acceso FROM proyectos ORDER BY ultimo_acceso DESC') as any[];
+};
+
+export const createProject = async (nombre: string): Promise<string> => {
+  const db = await initDB();
+  const id = 'proj_' + Date.now().toString(36);
+  await db.runAsync(
+    'INSERT INTO proyectos (id, nombre, fecha_creacion, ultimo_acceso) VALUES (?, ?, ?, ?)',
+    [id, nombre, new Date().toISOString(), new Date().toISOString()]
+  );
+  return id;
+};
+
+export const saveProjectState = async (
+  projectId: string,
+  data: {
+    mineral?: string;
+    terrain?: string;
+    depth?: string;
+    rock_type?: string;
+    coordenadas?: any[];
+    analisis_resultado?: any[];
+    satdata_source?: string;
+    acquisition_date?: string;
+    area_ha?: number;
+    notas?: string;
+  }
+): Promise<void> => {
+  const db = await initDB();
+  const fields = Object.keys(data).filter(k => data[k as keyof typeof data] !== undefined);
+  if (fields.length === 0) return;
+  const setClause = fields.map(f => `${f} = ?`).join(', ');
+  const values = fields.map(f => {
+    const v = data[f as keyof typeof data];
+    return Array.isArray(v) ? JSON.stringify(v) : v;
+  });
+  values.push(new Date().toISOString()); // ultimo_acceso
+  values.push(projectId);
+  await db.runAsync(
+    `UPDATE proyectos SET ${setClause}, ultimo_acceso = ? WHERE id = ?`,
+    values as any[]
+  );
+};
+
+export const loadProjectState = async (projectId: string): Promise<{
+  id: string; nombre: string;
+  mineral: string; terrain: string; depth: string; rock_type: string;
+  coordenadas: any[]; analisis_resultado: any[];
+  satdata_source: string; acquisition_date: string; area_ha: number;
+  chat_history: { role: string; content: string }[];
+  notas: string;
+} | null> => {
+  const db = await initDB();
+  const row = await db.getFirstAsync('SELECT * FROM proyectos WHERE id = ?', [projectId]) as any;
+  if (!row) return null;
+  return {
+    id: row.id,
+    nombre: row.nombre,
+    mineral: row.mineral || 'oro',
+    terrain: row.terrain || 'sierra',
+    depth: row.depth || '0-5m',
+    rock_type: row.rock_type || 'ignea',
+    coordenadas: row.coordenadas ? JSON.parse(row.coordenadas) : [],
+    analisis_resultado: row.analisis_resultado ? JSON.parse(row.analisis_resultado) : [],
+    satdata_source: row.satdata_source || '',
+    acquisition_date: row.acquisition_date || '',
+    area_ha: row.area_ha || 0,
+    chat_history: row.chat_history ? JSON.parse(row.chat_history) : [],
+    notas: row.notas || '',
+  };
+};
+
+export const saveProjectChatHistory = async (
+  projectId: string,
+  messages: { role: string; content: string }[]
+): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync(
+    'UPDATE proyectos SET chat_history = ?, ultimo_acceso = ? WHERE id = ?',
+    [JSON.stringify(messages), new Date().toISOString(), projectId]
+  );
+};
+
+export const loadLastAnalysis = async (): Promise<{
+  mineral: string; terrain: string; rock_type: string;
+  coordenadas: any[]; analisis_resultado: any[];
+  satdata_source: string; acquisition_date: string; fecha: string;
+} | null> => {
+  const db = await initDB();
+  const row = await db.getFirstAsync(
+    'SELECT * FROM poligonos_cache ORDER BY fecha DESC LIMIT 1'
+  ) as any;
+  if (!row) return null;
+  return {
+    mineral: row.mineral || 'oro',
+    terrain: row.terrain || 'sierra',
+    rock_type: row.rock_type || 'ignea',
+    coordenadas: row.coordenadas ? JSON.parse(row.coordenadas) : [],
+    analisis_resultado: row.analisis_resultado ? JSON.parse(row.analisis_resultado) : [],
+    satdata_source: row.satdata_source || '',
+    acquisition_date: row.acquisition_date || '',
+    fecha: row.fecha || '',
   };
 };
 

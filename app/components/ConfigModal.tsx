@@ -52,6 +52,7 @@ export default function ConfigModal({
           </View>
 
           <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 20 }]}>0. GESTIÓN LOCAL</Text>
+
           <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>PROYECTO ACTIVO</Text>
           <TextInput
             style={[styles.input, isFieldMode && styles.inputLight, { height: 44, marginBottom: 10, fontSize: 15, fontWeight: 'bold' }]}
@@ -60,6 +61,21 @@ export default function ConfigModal({
             placeholder="Ej: Concesión Norte"
             placeholderTextColor="#888"
           />
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+            <TouchableOpacity
+              style={{ flex: 1, backgroundColor: '#111', borderWidth: 1, borderColor: '#4CAF50', borderRadius: 8, padding: 10, alignItems: 'center' }}
+              onPress={async () => {
+                const { Alert: RNAlert } = require('react-native');
+                RNAlert.prompt
+                  ? RNAlert.prompt('Nuevo Proyecto', 'Nombre del proyecto:', async (name: string) => {
+                      if (name?.trim()) { await require('../core/Database').createProject(name.trim()); }
+                    })
+                  : RNAlert.alert('Nuevo Proyecto', 'Edita el nombre en el campo de arriba y guarda.');
+              }}
+            >
+              <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold' }}>+ Nuevo proyecto</Text>
+            </TouchableOpacity>
+          </View>
 
           <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 20 }]}>1. GEOLOGÍA ESTRUCTURAL</Text>
 
