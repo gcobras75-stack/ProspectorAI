@@ -15,6 +15,7 @@ import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct, tapMessage } from '..
 import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
 import ChatModal from '../components/ChatModal';
 import HistoryModal from '../components/HistoryModal';
+import ConfigModal from '../components/ConfigModal';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
 
@@ -1457,116 +1458,34 @@ export default function ProspectorDashboard() {
         onExport={exportCSV}
       />
 
-      {/* CONFIGURATION MODAL */}
-      <Modal visible={showConfigModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <ScrollView style={[styles.modalContent, { maxHeight: '85%' }, isFieldMode && styles.modalContentLight]}>
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
-               <Text style={[styles.modalTitle, isFieldMode && styles.modalTitleLight, { marginBottom: 0 }]}>⚙️ CONFIGURACIÓN</Text>
-               <TouchableOpacity onPress={() => setShowConfigModal(false)}>
-                  <MaterialCommunityIcons name="close" size={28} color={isFieldMode ? "#000" : "#FFD700"} />
-               </TouchableOpacity>
-            </View>
-
-            <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 20, fontWeight: 'bold' }]}>0. GESTIÓN LOCAL</Text>
-            <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }]}>PROYECTO ACTIVO</Text>
-            <TextInput 
-              style={[styles.modalInput, isFieldMode && styles.modalInputLight, { height: 44, marginBottom: 10, fontSize: 15, fontWeight: 'bold' }]} 
-              value={activeProject} 
-              onChangeText={setActiveProject} 
-              placeholder="Ej: Concesión Norte" 
-              placeholderTextColor="#888"
-            />
-
-            <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 20, fontWeight: 'bold' }]}>1. GEOLOGÍA ESTRUCTURAL</Text>
-
-            <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }]}>MINERAL OBJETIVO</Text>
-            <View style={styles.chipsRowModal}>
-              {['oro','plata','cobre','zinc','plomo'].map(m => (
-                <TouchableOpacity key={m} style={[styles.chipModal, selectedMineral === m && styles.chipActive]} onPress={() => setSelectedMineral(m)}>
-                  <Text style={[styles.chipTextModal, selectedMineral === m && styles.chipTextActive]}>{m}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }]}>TIPO DE TERRENO</Text>
-            <View style={styles.chipsRowModal}>
-              {['sierra','playa'].map(m => (
-                <TouchableOpacity key={m} style={[styles.chipModal, terrainType === m && styles.chipActive]} onPress={() => setTerrainType(m)}>
-                  <Text style={[styles.chipTextModal, terrainType === m && styles.chipTextActive]}>{m}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }]}>PROFUNDIDAD EST.</Text>
-            <View style={styles.chipsRowModal}>
-              {['0-5m','5-20m','20m+'].map(m => (
-                <TouchableOpacity key={m} style={[styles.chipModal, depth === m && styles.chipActive]} onPress={() => setDepth(m)}>
-                  <Text style={[styles.chipTextModal, depth === m && styles.chipTextActive]}>{m}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }]}>TIPO DE ROCA MASIVA</Text>
-            <View style={styles.chipsRowModal}>
-              {['ignea','sedimentaria','metamorfica'].map(m => (
-                <TouchableOpacity key={m} style={[styles.chipModal, rockType === m && styles.chipActive]} onPress={() => setRockType(m)}>
-                  <Text style={[styles.chipTextModal, rockType === m && styles.chipTextActive]}>{m === 'metamorfica' ? 'metamórfica' : m}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 30, fontWeight: 'bold' }]}>2. ANÁLISIS ÓPTICO / IA</Text>
-            <View style={styles.prefsRow}>
-              <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }, { marginBottom: 0, marginTop: 0 }]}>Claude Vision On/Off</Text>
-              <Switch value={useAI} onValueChange={setUseAI} trackColor={{ true: '#FFD700' }} />
-            </View>
-            {useAI && <Text style={{color: '#888', fontSize: 11}}>Modelo Activo: claude-haiku-4-5-20251001</Text>}
-            <View style={styles.prefsRow}>
-              <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }, { marginBottom: 0, marginTop: 0 }]}>Auto-Análisis AI en Muestreo</Text>
-              <Switch value={autoAnalyzeSample} onValueChange={setAutoAnalyzeSample} trackColor={{ true: '#FFD700' }} />
-            </View>
-
-            <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 30, fontWeight: 'bold' }]}>3. HARDWARE EXTERNO</Text>
-            <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }]}>LÁMPARA UV / FLUORESCENCIA</Text>
-            <View style={styles.chipsRowModal}>
-              {['Ninguna','365nm','254nm'].map(m => (
-                <TouchableOpacity key={m} style={[styles.chipModal, uvLamp === m && styles.chipActive]} onPress={() => setUvLamp(m)}>
-                  <Text style={[styles.chipTextModal, uvLamp === m && styles.chipTextActive]}>{m}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={styles.prefsRow}>
-              <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }, { marginBottom: 0, marginTop: 0 }]}>Microscopio USB-C Carson</Text>
-              <TouchableOpacity style={{padding: 6, backgroundColor: microscopeConnected ? '#00FF00' : '#333', borderRadius: 8}} onPress={() => setMicroscopeConnected(!microscopeConnected)}>
-                 <Text style={{color: microscopeConnected ? '#000' : '#FFF', fontWeight: 'bold'}}>{microscopeConnected ? 'CONECTADO' : 'INACTIVO'}</Text>
-              </TouchableOpacity>
-            </View>
-
-            <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 30, fontWeight: 'bold' }]}>4. BASE DE DATOS Y NUBE</Text>
-            <View style={styles.prefsRow}>
-               <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }, { marginBottom: 0, marginTop: 0 }]}>Sincronización Cloud Automática</Text>
-               <Switch value={autoSync} onValueChange={setAutoSync} trackColor={{ true: '#FFD700' }} />
-            </View>
-            <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 30, fontWeight: 'bold' }]}>5.SISTEMA / INTERFAZ</Text>
-            <View style={styles.prefsRow}>
-              <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }, { marginBottom: 0, marginTop: 0 }]}>Modo Solar Alto Contraste</Text>
-              <Switch value={isFieldMode} onValueChange={setIsFieldMode} trackColor={{ true: '#FFD700' }} />
-            </View>
-            <View style={styles.prefsRow}>
-              <Text style={[styles.sectionLabelModal, isFieldMode && { color: '#444' }, { marginBottom: 0, marginTop: 0 }]}>Motor Háptico (Vibración)</Text>
-              <Switch value={vibrationEnabled} onValueChange={setVibrationEnabled} trackColor={{ true: '#FFD700' }} />
-            </View>
-
-            <View style={[styles.modalActions, { marginTop: 30 }]}>
-              <TouchableOpacity style={styles.modalBtnSave} onPress={() => setShowConfigModal(false)}>
-                <Text style={styles.modalBtnTextBlack}>Guardar Parámetros Globales</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={{height: 40}} /> 
-          </ScrollView>
-        </View>
-      </Modal>
+      <ConfigModal
+        visible={showConfigModal}
+        isFieldMode={isFieldMode}
+        activeProject={activeProject}
+        selectedMineral={selectedMineral}
+        terrainType={terrainType}
+        depth={depth}
+        rockType={rockType}
+        useAI={useAI}
+        autoAnalyzeSample={autoAnalyzeSample}
+        uvLamp={uvLamp}
+        microscopeConnected={microscopeConnected}
+        autoSync={autoSync}
+        vibrationEnabled={vibrationEnabled}
+        onClose={() => setShowConfigModal(false)}
+        setActiveProject={setActiveProject}
+        setSelectedMineral={setSelectedMineral}
+        setTerrainType={setTerrainType}
+        setDepth={setDepth}
+        setRockType={setRockType}
+        setUseAI={setUseAI}
+        setAutoAnalyzeSample={setAutoAnalyzeSample}
+        setUvLamp={setUvLamp}
+        setMicroscopeConnected={setMicroscopeConnected}
+        setAutoSync={setAutoSync}
+        setIsFieldMode={setIsFieldMode}
+        setVibrationEnabled={setVibrationEnabled}
+      />
 
     </View>
   );
