@@ -17,6 +17,7 @@ import ChatModal from '../components/ChatModal';
 import HistoryModal from '../components/HistoryModal';
 import ConfigModal from '../components/ConfigModal';
 import TapPanel from '../components/TapPanel';
+import SelectedPointModal from '../components/SelectedPointModal';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
 
@@ -1061,135 +1062,20 @@ export default function ProspectorDashboard() {
         />
       )}
 
-      <Modal visible={!!selectedPoint} transparent animationType="slide">
-        <View style={[styles.modalOverlay, {backgroundColor: 'rgba(0,0,0,0.85)'}]}>
-          <View style={{backgroundColor: '#000', borderColor: '#FFD700', borderWidth: 2, borderRadius: 20, padding: 20, width: '92%', maxHeight: '85%'}}>
-            
-            {/* ── HEADER ─────────────────────────────────────────────────────── */}
-            <View style={{borderBottomWidth: 1, borderBottomColor: '#333', paddingBottom: 10, marginBottom: 14}}>
-              <Text style={{color: '#FFD700', fontSize: 18, fontWeight: '900', letterSpacing: 0.5}}>
-                PUNTO #{selectedPoint?.rank}
-              </Text>
-              <Text style={{color: '#FFF', fontSize: 11, marginTop: 4, fontFamily: 'monospace'}}>
-                📍 Lat: {selectedPoint?.lat.toFixed(6)} | Lng: {selectedPoint?.lng.toFixed(6)}
-              </Text>
-              <Text style={{color: '#888', fontSize: 11, marginTop: 2}}>
-                Terreno: {terrainType.charAt(0).toUpperCase() + terrainType.slice(1)}{'  |  '}Metal: {selectedMineral.toUpperCase()}
-              </Text>
-            </View>
-
-            <ScrollView style={{maxHeight: '100%'}}>
-              {selectedPoint && (() => {
-                const BARS      = 18;
-                // selectedPoint.base_score is real (derived from Sentinel-2 in analyzeZoneLocal)
-                const realScore = Math.round(selectedPoint.base_score || selectedPoint.score || 0);
-                const { level: primLevel, color: primColor } = anomalyFromPct(realScore);
-                // Use nearest cell for multi-metal breakdown (point IS inside the polygon)
-                const nearestCell = satelliteData?.cells?.length
-                  ? findNearestCell(selectedPoint.lat, selectedPoint.lng, satelliteData.cells)
-                  : null;
-
-                return (
-                  <>
-                    {/* ── Data source label ────────────────────────────── */}
-                    <Text style={{fontSize: 10, color: '#4CAF50', marginBottom: 12}}>
-                      ✅ Datos Sentinel-2 reales · {satelliteData?.source_label ?? ''}
-                    </Text>
-
-                    {/* ── Primary mineral (from real grid score) ───────── */}
-                    <View style={{backgroundColor: '#0D1A0D', borderRadius: 8, borderWidth: 1,
-                      borderColor: '#1E3A1E', padding: 12, marginBottom: 12}}>
-                      <Text style={{color: '#888', fontSize: 9, letterSpacing: 0.8, marginBottom: 6}}>
-                        MINERAL SELECCIONADO — {selectedMineral.toUpperCase()}
-                      </Text>
-                      <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8}}>
-                        <Text style={{color: METAL_COLORS[selectedMineral] ?? '#FFD700',
-                          fontWeight: '900', fontSize: 16}}>
-                          {TAP_METAL_META[selectedMineral]?.icon}  {TAP_METAL_META[selectedMineral]?.label}
-                        </Text>
-                        <View style={{borderWidth: 1.5, borderColor: primColor, borderRadius: 5,
-                          paddingHorizontal: 10, paddingVertical: 3, backgroundColor: `${primColor}22`}}>
-                          <Text style={{color: primColor, fontWeight: '900', fontSize: 13}}>{primLevel}</Text>
-                        </View>
-                      </View>
-                      <View style={{height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden', marginBottom: 6}}>
-                        <View style={{height: '100%', width: `${realScore}%`,
-                          backgroundColor: primColor, borderRadius: 3}} />
-                      </View>
-                      <Text style={{color: '#555', fontSize: 9, fontStyle: 'italic'}}>
-                        Intensidad de alteración calculada de índices espectrales reales
-                      </Text>
-                    </View>
-
-                    {/* ── Other metals from nearest cell ───────────────── */}
-                    {nearestCell && (
-                      <>
-                        <Text style={{color: '#444', fontSize: 9, letterSpacing: 0.8, marginBottom: 8}}>
-                          OTROS METALES — celda Sentinel-2 más cercana
-                        </Text>
-                        {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const)
-                          .filter(m => m !== selectedMineral)
-                          .map(metal => {
-                            const score        = cellAnomalyScore(nearestCell, metal);
-                            const { level, color: aColor } = anomalyFromPct(score);
-                            const meta         = TAP_METAL_META[metal];
-                            const ptBars       = Math.round((score / 100) * BARS);
-                            return (
-                              <View key={metal} style={{flexDirection: 'row', alignItems: 'center',
-                                marginBottom: 9, paddingBottom: 9,
-                                borderBottomWidth: 1, borderBottomColor: '#151515'}}>
-                                <Text style={{color: meta?.color ?? '#888', fontWeight: '700',
-                                  fontSize: 12, width: 80}}>
-                                  {meta?.icon} {meta?.label}
-                                </Text>
-                                <Text style={{fontFamily: 'monospace', fontSize: 10,
-                                  color: aColor, flex: 1}}>
-                                  {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
-                                </Text>
-                                <View style={{borderWidth: 1, borderColor: aColor, borderRadius: 4,
-                                  paddingHorizontal: 6, paddingVertical: 1, marginLeft: 6,
-                                  backgroundColor: `${aColor}22`}}>
-                                  <Text style={{color: aColor, fontWeight: '700', fontSize: 9}}>{level}</Text>
-                                </View>
-                              </View>
-                            );
-                          })}
-                      </>
-                    )}
-
-                    <Text style={{color: '#333', fontSize: 9, marginTop: 8, marginBottom: 16, fontStyle: 'italic'}}>
-                      Indicador exploratorio — requiere verificación en campo
-                    </Text>
-                  </>
-                );
-              })()}
-
-              {/* Botones */}
-              <TouchableOpacity style={{backgroundColor: '#FFD700', minWidth: 140, padding: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginBottom: 12}} onPress={() => { 
-                  mapRef.current?.animateToRegion({latitude: selectedPoint?.lat, longitude: selectedPoint?.lng, latitudeDelta: 0.002, longitudeDelta: 0.002}, 800); 
-                  setSelectedPoint(null);
-              }}>
-                 <Text style={{color: '#000', fontWeight: 'bold', fontSize: 14}}>NAVEGAR A COORDENADAS</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity style={{backgroundColor: '#FFD700', minWidth: 140, padding: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginBottom: 12}} onPress={() => {
-                  mapRef.current?.animateToRegion({latitude: selectedPoint?.lat, longitude: selectedPoint?.lng, latitudeDelta: 0.002, longitudeDelta: 0.002}, 0);
-                  setSampleBase64(null); setAiResult(null); setWaypointNote('');
-                  setShowWaypointModal(true);
-                  setSelectedPoint(null);
-              }}>
-                 <Text style={{color: '#000', fontWeight: 'bold', fontSize: 14}}>GUARDAR COMO MUESTRA</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={{backgroundColor: 'transparent', borderColor: '#FFD700', borderWidth: 2, minWidth: 140, padding: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center'}} onPress={() => setSelectedPoint(null)}>
-                  <Text style={{color: '#FFD700', fontWeight: 'bold', fontSize: 14}}>CERRAR</Text>
-              </TouchableOpacity>
-              
-              <View style={{height: 20}} />
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      <SelectedPointModal
+        selectedPoint={selectedPoint}
+        satelliteData={satelliteData}
+        selectedMineral={selectedMineral}
+        terrainType={terrainType}
+        mapRef={mapRef}
+        onClose={() => setSelectedPoint(null)}
+        onSaveSample={() => {
+          mapRef.current?.animateToRegion({ latitude: selectedPoint?.lat, longitude: selectedPoint?.lng, latitudeDelta: 0.002, longitudeDelta: 0.002 }, 0);
+          setSampleBase64(null); setAiResult(null); setWaypointNote('');
+          setShowWaypointModal(true);
+          setSelectedPoint(null);
+        }}
+      />
 
       {/* CAMARA MODAL */}
       <Modal 
