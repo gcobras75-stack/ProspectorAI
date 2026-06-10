@@ -1050,21 +1050,20 @@ export default function ProspectorDashboard() {
                 />
               ))}
 
-              {/* ── Ranking comparativo ────────────────────────────────────── */}
+              {/* ── Ranking por intensidad de anomalía ────────────────────── */}
               {analysisPoints.length > 0 && (
                 <View style={styles.rankingSection}>
                   <View style={styles.rankingHeader}>
                     <Text style={styles.rankingTitle}>
-                      TUS MEJORES PUNTOS — {selectedMineral.toUpperCase()} {terrainType.toUpperCase()}
-                    </Text>
-                    <Text style={styles.rankingMaxLabel}>
-                      Máx: <Text style={{color: selColor, fontWeight: '900'}}>{selGlobalMax}</Text>/100
+                      ZONAS PRIORITARIAS — {selectedMineral.toUpperCase()} {terrainType.toUpperCase()}
                     </Text>
                   </View>
 
                   {analysisPoints.slice(0, 5).map((p, i) => {
                     const score = Math.round(p.score || p.base_score || 0);
                     const pct   = Math.round((score / selGlobalMax) * 100);
+                    const anomalyLevel = pct >= 65 ? 'ALTA' : pct >= 35 ? 'MEDIA' : 'BAJA';
+                    const anomalyColor = pct >= 65 ? '#E53935' : pct >= 35 ? '#FFA000' : '#546E7A';
                     return (
                       <TouchableOpacity
                         key={i}
@@ -1084,15 +1083,13 @@ export default function ProspectorDashboard() {
                             {p.lat.toFixed(5)}, {p.lng.toFixed(5)}
                           </Text>
                           <View style={styles.rankingTrack}>
-                            {/* max ceiling */}
-                            <View style={[styles.rankingCeiling, {width: `${selGlobalMax}%`}]} />
-                            {/* score fill */}
-                            <View style={[styles.rankingFill, {width: `${score}%`, backgroundColor: selColor}]} />
+                            {/* anomaly intensity bar */}
+                            <View style={[styles.rankingFill, {width: `${pct}%`, backgroundColor: anomalyColor}]} />
                           </View>
                         </View>
                         <View style={{alignItems: 'flex-end', minWidth: 56}}>
-                          <Text style={[styles.rankingScore, {color: selColor}]}>{score}/100</Text>
-                          <Text style={styles.rankingPct}>{pct}% del máx</Text>
+                          <Text style={[styles.rankingScore, {color: anomalyColor, fontSize: 11}]}>{anomalyLevel}</Text>
+                          <Text style={styles.rankingPct}>alteración</Text>
                         </View>
                       </TouchableOpacity>
                     );
@@ -1138,16 +1135,17 @@ export default function ProspectorDashboard() {
 
               return (
                 <>
-                  {/* ── BarRow por cada metal ─────────────────────────── */}
+                  {/* ── Anomalía por cada metal ───────────────────────── */}
                   {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const).map(metal => {
-                    const maxScore = TAP_GLOBAL_MAX[metal]?.[terrKey] ?? 100;
-                    const ptScore  = Math.min(tapPointScore(lat, lng, metal), maxScore);
-                    const pct      = Math.round((ptScore / maxScore) * 100);
-                    const msg      = tapMessage(pct);
-                    const meta     = TAP_METAL_META[metal];
-                    const color    = meta?.color ?? '#FFD700';
-                    const ptBars   = Math.round((ptScore  / 100) * BARS);
-                    const maxBars  = Math.round((maxScore / 100) * BARS);
+                    const maxScore     = TAP_GLOBAL_MAX[metal]?.[terrKey] ?? 100;
+                    const ptScore      = Math.min(tapPointScore(lat, lng, metal), maxScore);
+                    const pct          = Math.round((ptScore / maxScore) * 100);
+                    const msg          = tapMessage(pct);
+                    const meta         = TAP_METAL_META[metal];
+                    const color        = meta?.color ?? '#FFD700';
+                    const ptBars       = Math.round((pct / 100) * BARS);
+                    const anomalyLevel = pct >= 65 ? 'ALTA' : pct >= 35 ? 'MEDIA' : 'BAJA';
+                    const anomalyColor = pct >= 65 ? '#E53935' : pct >= 35 ? '#FFA000' : '#546E7A';
 
                     return (
                       <View key={metal} style={{
@@ -1156,43 +1154,32 @@ export default function ProspectorDashboard() {
                         borderBottomWidth: 1,
                         borderBottomColor: '#1C1C1C',
                       }}>
-                        {/* Metal title */}
-                        <Text style={{
-                          fontWeight: '900', fontSize: 15, color,
-                          marginBottom: 9, letterSpacing: 0.5,
-                        }}>
-                          {meta?.icon}  {meta?.label}
-                        </Text>
-
-                        {/* MAX bar */}
-                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 3}}>
-                          <Text style={{fontSize: 11, color: '#666', width: 122}}>
-                            Máximo posible:
+                        {/* Metal title + anomaly level */}
+                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 9, justifyContent: 'space-between'}}>
+                          <Text style={{fontWeight: '900', fontSize: 15, color, letterSpacing: 0.5}}>
+                            {meta?.icon}  {meta?.label}
                           </Text>
-                          <Text style={{fontFamily: 'monospace', fontSize: 12, color: '#444', flex: 1}}>
-                            {'█'.repeat(maxBars) + '░'.repeat(BARS - maxBars)}
-                          </Text>
-                          <Text style={{fontSize: 11, color: '#555', width: 46, textAlign: 'right'}}>
-                            {maxScore}/100
-                          </Text>
+                          <View style={{borderWidth: 1.5, borderColor: anomalyColor, borderRadius: 5,
+                            paddingHorizontal: 8, paddingVertical: 2, backgroundColor: `${anomalyColor}22`}}>
+                            <Text style={{color: anomalyColor, fontWeight: '900', fontSize: 11, letterSpacing: 0.5}}>
+                              {anomalyLevel}
+                            </Text>
+                          </View>
                         </View>
 
-                        {/* POINT bar */}
+                        {/* Intensity bar */}
                         <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 6}}>
-                          <Text style={{fontSize: 11, color: '#999', width: 122}}>
-                            Score aquí:
+                          <Text style={{fontSize: 11, color: '#666', width: 122}}>
+                            Intensidad señal:
                           </Text>
-                          <Text style={{fontFamily: 'monospace', fontSize: 12, color, flex: 1}}>
+                          <Text style={{fontFamily: 'monospace', fontSize: 12, color: anomalyColor, flex: 1}}>
                             {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
                           </Text>
-                          <Text style={{fontWeight: '900', fontSize: 14, color, width: 46, textAlign: 'right'}}>
-                            {ptScore}/100
-                          </Text>
                         </View>
 
-                        {/* Percentage + message */}
+                        {/* Message */}
                         <Text style={{fontSize: 11, color: msg.color, marginLeft: 122, lineHeight: 16}}>
-                          {'📊 '}{pct}{'% del potencial máximo'}{'\n'}{msg.text}
+                          {msg.text}
                         </Text>
                       </View>
                     );
@@ -1279,43 +1266,43 @@ export default function ProspectorDashboard() {
 
                 return (
                   <>
-                    {/* ── Score bars por metal ────────────────────────── */}
+                    {/* ── Anomalía por metal ──────────────────────────── */}
                     {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const).map(metal => {
-                      const maxScore = TAP_GLOBAL_MAX[metal]?.[terrKey] ?? 100;
-                      const ptScore  = Math.min(tapPointScore(lat, lng, metal), maxScore);
-                      const pct      = Math.round((ptScore / maxScore) * 100);
-                      const msg      = tapMessage(pct);
-                      const meta     = TAP_METAL_META[metal];
-                      const ptBars   = Math.round((ptScore  / 100) * BARS);
-                      const maxBars  = Math.round((maxScore / 100) * BARS);
+                      const maxScore     = TAP_GLOBAL_MAX[metal]?.[terrKey] ?? 100;
+                      const ptScore      = Math.min(tapPointScore(lat, lng, metal), maxScore);
+                      const pct          = Math.round((ptScore / maxScore) * 100);
+                      const msg          = tapMessage(pct);
+                      const meta         = TAP_METAL_META[metal];
+                      const ptBars       = Math.round((pct / 100) * BARS);
+                      const anomalyLevel = pct >= 65 ? 'ALTA' : pct >= 35 ? 'MEDIA' : 'BAJA';
+                      const anomalyColor = pct >= 65 ? '#E53935' : pct >= 35 ? '#FFA000' : '#546E7A';
 
                       return (
                         <View key={metal} style={{marginBottom: 13, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: '#1C1C1C'}}>
-                          <Text style={{fontWeight: '900', fontSize: 14, color: meta?.color ?? '#FFD700', marginBottom: 7, letterSpacing: 0.3}}>
-                            {meta?.icon}{'  '}{meta?.label}
-                          </Text>
-
-                          {/* MAX bar */}
-                          <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 2}}>
-                            <Text style={{fontSize: 10, color: '#555', width: 116}}>Máximo posible:</Text>
-                            <Text style={{fontFamily: 'monospace', fontSize: 11, color: '#3A3A3A', flex: 1}}>
-                              {'░'.repeat(maxBars) + ' '.repeat(BARS - maxBars)}
+                          {/* Metal + anomaly badge */}
+                          <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 7, justifyContent: 'space-between'}}>
+                            <Text style={{fontWeight: '900', fontSize: 14, color: meta?.color ?? '#FFD700', letterSpacing: 0.3}}>
+                              {meta?.icon}{'  '}{meta?.label}
                             </Text>
-                            <Text style={{fontSize: 10, color: '#555', width: 44, textAlign: 'right'}}>{maxScore}/100</Text>
+                            <View style={{borderWidth: 1.5, borderColor: anomalyColor, borderRadius: 5,
+                              paddingHorizontal: 7, paddingVertical: 2, backgroundColor: `${anomalyColor}22`}}>
+                              <Text style={{color: anomalyColor, fontWeight: '900', fontSize: 10, letterSpacing: 0.5}}>
+                                {anomalyLevel}
+                              </Text>
+                            </View>
                           </View>
 
-                          {/* POINT bar */}
+                          {/* Intensity bar */}
                           <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 5}}>
-                            <Text style={{fontSize: 10, color: '#999', width: 116}}>Score de este punto:</Text>
-                            <Text style={{fontFamily: 'monospace', fontSize: 11, color: '#F4D03F', flex: 1}}>
+                            <Text style={{fontSize: 10, color: '#666', width: 116}}>Intensidad señal:</Text>
+                            <Text style={{fontFamily: 'monospace', fontSize: 11, color: anomalyColor, flex: 1}}>
                               {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
                             </Text>
-                            <Text style={{fontWeight: '900', fontSize: 13, color: '#F4D03F', width: 44, textAlign: 'right'}}>{ptScore}/100</Text>
                           </View>
 
-                          {/* Percentage + message */}
+                          {/* Message */}
                           <Text style={{fontSize: 11, color: msg.color, marginLeft: 116, lineHeight: 16}}>
-                            {'📊 '}{pct}{'% del potencial máximo'}{'\n'}{msg.text}
+                            {msg.text}
                           </Text>
                         </View>
                       );
@@ -1969,11 +1956,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     flex: 1,
   },
-  rankingMaxLabel: {
-    color: '#555',
-    fontSize: 10,
-    marginLeft: 8,
-  },
   rankingItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1999,13 +1981,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#111',
     borderRadius: 3,
     overflow: 'hidden',
-  },
-  rankingCeiling: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: '#1E1E1E',
   },
   rankingFill: {
     position: 'absolute',

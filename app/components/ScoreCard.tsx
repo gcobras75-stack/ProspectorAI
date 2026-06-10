@@ -1,15 +1,7 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-export const GLOBAL_MAX_SCORES: Record<string, Record<string, number>> = {
-  oro:    { sierra: 92, playa: 78 },
-  plata:  { sierra: 71, playa: 45 },
-  cobre:  { sierra: 88, playa: 40 },
-  litio:  { sierra: 85, playa: 30 },
-  hierro: { sierra: 95, playa: 70 },
-};
 
 export const METAL_COLORS: Record<string, string> = {
   oro:    '#FFD700',
@@ -19,26 +11,33 @@ export const METAL_COLORS: Record<string, string> = {
   hierro: '#EF5350',
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getContextMessage(pct: number): { text: string; color: string } {
-  if (pct >= 80) return { text: '⭐ Anomalía significativa — visita prioritaria', color: '#FFD700' };
-  if (pct >= 60) return { text: '✅ Señal positiva — vale explorar',              color: '#00C853' };
-  if (pct >= 40) return { text: '📊 Señal moderada — zona con potencial',          color: '#FFA500' };
-  if (pct >= 20) return { text: '⚠️  Señal débil — baja prioridad',               color: '#FF7043' };
-  return             { text: '❌ Sin anomalía detectable',                         color: '#666'    };
+// Anomaly level thresholds (based on score_percent, which is derived from
+// real spectral indices when satellite data is available)
+function getAnomalyLevel(pct: number): { level: 'ALTA' | 'MEDIA' | 'BAJA'; color: string } {
+  if (pct >= 65) return { level: 'ALTA',  color: '#E53935' };
+  if (pct >= 35) return { level: 'MEDIA', color: '#FFA000' };
+  return             { level: 'BAJA',  color: '#546E7A' };
 }
+
+// Mineralogical association text (honest context, not a measurement)
+const METAL_ASSOCIATION: Record<string, string> = {
+  oro:    'Patrón de óxido de hierro y gossan compatible con alteración hidrotermal Au-Ag epitermal o pórfido.',
+  plata:  'Alteración argílica avanzada compatible con sistemas Ag-Pb-Zn epitermales y vetas polimetálicas.',
+  cobre:  'Oxidación de Fe y alteración propilítica compatible con pórfidos Cu-Mo y skarn de cobre.',
+  litio:  'Arcillas aluminosas y magnesianas compatibles con pegmatitas de Li y salares evaporíticos.',
+  hierro: 'Óxidos de Fe ferroso y férrico consistentes con BIF, skarn de hierro o depósitos de Fe en placer.',
+};
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface ScoreCardProps {
-  metal: string;          // 'oro' | 'plata' | 'cobre' | 'litio' | 'hierro'
-  terrain: string;        // 'sierra' | 'playa'
+  metal: string;
+  terrain: string;
   metalLabel: string;
   metalIcon: string;
-  pointScore: number;     // 0-100, calculated for this polygon
-  globalMax?: number;     // override lookup (pass ms.score_maximo)
-  regionalAvg?: number;   // optional, average score across polygon points (0-100)
+  pointScore: number;     // 0–100, intensidad de anomalía calculada de índices reales
+  globalMax?: number;     // kept for backward compat (used only for pct calc internally)
+  regionalAvg?: number;   // average across polygon points (0–100)
   guideMineral?: string[];
   warning?: string;
 }
@@ -51,22 +50,19 @@ export default function ScoreCard({
   metalLabel,
   metalIcon,
   pointScore,
-  globalMax: globalMaxProp,
+  globalMax = 100,
   regionalAvg,
   guideMineral,
   warning,
 }: ScoreCardProps) {
-  const terrainKey = terrain === 'playa' ? 'playa' : 'sierra';
+  const [expanded, setExpanded] = useState(false);
+
   const terrainLabel = terrain === 'playa' ? 'Playa' : 'Sierra';
-
-  const globalMax  = globalMaxProp ?? GLOBAL_MAX_SCORES[metal]?.[terrainKey] ?? 100;
-  const color      = METAL_COLORS[metal] ?? '#FFD700';
-  const pct        = Math.round((pointScore / globalMax) * 100);
-  const { text: msgText, color: msgColor } = getContextMessage(pct);
-
-  // Bar widths as % strings (tracks represent 0–100 scale)
-  const maxBarW  = `${globalMax}%` as const;
-  const ptBarW   = `${Math.min(pointScore, globalMax)}%` as const;
+  const color        = METAL_COLORS[metal] ?? '#FFD700';
+  const pct          = Math.round((pointScore / globalMax) * 100);
+  const { level, color: levelColor } = getAnomalyLevel(pct);
+  const association  = METAL_ASSOCIATION[metal] ?? '';
+  const barWidth     = `${Math.min(pct, 100)}%` as const;
 
   return (
     <View style={styles.card}>
@@ -76,55 +72,33 @@ export default function ScoreCard({
         <Text style={styles.metalTitle}>
           {metalIcon}  {metalLabel.toUpperCase()} — {terrainLabel}
         </Text>
-        <View style={[styles.pctBadge, { borderColor: color, backgroundColor: `${color}22` }]}>
-          <Text style={[styles.pctBadgeText, { color }]}>{pct}%</Text>
+        <View style={[styles.levelBadge, { borderColor: levelColor, backgroundColor: `${levelColor}22` }]}>
+          <Text style={[styles.levelBadgeText, { color: levelColor }]}>{level}</Text>
         </View>
       </View>
 
-      {/* ── MAX bar ──────────────────────────────────────────────────────── */}
+      {/* ── Anomaly bar ──────────────────────────────────────────────────── */}
       <View style={styles.barSection}>
-        <View style={styles.barLabelRow}>
-          <Text style={styles.barLabelSmall}>Máximo posible en el mundo</Text>
-          <Text style={styles.barValueSmall}>{globalMax}/100</Text>
-        </View>
+        <Text style={styles.barLabel}>ANOMALÍA DE ALTERACIÓN</Text>
         <View style={styles.track}>
-          {/* achievable ceiling marker */}
-          <View style={[styles.maxFill, { width: maxBarW }]} />
+          <View style={[styles.barFill, { width: barWidth, backgroundColor: levelColor }]} />
         </View>
-      </View>
-
-      {/* ── POINT bar ────────────────────────────────────────────────────── */}
-      <View style={styles.barSection}>
-        <View style={styles.barLabelRow}>
-          <Text style={styles.barLabelMain}>Score de este polígono</Text>
-          <Text style={[styles.barValueBig, { color }]}>{pointScore}</Text>
-        </View>
-        <View style={styles.track}>
-          {/* achievable zone (lighter background up to globalMax) */}
-          <View style={[styles.achievableZone, { width: maxBarW }]} />
-          {/* point fill */}
-          <View style={[styles.pointFill, { width: ptBarW, backgroundColor: color }]} />
-        </View>
-      </View>
-
-      {/* ── Stats ────────────────────────────────────────────────────────── */}
-      <View style={styles.statsRow}>
-        <Text style={[styles.statsMain, { color }]}>
-          📊 Aprovechando el {pct}% del potencial máximo
-        </Text>
         {regionalAvg !== undefined && (
-          <Text style={styles.statsSub}>
+          <Text style={styles.regionalNote}>
             {pointScore >= regionalAvg
-              ? `📍 Por encima del promedio regional (${Math.round(regionalAvg)}/100)`
-              : `📍 Por debajo del promedio regional (${Math.round(regionalAvg)}/100)`}
+              ? `▲ Por encima del promedio de zona (${Math.round(regionalAvg)}/100)`
+              : `▼ Por debajo del promedio de zona (${Math.round(regionalAvg)}/100)`}
           </Text>
         )}
       </View>
 
-      {/* ── Contextual message ───────────────────────────────────────────── */}
-      <View style={[styles.msgBox, { borderLeftColor: msgColor }]}>
-        <Text style={[styles.msgText, { color: msgColor }]}>{msgText}</Text>
-      </View>
+      {/* ── Association context ──────────────────────────────────────────── */}
+      <TouchableOpacity onPress={() => setExpanded(e => !e)} style={styles.assocRow}>
+        <Text style={styles.assocLabel}>Contexto mineralógico {expanded ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+      {expanded && (
+        <Text style={styles.assocText}>{association}</Text>
+      )}
 
       {/* ── Guide minerals ───────────────────────────────────────────────── */}
       {guideMineral && guideMineral.length > 0 && (
@@ -138,6 +112,12 @@ export default function ScoreCard({
       {warning && (
         <Text style={styles.warningText}>⚠️ {warning}</Text>
       )}
+
+      {/* ── Disclaimer ───────────────────────────────────────────────────── */}
+      <Text style={styles.disclaimer}>
+        Indicador exploratorio — requiere verificación en campo
+      </Text>
+
     </View>
   );
 }
@@ -166,111 +146,77 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     flex: 1,
   },
-  pctBadge: {
+  levelBadge: {
     borderWidth: 1.5,
     borderRadius: 6,
     paddingHorizontal: 9,
     paddingVertical: 3,
     marginLeft: 8,
   },
-  pctBadgeText: {
+  levelBadgeText: {
     fontWeight: '900',
-    fontSize: 13,
+    fontSize: 12,
+    letterSpacing: 0.5,
   },
   barSection: {
-    marginBottom: 9,
+    marginBottom: 10,
   },
-  barLabelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginBottom: 4,
-  },
-  barLabelSmall: {
-    color: '#555',
-    fontSize: 10,
-    letterSpacing: 0.2,
-  },
-  barLabelMain: {
-    color: '#888',
-    fontSize: 10,
-    letterSpacing: 0.2,
-  },
-  barValueSmall: {
-    color: '#4A4A4A',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  barValueBig: {
-    fontSize: 22,
-    fontWeight: '900',
-    lineHeight: 24,
+  barLabel: {
+    color: '#666',
+    fontSize: 9,
+    letterSpacing: 0.8,
+    marginBottom: 5,
   },
   track: {
     width: '100%',
     height: 8,
-    backgroundColor: '#111',
+    backgroundColor: '#1A1A1A',
     borderRadius: 4,
     overflow: 'hidden',
   },
-  maxFill: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: '#383838',
-    borderRadius: 4,
-    borderRightWidth: 1.5,
-    borderRightColor: '#5A5A5A',
-  },
-  achievableZone: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: '#1E1E1E',
-  },
-  pointFill: {
+  barFill: {
     position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
     borderRadius: 4,
-    opacity: 0.92,
+    opacity: 0.85,
   },
-  statsRow: {
-    marginTop: 2,
-    marginBottom: 8,
-  },
-  statsMain: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  statsSub: {
-    color: '#666',
+  regionalNote: {
+    color: '#555',
     fontSize: 10,
-    marginTop: 3,
+    marginTop: 5,
   },
-  msgBox: {
-    borderLeftWidth: 3,
-    paddingLeft: 9,
-    paddingVertical: 5,
+  assocRow: {
+    marginBottom: 4,
+  },
+  assocLabel: {
+    color: '#444',
+    fontSize: 10,
+    letterSpacing: 0.3,
+  },
+  assocText: {
+    color: '#777',
+    fontSize: 10,
+    lineHeight: 15,
     marginBottom: 8,
-    backgroundColor: '#141414',
-    borderRadius: 4,
-  },
-  msgText: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontStyle: 'italic',
   },
   guideText: {
     color: '#4A4A4A',
     fontSize: 10,
-    marginTop: 2,
+    marginTop: 6,
   },
   warningText: {
     color: '#FF9800',
     fontSize: 10,
     marginTop: 5,
+  },
+  disclaimer: {
+    color: '#3A3A3A',
+    fontSize: 9,
+    marginTop: 8,
+    fontStyle: 'italic',
+    letterSpacing: 0.2,
   },
 });
