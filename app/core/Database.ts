@@ -264,7 +264,7 @@ export const loadProjectState = async (projectId: string): Promise<{
   mineral: string; terrain: string; depth: string; rock_type: string;
   coordenadas: any[]; analisis_resultado: any[];
   satdata_source: string; acquisition_date: string; area_ha: number;
-  chat_history: { role: string; content: string }[];
+  chat_history: { role: string; content: any }[];
   notas: string;
 } | null> => {
   const db = await initDB();
@@ -289,7 +289,7 @@ export const loadProjectState = async (projectId: string): Promise<{
 
 export const saveProjectChatHistory = async (
   projectId: string,
-  messages: { role: string; content: string }[]
+  messages: { role: string; content: any }[]
 ): Promise<void> => {
   const db = await initDB();
   await db.runAsync(
@@ -394,5 +394,26 @@ export const loadMuestrasForReport = async (projectId: string): Promise<Array<{
     reporte_resena: r.reporte_resena || '',
   }));
 };
+
+// ─── WAYPOINTS FOR DR. RUIZ / REPORT ──────────────────────────────────────────
+
+export async function loadProjectWaypoints(projectId: string): Promise<Array<{
+  id: string; lat: number; lng: number; foto_uri: string; analisis_texto: string; fecha: string;
+}>> {
+  const db = await initDB();
+  const rows = await db.getAllAsync(
+    `SELECT id, lat, lng, imagen_thumbnail AS foto_uri,
+            COALESCE(descripcion_texto, '') AS analisis_texto,
+            COALESCE(fecha_hora, '') AS fecha
+     FROM muestras
+     WHERE proyecto_id = ? AND imagen_thumbnail != ''
+     ORDER BY fecha_hora DESC`,
+    [projectId]
+  ) as any[];
+  return rows.map(r => ({
+    id: String(r.id), lat: Number(r.lat), lng: Number(r.lng),
+    foto_uri: String(r.foto_uri), analisis_texto: String(r.analisis_texto), fecha: String(r.fecha),
+  }));
+}
 
 export default function DummyDatabaseRoute() { return null; }

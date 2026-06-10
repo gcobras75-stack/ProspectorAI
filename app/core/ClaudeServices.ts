@@ -1,5 +1,6 @@
 ﻿// app/core/ClaudeServices.ts
 import { AnalysisPoint } from './GeologicalEngine';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // ─── MODELOS ───────────────────────────────────────────
 const MODEL_FAST   = 'claude-haiku-4-5-20251001';   // Cámara y chat
@@ -257,10 +258,14 @@ REGLAS ABSOLUTAS:
 2. TÉCNICO pero CLARO: sin jerga innecesaria, rigor sin perder practicidad.
 3. PRÁCTICO: toda respuesta termina con una acción de campo concreta.
 4. Siempre recomiendas verificación en campo antes de cualquier conclusión.
-5. Cuando interpretas índices espectrales: explica qué alteración hidrotermal los genera y qué mineralización podría asociarse.`;
+5. Cuando interpretas índices espectrales: explica qué alteración hidrotermal los genera y qué mineralización podría asociarse.
+6. Cuando recibes una foto de campo, analiza visualmente los minerales, texturas, colores y alteraciones visibles.`;
+
+// Multimodal message content type — string for text-only, array for image+text
+type MessageContent = string | Array<{ type: 'image'; source: { type: 'base64'; media_type: string; data: string } } | { type: 'text'; text: string }>;
 
 export async function askClaudeGeologoExperto(
-  messagesHistory: { role: string; content: string }[]
+  messagesHistory: { role: string; content: MessageContent }[]
 ): Promise<string> {
   const API_KEY = getApiKey();
   const limitedHistory = messagesHistory.slice(-20);
@@ -393,6 +398,21 @@ export async function generateSampleResena(
 
   const data = await response.json();
   return data.content?.[0]?.text || '';
+}
+
+// ═══════════════════════════════════════════════════════
+// 5. UTILIDAD: convertir URI local a base64
+// ═══════════════════════════════════════════════════════
+export async function photoUriToBase64(uri: string): Promise<string | null> {
+  try {
+    const normalizedUri = uri.startsWith('file://') ? uri : `file://${uri}`;
+    const base64 = await FileSystem.readAsStringAsync(normalizedUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return base64;
+  } catch {
+    return null;
+  }
 }
 
 export default function DummyClaudeRoute() { return null; }
