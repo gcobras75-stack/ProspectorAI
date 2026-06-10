@@ -16,6 +16,7 @@ interface ConfigModalProps {
   microscopeConnected: boolean;
   autoSync: boolean;
   vibrationEnabled: boolean;
+  deepAnalysis: boolean;
   onClose: () => void;
   setActiveProject: (v: string) => void;
   setSelectedMineral: (v: string) => void;
@@ -29,11 +30,12 @@ interface ConfigModalProps {
   setAutoSync: (v: boolean) => void;
   setIsFieldMode: (v: boolean) => void;
   setVibrationEnabled: (v: boolean) => void;
+  setDeepAnalysis: (v: boolean) => void;
 }
 
 export default function ConfigModal({
   visible, isFieldMode, activeProject, selectedMineral, terrainType, depth, rockType,
-  useAI, autoAnalyzeSample, uvLamp, microscopeConnected, autoSync, vibrationEnabled,
+  useAI, autoAnalyzeSample, uvLamp, microscopeConnected, autoSync, vibrationEnabled, deepAnalysis, setDeepAnalysis,
   onClose, setActiveProject, setSelectedMineral, setTerrainType, setDepth, setRockType,
   setUseAI, setAutoAnalyzeSample, setUvLamp, setMicroscopeConnected, setAutoSync,
   setIsFieldMode, setVibrationEnabled,
@@ -97,6 +99,17 @@ export default function ConfigModal({
                 </Text>
               </TouchableOpacity>
             ))}
+          </View>
+
+          <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 30 }]}>SATÉLITES</Text>
+          <View style={styles.prefRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight, { marginBottom: 0, marginTop: 0 }]}>
+                Análisis profundo (S2 + ASTER)
+              </Text>
+              <Text style={{ color: '#555', fontSize: 10 }}>ASTER tarda ~60 s — geología histórica 2000-2008</Text>
+            </View>
+            <Switch value={deepAnalysis} onValueChange={setDeepAnalysis} trackColor={{ true: '#FFD700' }} />
           </View>
 
           <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 30 }]}>2. ANÁLISIS ÓPTICO / IA</Text>

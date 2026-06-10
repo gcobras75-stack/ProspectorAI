@@ -88,11 +88,12 @@ export default function ResultsPanel({
                 ZONAS PRIORITARIAS — {selectedMineral.toUpperCase()} {terrainType.toUpperCase()}
               </Text>
             </View>
-            {analysisPoints.slice(0, 5).map((p, i) => {
+            {analysisPoints.slice(0, 20).map((p, i) => {
               const score = Math.round(p.score || p.base_score || 0);
               const pct = Math.round((score / selGlobalMax) * 100);
               const anomalyLevel = pct >= 65 ? 'ALTA' : pct >= 35 ? 'MEDIA' : 'BAJA';
               const anomalyColor = pct >= 65 ? '#E53935' : pct >= 35 ? '#FFA000' : '#546E7A';
+              const isConfirmed = p.consensus === 'CONFIRMED';
               return (
                 <TouchableOpacity
                   key={i}
@@ -112,8 +113,10 @@ export default function ResultsPanel({
                     </View>
                   </View>
                   <View style={{ alignItems: 'flex-end', minWidth: 56 }}>
-                    <Text style={[styles.rankingScore, { color: anomalyColor, fontSize: 11 }]}>{anomalyLevel}</Text>
-                    <Text style={styles.rankingPct}>alteración</Text>
+                    <Text style={[styles.rankingScore, { color: isConfirmed ? '#00E676' : anomalyColor, fontSize: 11 }]}>
+                      {isConfirmed ? '✅ CONF.' : anomalyLevel}
+                    </Text>
+                    <Text style={styles.rankingPct}>{isConfirmed ? 'S2+ASTER' : 'alteración'}</Text>
                   </View>
                 </TouchableOpacity>
               );

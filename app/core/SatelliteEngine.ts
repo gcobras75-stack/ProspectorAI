@@ -47,7 +47,9 @@ export interface AsterSpectralCell {
 export type SpectralDataSource =
   | 'SENTINEL2_REAL'     // live from server, just fetched
   | 'SENTINEL2_CACHED'   // loaded from SQLite cache (real data, saved previously)
-  | 'NO_DATA_OFFLINE';   // no server + no cache → polygon analysis must NOT run
+  | 'NO_DATA_OFFLINE'    // no server + no cache → polygon analysis must NOT run
+  | 'ASTER_REAL'         // live from server, ASTER historical archive
+  | 'ASTER_CACHED';      // loaded from SQLite cache (ASTER real data, saved previously)
 
 export interface MiningSpectralResult {
   cells: MiningSpectralCell[];
@@ -70,6 +72,9 @@ export interface AsterSpectralResult {
   cellIndex: Map<string, AsterSpectralCell>;
   images_used: number;
   archive_range: string;
+  data_source: 'ASTER_REAL' | 'ASTER_CACHED' | 'NO_DATA_OFFLINE';
+  source_label: string;
+  has_coverage: boolean;
 }
 
 export interface AsterCoverageReport {
@@ -107,6 +112,29 @@ export function computeCacheKey(
   }
   const areaHa = Math.round(Math.abs(area / 2) / 10000 / 10) * 10; // round to nearest 10 ha
   return `s2mining_${centLat}_${centLng}_${areaHa}ha`;
+}
+
+export function computeAsterCacheKey(
+  polygonCoords: Array<{ latitude: number; longitude: number }>
+): string {
+  if (!polygonCoords || polygonCoords.length === 0) return 'invalid';
+  let sumLat = 0, sumLng = 0;
+  for (const c of polygonCoords) { sumLat += c.latitude; sumLng += c.longitude; }
+  const centLat = (sumLat / polygonCoords.length).toFixed(2);
+  const centLng = (sumLng / polygonCoords.length).toFixed(2);
+  const R = 6378137;
+  const avgLat = (sumLat / polygonCoords.length) * Math.PI / 180;
+  const pts = polygonCoords.map(c => ({
+    x: c.longitude * Math.PI / 180 * R * Math.cos(avgLat),
+    y: c.latitude  * Math.PI / 180 * R,
+  }));
+  let area = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+    area += (p1.x * p2.y - p2.x * p1.y);
+  }
+  const areaHa = Math.round(Math.abs(area / 2) / 10000 / 10) * 10;
+  return `aster_mining_${centLat}_${centLng}_${areaHa}ha`;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +176,8 @@ function makeSourceLabel(source: SpectralDataSource, acquisitionDate: string, ag
       return `📡 Sentinel-2 real · guardado hace ${ageDays ?? '?'} días · sin conexión`;
     case 'NO_DATA_OFFLINE':
       return '🔌 Sin datos. Conecta a internet para analizar esta zona.';
+    case 'ASTER_REAL':   return '📡 ASTER histórico (2000-2008) — archivo geológico';
+    case 'ASTER_CACHED': return `📡 ASTER histórico · guardado hace ${ageDays ?? '?'} días`;
   }
 }
 
@@ -294,11 +324,90 @@ export async function fetchAsterGrid(
     const raw = await response.json();
     const cells: AsterSpectralCell[] = raw.cells || [];
     return { cells, cellIndex: buildCellIndex(cells),
-             images_used: raw.images_used || 0, archive_range: raw.archive_range || '2000-2008' };
+             images_used: raw.images_used || 0, archive_range: raw.archive_range || '2000-2008',
+             data_source: 'ASTER_REAL', source_label: makeSourceLabel('ASTER_REAL', ''), has_coverage: cells.length > 0 };
   } catch (err: any) {
     console.warn('[SatelliteEngine] fetchAsterGrid failed:', err.message);
-    return { cells: [], cellIndex: new Map(), images_used: 0, archive_range: '' };
+    return { cells: [], cellIndex: new Map(), images_used: 0, archive_range: '',
+             data_source: 'NO_DATA_OFFLINE', source_label: '', has_coverage: false };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchMiningAsterGrid  (3-state pipeline: REAL / CACHED / NO_DATA_OFFLINE)
+// ---------------------------------------------------------------------------
+
+export async function fetchMiningAsterGrid(
+  polygonCoords: Array<{ latitude: number; longitude: number }>,
+  options?: { cell_size_m?: number }
+): Promise<AsterSpectralResult> {
+  const cacheKey  = computeAsterCacheKey(polygonCoords);
+  const serverUrl = getServerUrl();
+  const coordinates = toGeoJSONCoords(polygonCoords);
+  const body: Record<string, unknown> = { coordinates };
+  if (options?.cell_size_m) body.cell_size_m = options.cell_size_m;
+
+  // ── 1. Try server ─────────────────────────────────────────────────────────
+  try {
+    const response = await fetchWithTimeout(
+      `${serverUrl}/api/mining/aster-grid`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      60000
+    );
+    if (!response.ok) {
+      const errText = await response.text().catch(() => response.statusText);
+      throw new Error(`Server ${response.status}: ${errText}`);
+    }
+    const raw = await response.json();
+    const cells: AsterSpectralCell[] = raw.cells || [];
+
+    saveSpectralCache(cacheKey, {
+      cells_json:       JSON.stringify(cells),
+      acquisition_date: raw.archive_range || '2000-2008',
+      cloud_cover:      0,
+      coverage_pct:     cells.length > 0 ? 100 : 0,
+      images_used:      raw.images_used || 0,
+      cell_size_m:      options?.cell_size_m || 500,
+    }).catch(e => console.warn('[SatelliteEngine] ASTER cache write failed:', e.message));
+
+    return {
+      cells, cellIndex: buildCellIndex(cells),
+      images_used: raw.images_used || 0,
+      archive_range: raw.archive_range || '2000-2008',
+      data_source: 'ASTER_REAL',
+      source_label: makeSourceLabel('ASTER_REAL', ''),
+      has_coverage: cells.length > 0,
+    };
+  } catch (networkErr: any) {
+    console.warn('[SatelliteEngine] ASTER server unreachable:', networkErr.message);
+  }
+
+  // ── 2. Try SQLite cache ───────────────────────────────────────────────────
+  try {
+    const cached = await loadSpectralCache(cacheKey);
+    if (cached) {
+      const cells: AsterSpectralCell[] = JSON.parse(cached.cells_json);
+      return {
+        cells, cellIndex: buildCellIndex(cells),
+        images_used: cached.images_used,
+        archive_range: cached.acquisition_date || '2000-2008',
+        data_source: 'ASTER_CACHED',
+        source_label: makeSourceLabel('ASTER_CACHED', '', cached.age_days),
+        has_coverage: cells.length > 0,
+      };
+    }
+  } catch (cacheErr: any) {
+    console.warn('[SatelliteEngine] ASTER cache read failed:', cacheErr.message);
+  }
+
+  // ── 3. No data ────────────────────────────────────────────────────────────
+  return {
+    cells: [], cellIndex: new Map(),
+    images_used: 0, archive_range: '',
+    data_source: 'NO_DATA_OFFLINE',
+    source_label: '🔌 ASTER sin datos. Conecta a internet.',
+    has_coverage: false,
+  };
 }
 
 // ---------------------------------------------------------------------------

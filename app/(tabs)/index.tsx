@@ -10,7 +10,8 @@ import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, MetalScore } from '../core/GeologicalEngine';
-import { fetchMiningSpectralGrid, computeAdaptiveCellSize, type MiningSpectralResult } from '../core/SatelliteEngine';
+import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult } from '../core/SatelliteEngine';
+import { fuseAnalysisPoints } from '../core/ConsensusFusion';
 import ChatModal from '../components/ChatModal';
 import HistoryModal from '../components/HistoryModal';
 import ConfigModal from '../components/ConfigModal';
@@ -121,6 +122,8 @@ export default function ProspectorDashboard() {
   const [rectPointB, setRectPointB] = useState<Coordinate | null>(null);
 
   const [analysisPoints, setAnalysisPoints] = useState<any[]>([]);
+  const [asterData, setAsterData]     = useState<AsterSpectralResult | null>(null);
+  const [deepAnalysis, setDeepAnalysis] = useState(false);
   const [metalScores, setMetalScores] = useState<MetalScore[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [satelliteData, setSatelliteData] = useState<MiningSpectralResult | null>(null);
@@ -576,7 +579,27 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               console.log("Offline mode triggered due to AI error");
            }
         }
-        
+
+        // ── Optional ASTER deep analysis + consensus fusion ───────────────────
+        if (deepAnalysis) {
+          try {
+            const asterCentLat = coordsToUse.reduce((s, c) => s + c.latitude,  0) / coordsToUse.length;
+            const asterCentLng = coordsToUse.reduce((s, c) => s + c.longitude, 0) / coordsToUse.length;
+            const coverage = await fetchAsterCoverage(asterCentLat, asterCentLng);
+            if (coverage.coverage_ok) {
+              const aster = await fetchMiningAsterGrid(coordsToUse, { cell_size_m: cellSizeM });
+              setAsterData(aster);
+              if (aster.has_coverage && aster.data_source !== 'NO_DATA_OFFLINE') {
+                finalPoints = fuseAnalysisPoints(finalPoints, satData, aster, selectedMineral) as any[];
+              }
+            } else {
+              Alert.alert('ASTER', `Sin cobertura en esta zona.\nAnálisis con solo Sentinel-2.\n\n${coverage.message}`);
+            }
+          } catch (asterErr: any) {
+            console.warn('[analyzeZone] ASTER failed:', asterErr.message);
+          }
+        }
+
         await savePoligonoCache({
            id: 'poly_' + Date.now(), mineral: selectedMineral, terrain: terrainType, rock_type: rockType,
            coordenadas: coordsToUse, analisis_resultado: finalPoints, estado: wasAnalyzed ? 'SYNCED' : 'OFFLINE'
@@ -1052,6 +1075,8 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         setAutoSync={setAutoSync}
         setIsFieldMode={setIsFieldMode}
         setVibrationEnabled={setVibrationEnabled}
+        deepAnalysis={deepAnalysis}
+        setDeepAnalysis={setDeepAnalysis}
       />
 
     </View>
