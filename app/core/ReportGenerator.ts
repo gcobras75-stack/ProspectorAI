@@ -260,8 +260,21 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
   const interpretacion = parts[1] || '';
   const planCampo      = parts[2] || '';
 
-  // ── B. Map image URL ──────────────────────────────────────────────────────
+  // ── B. Map image — fetch to base64 so expo-print can embed it ────────────
   const mapUrl = `${input.geeServerUrl}/api/zone/map-image?lat_min=${input.lat_min}&lat_max=${input.lat_max}&lng_min=${input.lng_min}&lng_max=${input.lng_max}&width=600`;
+  let mapDataUri = '';
+  try {
+    const mapResp = await fetch(mapUrl); // fetch follows the 302 redirect to GEE ThumbURL
+    if (mapResp.ok) {
+      const blob = await mapResp.blob();
+      mapDataUri = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('FileReader error'));
+        reader.readAsDataURL(blob);
+      });
+    }
+  } catch (_) { /* graceful — placeholder shown below */ }
 
   // ── C. Load muestras and generate reseñas for photos ─────────────────────
   const muestras = await loadMuestrasForReport(input.projectId);
@@ -337,14 +350,10 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
 <!-- ══════ MAPA DE ANOMALÍAS ══════ -->
 <div class="page">
   <h2>Mapa de Anomalías</h2>
-  <img
-    class="map-img"
-    src="${mapUrl}"
-    onerror="this.style.display='none'; document.getElementById('map-placeholder').style.display='flex';"
-  />
-  <div id="map-placeholder" class="map-placeholder" style="display:none">
-    <p>Imagen satelital no disponible — requiere conexión al servidor GEE</p>
-  </div>
+  ${mapDataUri
+    ? `<img class="map-img" src="${mapDataUri}" />`
+    : `<div class="map-placeholder"><p>Imagen satelital no disponible — requiere conexión al servidor GEE</p></div>`
+  }
   <div class="leyenda">
     <span style="color:#E53935">&#9632; ALTA anomalía</span>
     <span style="color:#FFA000">&#9632; MEDIA</span>
