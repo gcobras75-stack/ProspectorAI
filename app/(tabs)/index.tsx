@@ -11,6 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, MetalScore } from '../core/GeologicalEngine';
 import { fetchMiningSpectralGrid, findNearestCell, computeAdaptiveCellSize, type MiningSpectralResult, type MiningSpectralCell } from '../core/SatelliteEngine';
+import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct, tapMessage } from '../core/spectralHelpers';
 import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
@@ -39,51 +40,6 @@ function calcPolygonArea(coords: Coordinate[]): number {
     area += (p1.x * p2.y - p2.x * p1.y);
   }
   return Math.abs(area / 2);
-}
-
-// ─── Tap-analysis pure helpers (module-level, no hooks) ──────────────────────
-
-
-const TAP_METAL_META: Record<string, { label: string; icon: string; color: string }> = {
-  oro:    { label: 'ORO',    icon: '🥇', color: '#B7950B' },
-  plata:  { label: 'PLATA',  icon: '🥈', color: '#626567' },
-  cobre:  { label: 'COBRE',  icon: '🟤', color: '#A04000' },
-  litio:  { label: 'LITIO',  icon: '⚡', color: '#1E8449' },
-  hierro: { label: 'HIERRO', icon: '🔴', color: '#922B21' },
-};
-
-// ── Real spectral anomaly from a Sentinel-2 cell ──────────────────────────────
-// Normalises raw satellite ratios to 0-1, then applies per-metal weights that
-// reflect actual hydrothermal proxy literature (no made-up world-maximum).
-function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
-
-function cellAnomalyScore(cell: MiningSpectralCell, metal: string): number {
-  // Raw S2 ratio → 0-1 normalisation (same ranges used in GeologicalEngine)
-  const normIron  = clamp01((cell.iron_oxide - 0.5) / 2.5); // gossan proxy
-  const normClay  = clamp01((cell.clay       - 0.5) / 2.0); // hydrothermal clay
-  const normFerr  = clamp01((cell.ferroso    - 0.3) / 2.7); // ferrous iron
-
-  switch (metal) {
-    case 'oro':    return Math.round((normIron * 0.50 + normClay * 0.30 + normFerr * 0.20) * 100);
-    case 'plata':  return Math.round((normClay * 0.60 + normIron * 0.40)                   * 100);
-    case 'cobre':  return Math.round((normFerr * 0.50 + normIron * 0.30 + normClay * 0.20) * 100);
-    case 'litio':  return Math.round((normClay * 0.80 + normFerr * 0.20)                   * 100);
-    case 'hierro': return Math.round((normIron * 0.70 + normFerr * 0.30)                   * 100);
-    default:       return Math.round((normIron * 0.40 + normClay * 0.40 + normFerr * 0.20) * 100);
-  }
-}
-
-// ── Anomaly level helpers ──────────────────────────────────────────────────────
-function anomalyFromPct(pct: number): { level: 'ALTA' | 'MEDIA' | 'BAJA'; color: string } {
-  if (pct >= 65) return { level: 'ALTA',  color: '#E53935' };
-  if (pct >= 35) return { level: 'MEDIA', color: '#FFA000' };
-  return             { level: 'BAJA',  color: '#546E7A' };
-}
-
-function tapMessage(pct: number): { text: string; color: string } {
-  if (pct >= 65) return { text: '⭐ Anomalía significativa',           color: '#E53935' };
-  if (pct >= 35) return { text: '🟡 Señal moderada — registrar zona', color: '#FFA000' };
-  return              { text: '⚫ Sin anomalía detectable',            color: '#546E7A' };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
