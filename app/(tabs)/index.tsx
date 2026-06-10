@@ -13,6 +13,7 @@ import { analyzeZoneLocal, computeAllMetalScores, MetalScore } from '../core/Geo
 import { fetchMiningSpectralGrid, findNearestCell, computeAdaptiveCellSize, type MiningSpectralResult, type MiningSpectralCell } from '../core/SatelliteEngine';
 import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct, tapMessage } from '../core/spectralHelpers';
 import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
+import ChatModal from '../components/ChatModal';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
 
@@ -1435,45 +1436,16 @@ export default function ProspectorDashboard() {
         </View>
       </Modal>
 
-      {/* CHAT EXPERTO MODAL */}
-      <Modal visible={showChatModal} transparent animationType="slide">
-        <View style={[styles.modalOverlay, {backgroundColor: 'rgba(0,0,0,0.85)'}]}>
-          <View style={[{backgroundColor: '#000', borderColor: '#00FF00', borderWidth: 2, borderRadius: 20, padding: 20, width: '95%', height: '80%'}, isFieldMode && styles.modalContentLight]}>
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#333', paddingBottom: 10 }}>
-               <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#00FF00' }}>👨🏻‍💻 DEV IA (Admin)</Text>
-               <TouchableOpacity onPress={() => setShowChatModal(false)}>
-                 <MaterialCommunityIcons name="close" size={28} color={isFieldMode ? "#000" : "#FFD700"} />
-               </TouchableOpacity>
-            </View>
-            <ScrollView style={{flex: 1, marginBottom: 15}}>
-              {chatMessages.length === 0 && (
-                <Text style={{color: '#888', textAlign: 'center', marginTop: 20}}>¡Hola! Soy tu asistente de campo. Hazme preguntas técnicas de mineralogía, estratigrafía o uso de equipo.</Text>
-              )}
-              {chatMessages.map((msg, idx) => (
-                <View key={idx} style={{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', backgroundColor: msg.role === 'user' ? '#333' : '#FFD700', padding: 12, borderRadius: 12, maxWidth: '80%', marginBottom: 10 }}>
-                  <Text style={{ color: msg.role === 'user' ? '#FFF' : '#000', fontSize: 14 }}>{msg.content}</Text>
-                </View>
-              ))}
-              {isTypingChat && <ActivityIndicator color="#FFD700" style={{alignSelf: 'flex-start', marginTop: 10}} />}
-            </ScrollView>
-            <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-              <TextInput 
-                style={[
-                  {flex: 1, padding: 12, borderRadius: 8, borderWidth: 1},
-                  isFieldMode ? { backgroundColor: '#F5F5F5', color: '#000', borderColor: '#CCC' } : { backgroundColor: '#222', color: '#FFF', borderColor: '#444' }
-                ]} 
-                placeholder="Escribe tu consulta al motor IA..." 
-                placeholderTextColor={isFieldMode ? "#888" : "#666"} 
-                value={chatInput} 
-                onChangeText={setChatInput} 
-              />
-              <TouchableOpacity onPress={sendChatMessage} style={{backgroundColor: '#FFD700', padding: 12, borderRadius: 8}}>
-                 <MaterialCommunityIcons name="send" size={24} color="#000" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <ChatModal
+        visible={showChatModal}
+        messages={chatMessages}
+        isTypingChat={isTypingChat}
+        input={chatInput}
+        onInputChange={setChatInput}
+        onSend={sendChatMessage}
+        onClose={() => setShowChatModal(false)}
+        isFieldMode={isFieldMode}
+      />
 
       {/* HISTORY MODAL */}
       <Modal visible={showHistoryModal} transparent animationType="slide">
