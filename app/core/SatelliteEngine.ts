@@ -676,3 +676,50 @@ export function findNearestCell<T extends { lat: number; lng: number }>(
   }
   return bestDist > maxDistanceDeg ** 2 ? null : best;
 }
+
+// ---------------------------------------------------------------------------
+// Public: fetchZoneMapImage
+// Downloads a PNG/JPEG map thumbnail for the given bounding box from the GEE
+// server and returns it as a base64 string suitable for offline storage.
+// Returns null on any error (graceful degradation — field mode works without it).
+// NOTE: The server endpoint /api/zone/map-image does not exist yet; this
+// function simply calls it and returns null when it fails.
+// ---------------------------------------------------------------------------
+
+export async function fetchZoneMapImage(
+  coords: { lat: number; lng: number }[],
+  widthPx = 600
+): Promise<string | null> {
+  if (!coords || coords.length === 0) return null;
+  try {
+    const lats = coords.map(c => c.lat);
+    const lngs = coords.map(c => c.lng);
+    const lat_min = Math.min(...lats);
+    const lat_max = Math.max(...lats);
+    const lng_min = Math.min(...lngs);
+    const lng_max = Math.max(...lngs);
+
+    const serverUrl = getServerUrl();
+    const url = `${serverUrl}/api/zone/map-image?lat_min=${lat_min}&lat_max=${lat_max}&lng_min=${lng_min}&lng_max=${lng_max}&width=${widthPx}`;
+
+    const response = await fetchWithTimeout(url, { method: 'GET' }, 30000);
+    if (!response.ok) throw new Error(`Server ${response.status}`);
+
+    // Convert blob to base64 using FileReader (React Native compatible)
+    const blob = await response.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        // result is "data:image/png;base64,<data>" — strip prefix
+        const b64 = result.split(',')[1] ?? result;
+        resolve(b64);
+      };
+      reader.onerror = () => reject(new Error('FileReader error'));
+      reader.readAsDataURL(blob);
+    });
+  } catch (err: any) {
+    console.warn('[SatelliteEngine] fetchZoneMapImage failed (graceful):', err.message);
+    return null;
+  }
+}

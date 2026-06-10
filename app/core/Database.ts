@@ -67,6 +67,11 @@ export const initDB = async () => {
     `ALTER TABLE proyectos ADD COLUMN notas        TEXT    DEFAULT ''`,
     `ALTER TABLE poligonos_cache ADD COLUMN satdata_source   TEXT DEFAULT ''`,
     `ALTER TABLE poligonos_cache ADD COLUMN acquisition_date TEXT DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN campo_preparado_at   TEXT    DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN campo_resumen_geologo TEXT   DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN campo_analisis_json   TEXT   DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN campo_mapa_b64        TEXT   DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN campo_size_kb         INTEGER DEFAULT 0`,
   ];
   for (const sql of migrations) {
     try { await dbCache.execAsync(sql); } catch (_) { /* column already exists */ }
@@ -308,5 +313,51 @@ export const loadLastAnalysis = async (): Promise<{
     fecha: row.fecha || '',
   };
 };
+
+// ─── FIELD MODE PACKAGE ───────────────────────────────────────────────────────
+
+export async function saveFieldPackage(
+  projectId: string,
+  data: {
+    resumen_geologo: string;
+    analisis_json: string;
+    mapa_b64: string;
+    size_kb: number;
+  }
+): Promise<void> {
+  const db = await initDB();
+  await db.runAsync(
+    `UPDATE proyectos
+     SET campo_preparado_at = datetime('now'),
+         campo_resumen_geologo = ?,
+         campo_analisis_json = ?,
+         campo_mapa_b64 = ?,
+         campo_size_kb = ?
+     WHERE id = ?`,
+    [data.resumen_geologo, data.analisis_json, data.mapa_b64, data.size_kb, projectId]
+  );
+}
+
+export async function loadFieldPackage(projectId: string): Promise<{
+  preparado_at: string;
+  resumen_geologo: string;
+  analisis_json: string;
+  mapa_b64: string;
+  size_kb: number;
+} | null> {
+  const db = await initDB();
+  const row = await db.getFirstAsync(
+    'SELECT campo_preparado_at, campo_resumen_geologo, campo_analisis_json, campo_mapa_b64, campo_size_kb FROM proyectos WHERE id = ?',
+    [projectId]
+  ) as any;
+  if (!row || !row.campo_preparado_at) return null;
+  return {
+    preparado_at:     row.campo_preparado_at,
+    resumen_geologo:  row.campo_resumen_geologo  || '',
+    analisis_json:    row.campo_analisis_json    || '',
+    mapa_b64:         row.campo_mapa_b64         || '',
+    size_kb:          row.campo_size_kb          || 0,
+  };
+}
 
 export default function DummyDatabaseRoute() { return null; }
