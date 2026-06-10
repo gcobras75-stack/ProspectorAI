@@ -11,7 +11,7 @@ import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, computePointScore, MetalScore, GeologicalIndicator } from '../core/GeologicalEngine';
-import type { MiningSpectralResult } from '../core/SatelliteEngine';
+import { fetchMiningSpectralGrid, type MiningSpectralResult } from '../core/SatelliteEngine';
 import ScoreCard, { METAL_COLORS } from '../components/ScoreCard';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist, analyzeCropBiomassWithClaude, CropBiomassStats } from '../core/ClaudeServices';
@@ -189,6 +189,7 @@ export default function ProspectorDashboard() {
   const [analysisPoints, setAnalysisPoints] = useState<any[]>([]);
   const [metalScores, setMetalScores] = useState<MetalScore[]>([]);
   const [showResults, setShowResults] = useState(false);
+  const [satelliteData, setSatelliteData] = useState<MiningSpectralResult | null>(null);
 
   // Map tap point analysis
   const [tapPoint, setTapPoint] = useState<{lat: number; lng: number} | null>(null);
@@ -1033,13 +1034,33 @@ _Datos: ESA Copernicus, NASA, USGS_`;
     
     try {
       await new Promise(resolve => setTimeout(resolve, 600));
-      // TODO Task 8: replace NO_DATA_OFFLINE_PLACEHOLDER with real satelliteData fetched from SatelliteEngine
-      const NO_DATA_OFFLINE_PLACEHOLDER: MiningSpectralResult = {
-        cells: [], cellIndex: new Map(), acquisition_date: '', cloud_cover: 0,
-        images_used: 0, cell_size_m: 0, coverage_pct: 0,
-        data_source: 'NO_DATA_OFFLINE', source_label: 'Sin datos satelitales',
-      };
-      const data = analyzeZoneLocal(coordsToUse, selectedMineral, terrainType, depth, rockType, waypoints, NO_DATA_OFFLINE_PLACEHOLDER);
+      // ── Fetch real satellite data (3-state: REAL / CACHED / NO_DATA_OFFLINE) ─
+      let satData: MiningSpectralResult;
+      try {
+        satData = await fetchMiningSpectralGrid(coordsToUse);
+      } catch (e: any) {
+        // fetchMiningSpectralGrid never throws — this is a safety net
+        satData = {
+          cells: [], cellIndex: new Map(), acquisition_date: '', cloud_cover: 0,
+          images_used: 0, cell_size_m: 500, coverage_pct: 0,
+          data_source: 'NO_DATA_OFFLINE',
+          source_label: '🔌 Sin datos. Conecta a internet para analizar esta zona.',
+        };
+      }
+      setSatelliteData(satData);
+
+      // Block analysis if no real data — show honest alert, no simulated fallback
+      if (satData.data_source === 'NO_DATA_OFFLINE') {
+        setIsAnalyzing(false);
+        Alert.alert(
+          'Sin datos satelitales',
+          'Esta zona no tiene análisis guardados.\n\nConéctate a internet para obtener datos reales de Sentinel-2.\n\nNo se muestran datos simulados.',
+          [{ text: 'Entendido', style: 'default' }]
+        );
+        return;
+      }
+
+      const data = analyzeZoneLocal(coordsToUse, selectedMineral, terrainType, depth, rockType, waypoints, satData);
       
       if (data.success && data.top_points) {
         let finalPoints = data.top_points;
@@ -1563,6 +1584,25 @@ _Datos: ESA Copernicus, NASA, USGS_`;
 
             <ScrollView style={{maxHeight: 400}} showsVerticalScrollIndicator={false}>
 
+              {/* ── Etiqueta honesta de fuente de datos ─────────────────── */}
+              {satelliteData && (
+                <View style={{
+                  backgroundColor: satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90
+                    ? '#2A2A00' : '#0A2A0A',
+                  borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6,
+                  marginHorizontal: 8, marginBottom: 8,
+                }}>
+                  <Text style={{ fontSize: 11, color: '#DDDDDD', textAlign: 'center' }}>
+                    {satelliteData.source_label}
+                  </Text>
+                  {satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90 && (
+                    <Text style={{ fontSize: 10, color: '#FF9800', textAlign: 'center', marginTop: 2 }}>
+                      ⚠️ Datos de hace {satelliteData.cache_age_days} días — actualiza con conexión
+                    </Text>
+                  )}
+                </View>
+              )}
+
               {/* ── ScoreCards por metal ──────────────────────────────────── */}
               {metalScores.map((ms) => (
                 <ScoreCard
@@ -1643,6 +1683,9 @@ _Datos: ESA Copernicus, NASA, USGS_`;
           <View style={styles.resultsHeader}>
             <View style={{flex: 1}}>
               <Text style={styles.resultsTitle}>📍 ANÁLISIS DEL PUNTO</Text>
+              <Text style={{ fontSize: 10, color: '#FF6B35', marginTop: 2 }}>
+                ⚠️ SIMULADO — indicador exploratorio sin datos satelitales reales
+              </Text>
               <Text style={{color: '#555', fontSize: 10, marginTop: 2, fontFamily: 'monospace'}}>
                 {tapPoint.lat.toFixed(6)}, {tapPoint.lng.toFixed(6)}
               </Text>
