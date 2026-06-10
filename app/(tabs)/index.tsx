@@ -21,6 +21,7 @@ import WaypointModal from '../components/WaypointModal';
 import ResultsPanel from '../components/ResultsPanel';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, listProjects, createProject } from '../core/Database';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
+import { generateAndShareReport } from '../core/ReportGenerator';
 
 type Coordinate = { latitude: number; longitude: number };
 type DrawingType = 'none' | 'polygon' | 'rectangle';
@@ -170,6 +171,77 @@ export default function ProspectorDashboard() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
 
+  // Report generation
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
+
+  const handleGenerateReport = async () => {
+    if (analysisPoints.length === 0) {
+      Alert.alert('Sin análisis', 'Analiza una zona primero antes de generar el reporte.');
+      return;
+    }
+    setIsGeneratingReport(true);
+    triggerHaptic('medium');
+    try {
+      // Compute bbox from polygon coords or rect
+      const coords = resolvedPolygonCoords.length > 0 ? resolvedPolygonCoords : [];
+      const lats = coords.map(c => c.latitude);
+      const lngs = coords.map(c => c.longitude);
+      const lat_min = lats.length > 0 ? Math.min(...lats) : (mapCenter?.latitude ?? 0) - 0.05;
+      const lat_max = lats.length > 0 ? Math.max(...lats) : (mapCenter?.latitude ?? 0) + 0.05;
+      const lng_min = lngs.length > 0 ? Math.min(...lngs) : (mapCenter?.longitude ?? 0) - 0.05;
+      const lng_max = lngs.length > 0 ? Math.max(...lngs) : (mapCenter?.longitude ?? 0) + 0.05;
+
+      const centerLat = (lat_min + lat_max) / 2;
+      const centerLng = (lng_min + lng_max) / 2;
+
+      // Build satellites sources string
+      let sourcesParts: string[] = [];
+      if (satelliteData && satelliteData.data_source !== 'NO_DATA_OFFLINE') {
+        sourcesParts.push('Sentinel-2');
+      }
+      if (asterData && asterData.data_source !== 'NO_DATA_OFFLINE') {
+        sourcesParts.push('ASTER');
+      }
+      if (emitData && emitData.data_source !== 'NO_DATA_OFFLINE') {
+        sourcesParts.push('EMIT');
+      }
+      if (structuralData && structuralData.data_source !== 'NO_DATA_OFFLINE') {
+        sourcesParts.push('Sentinel-1 SAR');
+      }
+      const satelitesSources = sourcesParts.length > 0 ? sourcesParts.join(' · ') : 'Sentinel-2';
+
+      const acquisitionDates = satelliteData?.acquisition_date || 'N/D';
+
+      const cellSizeM = satelliteData?.cell_size_m ?? 500;
+
+      const geeServerUrl = process.env.EXPO_PUBLIC_SERVER_URL?.replace(/\/$/, '') ||
+        'https://prospector-gee-server-production.up.railway.app';
+
+      await generateAndShareReport({
+        projectId: currentProjectId,
+        projectName: activeProject,
+        metalName: selectedMineral,
+        terrainType,
+        areaHa,
+        analysisPoints,
+        satelitesSources,
+        acquisitionDates,
+        cellSizeM,
+        zoneCenter: { lat: centerLat, lng: centerLng },
+        lat_min,
+        lat_max,
+        lng_min,
+        lng_max,
+        geeServerUrl,
+      });
+      triggerHaptic('success');
+    } catch (e: any) {
+      Alert.alert('Error al generar reporte', e.message || 'Error desconocido.');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
 
   const sendChatMessage = async () => {
     if (!chatInput.trim() || isTypingChat) return;
@@ -952,6 +1024,20 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                >
                  <MaterialCommunityIcons name="content-save" size={20} color={isFieldMode ? '#000' : '#4CAF50'} />
                  <Text style={[{ color: '#4CAF50', fontSize: 9, fontWeight: 'bold', marginTop: 2 }, isFieldMode && { color: '#000' }]}>Guardar</Text>
+               </TouchableOpacity>
+
+               <TouchableOpacity
+                 style={[{ width: 46, height: 46, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#2196F3' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }, isGeneratingReport && { opacity: 0.5 }]}
+                 onPress={handleGenerateReport}
+                 disabled={isGeneratingReport}
+               >
+                 {isGeneratingReport
+                   ? <ActivityIndicator size="small" color={isFieldMode ? '#000' : '#2196F3'} />
+                   : <Text style={{ fontSize: 18 }}>📄</Text>
+                 }
+                 <Text style={[{ color: '#2196F3', fontSize: 9, fontWeight: 'bold', marginTop: 2 }, isFieldMode && { color: '#000' }]}>
+                   {isGeneratingReport ? 'PDF...' : 'PDF'}
+                 </Text>
                </TouchableOpacity>
 
             <TouchableOpacity style={[{ width: 55, height: 55, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#FFD700' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }]} onPress={() => setShowConfigModal(true)}>

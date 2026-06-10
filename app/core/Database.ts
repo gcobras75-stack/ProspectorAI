@@ -67,6 +67,9 @@ export const initDB = async () => {
     `ALTER TABLE proyectos ADD COLUMN notas        TEXT    DEFAULT ''`,
     `ALTER TABLE poligonos_cache ADD COLUMN satdata_source   TEXT DEFAULT ''`,
     `ALTER TABLE poligonos_cache ADD COLUMN acquisition_date TEXT DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN reporte_geologo_texto  TEXT DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN reporte_generado_at    TEXT DEFAULT ''`,
+    `ALTER TABLE muestras  ADD COLUMN reporte_resena         TEXT DEFAULT ''`,
   ];
   for (const sql of migrations) {
     try { await dbCache.execAsync(sql); } catch (_) { /* column already exists */ }
@@ -307,6 +310,51 @@ export const loadLastAnalysis = async (): Promise<{
     acquisition_date: row.acquisition_date || '',
     fecha: row.fecha || '',
   };
+};
+
+// ─── REPORT PERSISTENCE ────────────────────────────────────────────────────
+
+export const saveReportContent = async (projectId: string, geologoTexto: string): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync(
+    `UPDATE proyectos SET reporte_geologo_texto = ?, reporte_generado_at = datetime('now') WHERE id = ?`,
+    [geologoTexto, projectId]
+  );
+};
+
+export const loadReportContent = async (projectId: string): Promise<{ geologoTexto: string; generadoAt: string } | null> => {
+  const db = await initDB();
+  const row = await db.getFirstAsync(
+    'SELECT reporte_geologo_texto, reporte_generado_at FROM proyectos WHERE id = ?',
+    [projectId]
+  ) as any;
+  if (!row || !row.reporte_geologo_texto) return null;
+  return { geologoTexto: row.reporte_geologo_texto, generadoAt: row.reporte_generado_at || '' };
+};
+
+export const saveSampleResena = async (sampleId: string, resena: string): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync('UPDATE muestras SET reporte_resena = ? WHERE id = ?', [resena, sampleId]);
+};
+
+export const loadMuestrasForReport = async (projectId: string): Promise<Array<{
+  id: string; lat: number; lng: number; foto_uri?: string; analisis_texto?: string;
+  fecha: string; reporte_resena: string;
+}>> => {
+  const db = await initDB();
+  const rows = await db.getAllAsync(
+    'SELECT id, lat, lng, imagen_thumbnail AS foto_uri, analisis_ia AS analisis_texto, fecha_hora AS fecha, reporte_resena FROM muestras WHERE proyecto_id = ? ORDER BY fecha_hora DESC',
+    [projectId]
+  ) as any[];
+  return rows.map(r => ({
+    id: r.id,
+    lat: r.lat,
+    lng: r.lng,
+    foto_uri: r.foto_uri || undefined,
+    analisis_texto: r.analisis_texto || undefined,
+    fecha: r.fecha || '',
+    reporte_resena: r.reporte_resena || '',
+  }));
 };
 
 export default function DummyDatabaseRoute() { return null; }
