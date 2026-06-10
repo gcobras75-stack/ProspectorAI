@@ -64,8 +64,8 @@ export default function ResultsPanel({
           </View>
         )}
 
-        {/* ScoreCards */}
-        {metalScores.map((ms) => (
+        {/* Primary ScoreCard — selected mineral only */}
+        {metalScores.filter(ms => ms.metal === selectedMineral).map((ms) => (
           <ScoreCard
             key={ms.metal}
             metal={ms.metal}
@@ -74,11 +74,35 @@ export default function ResultsPanel({
             metalIcon={ms.icon}
             pointScore={ms.score_poligono}
             globalMax={ms.score_maximo}
-            regionalAvg={ms.metal === selectedMineral ? regionalAvg : undefined}
+            regionalAvg={regionalAvg}
             guideMineral={ms.guideMineral}
             warning={ms.warning}
           />
         ))}
+
+        {/* Associations — other metals from the same spectral pattern */}
+        {metalScores.filter(ms => ms.metal !== selectedMineral).length > 0 && (
+          <View style={styles.assocBox}>
+            <Text style={styles.assocTitle}>ASOCIACIONES DEL MISMO PATRÓN ESPECTRAL</Text>
+            <View style={styles.assocChips}>
+              {metalScores.filter(ms => ms.metal !== selectedMineral).map(ms => {
+                const pct   = Math.round((ms.score_poligono / (ms.score_maximo ?? 100)) * 100);
+                const level = pct >= 65 ? 'ALTA' : pct >= 35 ? 'MEDIA' : 'BAJA';
+                const col   = pct >= 65 ? '#E53935' : pct >= 35 ? '#FFA000' : '#546E7A';
+                return (
+                  <View key={ms.metal} style={[styles.assocChip, { borderColor: col, backgroundColor: `${col}18` }]}>
+                    <Text style={{ fontSize: 12 }}>{ms.icon}</Text>
+                    <Text style={{ color: '#CCC', fontSize: 10, fontWeight: '700', marginLeft: 4 }}>{ms.label}</Text>
+                    <Text style={{ color: col, fontSize: 9, fontWeight: '900', marginLeft: 4 }}>{level}</Text>
+                  </View>
+                );
+              })}
+            </View>
+            <Text style={styles.assocNote}>
+              Los indicadores derivan de los mismos índices espectrales — no son mediciones independientes.
+            </Text>
+          </View>
+        )}
 
         {/* Ranking */}
         {analysisPoints.length > 0 && (
@@ -159,4 +183,37 @@ const styles = StyleSheet.create({
   rankingFill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 3, opacity: 0.85 },
   rankingScore: { fontWeight: '900', fontSize: 12 },
   rankingPct: { color: '#555', fontSize: 9, marginTop: 2 },
+  assocBox: {
+    backgroundColor: '#0A0A0A',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1E1E1E',
+    padding: 10,
+    marginBottom: 10,
+  },
+  assocTitle: {
+    color: '#444',
+    fontSize: 9,
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  assocChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  assocChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  assocNote: {
+    color: '#333',
+    fontSize: 9,
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
 });

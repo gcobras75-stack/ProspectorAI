@@ -20,7 +20,6 @@ export default function SelectedPointModal({
 }: SelectedPointModalProps) {
   if (!selectedPoint) return null;
 
-  const BARS = 18;
   const realScore = Math.round(selectedPoint.base_score || selectedPoint.score || 0);
   const { level: primLevel, color: primColor } = anomalyFromPct(realScore);
   const nearestCell = satelliteData?.cells?.length
@@ -46,7 +45,7 @@ export default function SelectedPointModal({
           <ScrollView style={{ maxHeight: '100%' }}>
             {/* Data source */}
             <Text style={{ fontSize: 10, color: '#4CAF50', marginBottom: 12 }}>
-              ✅ Datos Sentinel-2 reales · {satelliteData?.source_label ?? ''}
+              {satelliteData?.source_label ?? ''}
             </Text>
 
             {/* Primary mineral */}
@@ -82,7 +81,6 @@ export default function SelectedPointModal({
                     const score = cellAnomalyScore(nearestCell, metal);
                     const { level, color: aColor } = anomalyFromPct(score);
                     const meta = TAP_METAL_META[metal];
-                    const ptBars = Math.round((score / 100) * BARS);
                     return (
                       <View key={metal} style={styles.metalRow}>
                         <Text style={{ color: meta?.color ?? '#888', fontWeight: '700', fontSize: 12, width: 80 }}>
@@ -92,9 +90,9 @@ export default function SelectedPointModal({
                           <Text style={{ color: '#FF9800', fontSize: 9, flex: 1 }}>⚠️ Vegetación — sin lectura confiable</Text>
                         ) : (
                           <>
-                            <Text style={{ fontFamily: 'monospace', fontSize: 10, color: aColor, flex: 1 }}>
-                              {'█'.repeat(ptBars) + '░'.repeat(BARS - ptBars)}
-                            </Text>
+                            <View style={{ flex: 1, height: 5, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden', marginHorizontal: 6 }}>
+                              <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${score}%`, backgroundColor: aColor, borderRadius: 3, opacity: 0.85 }} />
+                            </View>
                             <View style={{ borderWidth: 1, borderColor: aColor, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 6, backgroundColor: `${aColor}22` }}>
                               <Text style={{ color: aColor, fontWeight: '700', fontSize: 9 }}>{level}</Text>
                             </View>
