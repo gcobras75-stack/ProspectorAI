@@ -72,6 +72,9 @@ export const initDB = async () => {
     `ALTER TABLE proyectos ADD COLUMN campo_analisis_json   TEXT   DEFAULT ''`,
     `ALTER TABLE proyectos ADD COLUMN campo_mapa_b64        TEXT   DEFAULT ''`,
     `ALTER TABLE proyectos ADD COLUMN campo_size_kb         INTEGER DEFAULT 0`,
+    `ALTER TABLE proyectos ADD COLUMN reporte_geologo_texto  TEXT DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN reporte_generado_at    TEXT DEFAULT ''`,
+    `ALTER TABLE muestras  ADD COLUMN reporte_resena         TEXT DEFAULT ''`,
   ];
   for (const sql of migrations) {
     try { await dbCache.execAsync(sql); } catch (_) { /* column already exists */ }
@@ -321,32 +324,18 @@ export const loadLastAnalysis = async (): Promise<{
 
 export async function saveFieldPackage(
   projectId: string,
-  data: {
-    resumen_geologo: string;
-    analisis_json: string;
-    mapa_b64: string;
-    size_kb: number;
-  }
+  data: { resumen_geologo: string; analisis_json: string; mapa_b64: string; size_kb: number; }
 ): Promise<void> {
   const db = await initDB();
   await db.runAsync(
-    `UPDATE proyectos
-     SET campo_preparado_at = datetime('now'),
-         campo_resumen_geologo = ?,
-         campo_analisis_json = ?,
-         campo_mapa_b64 = ?,
-         campo_size_kb = ?
-     WHERE id = ?`,
+    `UPDATE proyectos SET campo_preparado_at = datetime('now'), campo_resumen_geologo = ?,
+     campo_analisis_json = ?, campo_mapa_b64 = ?, campo_size_kb = ? WHERE id = ?`,
     [data.resumen_geologo, data.analisis_json, data.mapa_b64, data.size_kb, projectId]
   );
 }
 
 export async function loadFieldPackage(projectId: string): Promise<{
-  preparado_at: string;
-  resumen_geologo: string;
-  analisis_json: string;
-  mapa_b64: string;
-  size_kb: number;
+  preparado_at: string; resumen_geologo: string; analisis_json: string; mapa_b64: string; size_kb: number;
 } | null> {
   const db = await initDB();
   const row = await db.getFirstAsync(
@@ -355,12 +344,55 @@ export async function loadFieldPackage(projectId: string): Promise<{
   ) as any;
   if (!row || !row.campo_preparado_at) return null;
   return {
-    preparado_at:     row.campo_preparado_at,
-    resumen_geologo:  row.campo_resumen_geologo  || '',
-    analisis_json:    row.campo_analisis_json    || '',
-    mapa_b64:         row.campo_mapa_b64         || '',
-    size_kb:          row.campo_size_kb          || 0,
+    preparado_at: row.campo_preparado_at,
+    resumen_geologo: row.campo_resumen_geologo || '',
+    analisis_json: row.campo_analisis_json || '',
+    mapa_b64: row.campo_mapa_b64 || '',
+    size_kb: row.campo_size_kb || 0,
   };
 }
+
+// ─── REPORT PERSISTENCE ────────────────────────────────────────────────────
+
+export const saveReportContent = async (projectId: string, geologoTexto: string): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync(
+    `UPDATE proyectos SET reporte_geologo_texto = ?, reporte_generado_at = datetime('now') WHERE id = ?`,
+    [geologoTexto, projectId]
+  );
+};
+
+export const loadReportContent = async (projectId: string): Promise<{ geologoTexto: string; generadoAt: string } | null> => {
+  const db = await initDB();
+  const row = await db.getFirstAsync(
+    'SELECT reporte_geologo_texto, reporte_generado_at FROM proyectos WHERE id = ?',
+    [projectId]
+  ) as any;
+  if (!row || !row.reporte_geologo_texto) return null;
+  return { geologoTexto: row.reporte_geologo_texto, generadoAt: row.reporte_generado_at || '' };
+};
+
+export const saveSampleResena = async (sampleId: string, resena: string): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync('UPDATE muestras SET reporte_resena = ? WHERE id = ?', [resena, sampleId]);
+};
+
+export const loadMuestrasForReport = async (projectId: string): Promise<Array<{
+  id: string; lat: number; lng: number; foto_uri?: string; analisis_texto?: string;
+  fecha: string; reporte_resena: string;
+}>> => {
+  const db = await initDB();
+  const rows = await db.getAllAsync(
+    'SELECT id, lat, lng, imagen_thumbnail AS foto_uri, analisis_ia AS analisis_texto, fecha_hora AS fecha, reporte_resena FROM muestras WHERE proyecto_id = ? ORDER BY fecha_hora DESC',
+    [projectId]
+  ) as any[];
+  return rows.map(r => ({
+    id: r.id, lat: r.lat, lng: r.lng,
+    foto_uri: r.foto_uri || undefined,
+    analisis_texto: r.analisis_texto || undefined,
+    fecha: r.fecha || '',
+    reporte_resena: r.reporte_resena || '',
+  }));
+};
 
 export default function DummyDatabaseRoute() { return null; }

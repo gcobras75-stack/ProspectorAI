@@ -284,4 +284,115 @@ export async function askClaudeGeologoExperto(
   return data.content?.[0]?.text || '';
 }
 
+// ═══════════════════════════════════════════════════════
+// 5. REPORTE GEOLÓGICO — SECCIÓN DR. RUIZ
+// ═══════════════════════════════════════════════════════
+export async function generateReportSection(
+  analysisPoints: any[],
+  metalName: string,
+  terrainType: string,
+  areaHa: string,
+  satelitesSources: string,
+  chatHistory?: string
+): Promise<string> {
+  const API_KEY = getApiKey();
+
+  const top5 = analysisPoints.slice(0, 5).map((p, i) => ({
+    rank: i + 1,
+    lat: p.lat,
+    lng: p.lng,
+    score: p.score || p.base_score || 0,
+    analisis: p.analisis_integral || p.geologia_interpretada || '',
+    indices: p.indices_analizados || p.indices || [],
+  }));
+
+  const prompt = `Eres Dr. Marco Ruiz, geólogo explorador. Redacta con claridad profesional para mineros e inversores. Sé concreto. Sin markdown.
+
+Datos del proyecto:
+- Metal objetivo: ${metalName}
+- Terreno: ${terrainType}
+- Área analizada: ${areaHa} ha
+- Fuentes satelitales: ${satelitesSources}
+- Puntos prioritarios (top 5):
+${JSON.stringify(top5, null, 2)}
+${chatHistory ? `\nHistorial de análisis previo:\n${chatHistory}` : ''}
+
+Genera EXACTAMENTE 3 secciones separadas por la cadena: \\n\\n--- SECCIÓN ---\\n\\n
+
+SECCIÓN 1 — RESUMEN EJECUTIVO (3-5 líneas): qué se encontró, nivel de anomalía, qué metal y en qué tipo de terreno.
+
+SECCIÓN 2 — INTERPRETACIÓN GEOLÓGICA (4-6 líneas): qué patrón espectral y estructural sugiere, minerales guía, contexto tectónico esperado.
+
+SECCIÓN 3 — PLAN DE CAMPO RECOMENDADO: lista numerada con el orden de visita de los top-5 puntos y qué muestrear en cada uno.
+
+NO uses markdown, NO uses asteriscos, NO uses encabezados con #. Solo texto plano y la separación exacta indicada.`;
+
+  const payload = {
+    model: MODEL_SMART,
+    max_tokens: 800,
+    system: 'Eres Dr. Marco Ruiz, geólogo explorador. Redacta con claridad profesional para mineros e inversores. Sé concreto. Sin markdown.',
+    messages: [{ role: 'user', content: prompt }],
+  };
+
+  const response = await fetchWithRetry(
+    'https://api.anthropic.com/v1/messages',
+    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
+  );
+
+  if (!response.ok) {
+    const err = await response.text();
+    let msg = err;
+    try { msg = JSON.parse(err).error?.message || err; } catch {}
+    throw new Error(`Reporte Dr. Ruiz (${response.status}): ${msg.substring(0, 100)}`);
+  }
+
+  const data = await response.json();
+  return data.content?.[0]?.text || '';
+}
+
+// ═══════════════════════════════════════════════════════
+// 6. RESEÑA DE FOTO DE MUESTRA DE CAMPO
+// ═══════════════════════════════════════════════════════
+export async function generateSampleResena(
+  fotoBase64: string,
+  analisisTexto: string,
+  anomalyLevel: string,
+  coordText: string
+): Promise<string> {
+  const API_KEY = getApiKey();
+
+  const payload = {
+    model: MODEL_FAST,
+    max_tokens: 150,
+    messages: [{
+      role: 'user',
+      content: [
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/jpeg', data: fotoBase64 },
+        },
+        {
+          type: 'text',
+          text: `Describe en 2-3 líneas qué se observa en esta roca/muestra de campo y su relación con la anomalía satelital ${anomalyLevel} detectada en las coordenadas ${coordText}. Análisis previo: ${analisisTexto}. Responde en español, sin markdown.`,
+        },
+      ],
+    }],
+  };
+
+  const response = await fetchWithRetry(
+    'https://api.anthropic.com/v1/messages',
+    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
+  );
+
+  if (!response.ok) {
+    const err = await response.text();
+    let msg = err;
+    try { msg = JSON.parse(err).error?.message || err; } catch {}
+    throw new Error(`Reseña muestra (${response.status}): ${msg.substring(0, 100)}`);
+  }
+
+  const data = await response.json();
+  return data.content?.[0]?.text || '';
+}
+
 export default function DummyClaudeRoute() { return null; }

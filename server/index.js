@@ -648,6 +648,51 @@ app.post('/api/emit/grid', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/zone/map-image?lat_min=&lat_max=&lng_min=&lng_max=&width=600
+// Returns a 302 redirect to a Sentinel-2 RGB natural-color ThumbURL from GEE.
+// ---------------------------------------------------------------------------
+app.get('/api/zone/map-image', async (req, res) => {
+  const lat_min = parseFloat(req.query.lat_min);
+  const lat_max = parseFloat(req.query.lat_max);
+  const lng_min = parseFloat(req.query.lng_min);
+  const lng_max = parseFloat(req.query.lng_max);
+  const width   = parseInt(req.query.width || '600', 10);
+
+  if (isNaN(lat_min) || isNaN(lat_max) || isNaN(lng_min) || isNaN(lng_max)) {
+    return res.status(400).json({ error: 'Se requieren lat_min, lat_max, lng_min, lng_max como números.' });
+  }
+  if (lat_min >= lat_max || lng_min >= lng_max) {
+    return res.status(400).json({ error: 'bbox inválido: lat_min debe ser menor que lat_max y lng_min menor que lng_max.' });
+  }
+
+  try {
+    const bbox   = ee.Geometry.Rectangle([lng_min, lat_min, lng_max, lat_max]);
+    const height = Math.round(width * (lat_max - lat_min) / (lng_max - lng_min));
+
+    const image = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+      .filterBounds(bbox)
+      .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+      .median()
+      .select(['B4', 'B3', 'B2']);
+
+    const thumbUrl = await new Promise((resolve, reject) => {
+      image.getThumbURL(
+        { region: bbox, dimensions: `${width}x${height}`, format: 'png', min: 0, max: 3000 },
+        (url, err) => {
+          if (err) reject(new Error(err));
+          else resolve(url);
+        }
+      );
+    });
+
+    res.redirect(302, thumbUrl);
+  } catch (err) {
+    console.error('[/api/zone/map-image]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // 404 handler
 // ---------------------------------------------------------------------------
 
