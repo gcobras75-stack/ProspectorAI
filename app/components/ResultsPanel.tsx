@@ -25,18 +25,19 @@ export default function ResultsPanel({
     : undefined;
   const selMs = metalScores.find(ms => ms.metal === selectedMineral);
   const selGlobalMax = selMs?.score_maximo ?? 100;
+  const csm = satelliteData
+    ? (satelliteData.cell_size_m > 0 ? satelliteData.cell_size_m : computeAdaptiveCellSize(parseFloat(areaHa)))
+    : 0;
+  const csmLabel = csm >= 1000 ? `${csm / 1000} km` : `${csm} m`;
 
   return (
     <View style={styles.panel}>
-      {/* Header */}
+      {/* Header — subtitle only */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>📊 ANÁLISIS MINERAL</Text>
-          <Text style={{ color: '#666', fontSize: 10, marginTop: 1 }}>
-            {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
-            {analysisPoints.length > 0 ? `  ·  ${analysisPoints.length} puntos` : ''}
-          </Text>
-        </View>
+        <Text style={{ color: '#666', fontSize: 10 }}>
+          {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
+          {analysisPoints.length > 0 ? `  ·  ${analysisPoints.length} puntos` : ''}
+        </Text>
         <TouchableOpacity onPress={onClose}>
           <MaterialCommunityIcons name="close" size={24} color="#FFD700" />
         </TouchableOpacity>
@@ -44,39 +45,24 @@ export default function ResultsPanel({
 
       <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
 
-        {/* Satellite source + grid info */}
-        {satelliteData && (() => {
-          const csm = satelliteData.cell_size_m > 0
-            ? satelliteData.cell_size_m
-            : computeAdaptiveCellSize(parseFloat(areaHa));
-          const isLarge = parseFloat(areaHa) > 50_000;
-          return (
-            <View style={{
-              backgroundColor: satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90
-                ? '#2A2A00' : '#0A2A0A',
-              borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6,
-              marginHorizontal: 8, marginBottom: 8,
-            }}>
-              <Text style={{ fontSize: 11, color: '#DDDDDD', textAlign: 'center' }}>
-                {satelliteData.source_label}
+        {/* Satellite source label */}
+        {satelliteData && (
+          <View style={{
+            backgroundColor: satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90
+              ? '#2A2A00' : '#0A2A0A',
+            borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6,
+            marginHorizontal: 8, marginBottom: 8,
+          }}>
+            <Text style={{ fontSize: 11, color: '#DDDDDD', textAlign: 'center' }}>
+              {satelliteData.source_label}
+            </Text>
+            {satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90 && (
+              <Text style={{ fontSize: 10, color: '#FF9800', textAlign: 'center', marginTop: 2 }}>
+                ⚠️ Datos de hace {satelliteData.cache_age_days} días — actualiza con conexión
               </Text>
-              <Text style={{ fontSize: 10, color: '#4CAF50', textAlign: 'center', marginTop: 3 }}>
-                Malla: {csm >= 1000 ? `${csm / 1000} km` : `${csm} m`} × {csm >= 1000 ? `${csm / 1000} km` : `${csm} m`}
-                {analysisPoints.length > 0 ? `  ·  ${analysisPoints.length} puntos` : ''}
-              </Text>
-              {satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90 && (
-                <Text style={{ fontSize: 10, color: '#FF9800', textAlign: 'center', marginTop: 2 }}>
-                  ⚠️ Datos de hace {satelliteData.cache_age_days} días — actualiza con conexión
-                </Text>
-              )}
-              {isLarge && (
-                <Text style={{ fontSize: 10, color: '#FF9800', textAlign: 'center', marginTop: 3 }}>
-                  Zona amplia — dibuja un polígono más chico sobre las anomalías para ver detalle de 20 m
-                </Text>
-              )}
-            </View>
-          );
-        })()}
+            )}
+          </View>
+        )}
 
         {/* ScoreCards */}
         {metalScores.map((ms) => (
@@ -137,6 +123,11 @@ export default function ResultsPanel({
 
         <View style={{ height: 14 }} />
       </ScrollView>
+      {csm > 0 && (
+        <Text style={{ color: '#333', fontSize: 9, textAlign: 'center', paddingTop: 3 }}>
+          Malla {csmLabel}
+        </Text>
+      )}
     </View>
   );
 }
@@ -155,7 +146,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#FFD700', paddingBottom: 8,
   },
-  title: { color: '#FFD700', fontSize: 16, fontWeight: 'bold' },
   rankingSection: { marginTop: 4, borderTopWidth: 1, borderTopColor: '#222', paddingTop: 12 },
   rankingHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   rankingTitle: { color: '#FFD700', fontWeight: '900', fontSize: 10, letterSpacing: 0.8, flex: 1 },

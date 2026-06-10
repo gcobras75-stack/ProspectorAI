@@ -923,6 +923,11 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                {(polygonCoords.length >= 3) ? (
                  <>
                    <Text style={[styles.instructionText, isFieldMode && { color: '#444' }, { fontSize: 10, marginBottom: 5 }]}>ZONA CARGADA: {selectedMineral.toUpperCase()}</Text>
+                   {parseFloat(areaHa) > 50_000 && (
+                     <Text style={{ color: '#FF9800', fontSize: 9, textAlign: 'center', marginBottom: 4 }}>
+                       ⚠️ Zona amplia — dibuja más chico para ver detalle de 20 m
+                     </Text>
+                   )}
                    <View style={{flexDirection: 'row', width: '100%', justifyContent: 'center', gap: 8, paddingHorizontal: 10}}>
                      <Pressable 
                        style={({ pressed }) => [{ backgroundColor: '#FFD700', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 40, flex: 1, borderRadius: 8, borderWidth: 1, borderColor: '#000' }, isFieldMode ? { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 2 } : null, pressed && { opacity: 0.7 }, isAnalyzing && { backgroundColor: '#555' }]} 
