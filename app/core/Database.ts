@@ -39,6 +39,17 @@ export const initDB = async () => {
       analisis_resultado TEXT,
       estado TEXT DEFAULT 'OFFLINE'
     );
+    CREATE TABLE IF NOT EXISTS spectral_cache (
+      cache_key      TEXT PRIMARY KEY,
+      cells_json     TEXT NOT NULL,
+      acquisition_date TEXT NOT NULL,
+      cloud_cover    REAL DEFAULT 0,
+      coverage_pct   REAL DEFAULT 0,
+      images_used    INTEGER DEFAULT 0,
+      cell_size_m    INTEGER DEFAULT 500,
+      satellite      TEXT DEFAULT 'SENTINEL2_REAL',
+      fecha_guardado TEXT NOT NULL
+    );
   `);
 
   const hasDefault = await dbCache.getFirstAsync('SELECT id FROM proyectos WHERE id = ?', ['default']);
@@ -106,6 +117,67 @@ export const savePoligonoCache = async (data: any) => {
 export const getPendingPolygons = async () => {
   const db = await initDB();
   return await db.getAllAsync('SELECT * FROM poligonos_cache WHERE estado = ?', ['OFFLINE']);
+};
+
+export const saveSpectralCache = async (
+  cacheKey: string,
+  data: {
+    cells_json: string;
+    acquisition_date: string;
+    cloud_cover: number;
+    coverage_pct: number;
+    images_used: number;
+    cell_size_m: number;
+  }
+): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync(
+    `INSERT OR REPLACE INTO spectral_cache
+     (cache_key, cells_json, acquisition_date, cloud_cover, coverage_pct, images_used, cell_size_m, satellite, fecha_guardado)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      cacheKey,
+      data.cells_json,
+      data.acquisition_date,
+      data.cloud_cover,
+      data.coverage_pct,
+      data.images_used,
+      data.cell_size_m,
+      'SENTINEL2_REAL',
+      new Date().toISOString(),
+    ]
+  );
+};
+
+export const loadSpectralCache = async (cacheKey: string): Promise<{
+  cells_json: string;
+  acquisition_date: string;
+  cloud_cover: number;
+  coverage_pct: number;
+  images_used: number;
+  cell_size_m: number;
+  fecha_guardado: string;
+  age_days: number;
+} | null> => {
+  const db = await initDB();
+  const row = await db.getFirstAsync(
+    'SELECT * FROM spectral_cache WHERE cache_key = ?',
+    [cacheKey]
+  ) as any;
+  if (!row) return null;
+  const ageDays = Math.floor(
+    (Date.now() - new Date(row.fecha_guardado).getTime()) / 86400000
+  );
+  return {
+    cells_json:       row.cells_json,
+    acquisition_date: row.acquisition_date,
+    cloud_cover:      row.cloud_cover,
+    coverage_pct:     row.coverage_pct,
+    images_used:      row.images_used,
+    cell_size_m:      row.cell_size_m,
+    fecha_guardado:   row.fecha_guardado,
+    age_days:         ageDays,
+  };
 };
 
 export default function DummyDatabaseRoute() { return null; }
