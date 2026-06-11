@@ -27,6 +27,7 @@ import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, get
 import SampleDetailModal from '../components/SampleDetailModal';
 import SampleLabelModal from '../components/SampleLabelModal';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
+import { useBadge } from '../core/BadgeContext';
 import { generateAndShareReport } from '../core/ReportGenerator';
 
 type Coordinate = { latitude: number; longitude: number };
@@ -132,6 +133,7 @@ function distanceMTo(lat1: number, lng1: number, lat2: number, lng2: number): nu
 export default function ProspectorDashboard() {
   const mapRef = useRef<MapView>(null);
   const fieldModeButtonRef = useRef<FieldModeButtonHandle>(null);
+  const { setGeologoBadge } = useBadge();
 
   // --- Chat IA (state kept for potential future use by geologo tab) ---
   const [chatMessages, setChatMessages] = useState<{role: string, content: string}[]>([]);
@@ -953,6 +955,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         setZoneColors(zonas);
         setShowHeatmap(true);
         setShowResults(true);
+        setGeologoBadge(true);
         triggerHaptic('success');
         
         mapRef.current?.animateToRegion({
@@ -1114,7 +1117,14 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         {/* CROSSHAIR */}
         {drawingType === 'polygon' && (
           <View style={styles.crosshairContainer} pointerEvents="none">
-            <MaterialCommunityIcons name="crosshairs" size={50} color="#FFD700" />
+            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+              {/* Horizontal line */}
+              <View style={{ position: 'absolute', width: 64, height: 2, backgroundColor: 'rgba(255,215,0,0.7)' }} />
+              {/* Vertical line */}
+              <View style={{ position: 'absolute', width: 2, height: 64, backgroundColor: 'rgba(255,215,0,0.7)' }} />
+              {/* Center dot */}
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFD700', borderWidth: 1, borderColor: '#000' }} />
+            </View>
           </View>
         )}
 
@@ -1234,7 +1244,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           </View>
         </View>
       ) : (
-        /* ─── EXISTING CONSOLE (unchanged) ───────────────────────── */
+        /* ─── NORMAL CONSOLE ─────────────────────────────────────── */
         <View style={styles.consoleContainer}>
 
           {/* ONBOARDING TIP BANNER */}
@@ -1260,44 +1270,23 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             </TouchableOpacity>
           )}
 
-          {/* BARRA DE HERRAMIENTAS FIJA — 3 botones: Ajustes · Trazar · Más
-              Flujo natural: configurar → trazar → analizar                   */}
+          {/* BARRA DE HERRAMIENTAS FIJA */}
           <View style={styles.toolbarRow}>
-
-            {/* ① Ajustes — va primero: se definen parámetros antes de trazar */}
-            <TouchableOpacity
-              style={styles.toolbarBtn}
-              onPress={() => setShowConfigModal(true)}
-            >
+            <TouchableOpacity style={styles.toolbarBtn} onPress={() => setShowConfigModal(true)}>
               <MaterialCommunityIcons name="cog" size={22} color="#FFD700" />
               <Text style={styles.toolbarBtnLabel} numberOfLines={1}>Ajustes</Text>
             </TouchableOpacity>
-
-            {/* ② Trazar / Nuevo trazado / Salir — estado-aware */}
             <TouchableOpacity
-              style={[
-                styles.toolbarBtn,
-                drawingType === 'polygon' && styles.toolbarBtnActive,
-              ]}
+              style={[styles.toolbarBtn, drawingType === 'polygon' && styles.toolbarBtnActive]}
               onPress={() => {
                 if (drawingType === 'polygon') {
-                  // Cancelar dibujo en curso
                   selectMode('none');
                 } else if (resolvedPolygonCoords.length >= 3 && showResults) {
-                  // Hay análisis: pedir confirmación antes de descartar
-                  Alert.alert(
-                    'Nuevo trazado',
-                    'Hay un análisis sin guardar. ¿Descartar y trazar nueva zona?',
-                    [
-                      { text: 'Cancelar', style: 'cancel' },
-                      { text: 'Descartar y trazar', style: 'destructive', onPress: () => selectMode('polygon') },
-                    ]
-                  );
-                } else if (resolvedPolygonCoords.length >= 3) {
-                  // Hay polígono pero sin análisis: empezar nuevo directo
-                  selectMode('polygon');
+                  Alert.alert('Nuevo trazado', 'Hay un análisis sin guardar. ¿Descartar y trazar nueva zona?', [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { text: 'Descartar y trazar', style: 'destructive', onPress: () => selectMode('polygon') },
+                  ]);
                 } else {
-                  // Sin polígono: iniciar dibujo
                   selectMode('polygon');
                 }
               }}
@@ -1312,76 +1301,54 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               }}
             >
               <MaterialCommunityIcons
-                name={
-                  drawingType === 'polygon'
-                    ? 'close-circle-outline'
-                    : resolvedPolygonCoords.length >= 3
-                    ? 'vector-polygon'
-                    : 'draw-pen'
-                }
+                name={drawingType === 'polygon' ? 'close-circle-outline' : resolvedPolygonCoords.length >= 3 ? 'vector-polygon' : 'draw-pen'}
                 size={22}
                 color={drawingType === 'polygon' ? '#000' : '#FFD700'}
               />
-              <Text
-                style={[styles.toolbarBtnLabel, drawingType === 'polygon' && { color: '#000' }]}
-                numberOfLines={1}
-              >
-                {drawingType === 'polygon'
-                  ? 'Salir'
-                  : resolvedPolygonCoords.length >= 3
-                  ? 'Nuevo'
-                  : 'Trazar'}
+              <Text style={[styles.toolbarBtnLabel, drawingType === 'polygon' && { color: '#000' }]} numberOfLines={1}>
+                {drawingType === 'polygon' ? 'Salir' : resolvedPolygonCoords.length >= 3 ? 'Nuevo' : 'Trazar'}
               </Text>
             </TouchableOpacity>
-
-            {/* ③ Más — Cámara, Solar/Noche, Historial, Guardar, Campo, PDF */}
-            <TouchableOpacity
-              style={styles.toolbarBtn}
-              onPress={() => setShowMoreSheet(true)}
-            >
+            <TouchableOpacity style={styles.toolbarBtn} onPress={() => setShowMoreSheet(true)}>
               <MaterialCommunityIcons name="dots-horizontal-circle-outline" size={22} color="#FFD700" />
               <Text style={styles.toolbarBtnLabel} numberOfLines={1}>Más</Text>
             </TouchableOpacity>
-
           </View>
 
           {/* CONSOLA COMPACTA DE 1 LÍNEA */}
           {drawingType === 'polygon' ? (
-            /* Estado: dibujando polígono */
             <View style={styles.consoleBar}>
               <View style={styles.consoleBarLeft}>
                 <MaterialCommunityIcons name="vector-polygon" size={16} color="#FFD700" />
-                <Text style={styles.consoleBarText} numberOfLines={1}>
-                  {' '}Polígono — {polygonCoords.length} vértices
-                </Text>
+                {polygonCoords.length < 3 ? (
+                  <View style={{ marginLeft: 6, backgroundColor: 'rgba(255,215,0,0.15)', borderRadius: 12, borderWidth: 1, borderColor: '#B8960C', paddingHorizontal: 8, paddingVertical: 2 }}>
+                    <Text style={{ color: '#FFD700', fontSize: 12, fontWeight: '700' }}>
+                      {polygonCoords.length} de 3 puntos mínimos
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.consoleBarText} numberOfLines={1}>
+                    {' '}Polígono — {polygonCoords.length} vértices
+                  </Text>
+                )}
               </View>
               <View style={styles.consoleBarActions}>
-                <TouchableOpacity
-                  style={styles.consoleBtnSecondary}
-                  onPress={addPointFromCrosshair}
-                >
+                <TouchableOpacity style={styles.consoleBtnSecondary} onPress={addPointFromCrosshair}>
                   <MaterialCommunityIcons name="target" size={14} color="#FFD700" />
                   <Text style={styles.consoleBtnSecondaryText}> MARCAR</Text>
                 </TouchableOpacity>
                 {polygonCoords.length >= 3 && (
-                  <TouchableOpacity
-                    style={styles.consoleBtnPrimary}
-                    onPress={() => finishDrawing()}
-                  >
+                  <TouchableOpacity style={styles.consoleBtnPrimary} onPress={() => finishDrawing()}>
                     <MaterialCommunityIcons name="radar" size={14} color="#000" />
                     <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity
-                  style={styles.consoleBtnDanger}
-                  onPress={() => setPolygonCoords([])}
-                >
+                <TouchableOpacity style={styles.consoleBtnDanger} onPress={() => setPolygonCoords([])}>
                   <Text style={styles.consoleBtnDangerText}>LIMPIAR</Text>
                 </TouchableOpacity>
               </View>
             </View>
           ) : isAnalyzing ? (
-            /* Estado: analizando */
             <View style={styles.consoleBar}>
               <ActivityIndicator size="small" color="#FFD700" style={{ marginRight: 8 }} />
               <Text style={styles.consoleBarText} numberOfLines={1}>
@@ -1389,7 +1356,6 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               </Text>
             </View>
           ) : resolvedPolygonCoords.length >= 3 && !showResults ? (
-            /* Estado: zona cargada, sin resultados aún */
             <View style={styles.consoleBar}>
               <View style={styles.consoleBarLeft}>
                 <MaterialCommunityIcons name="ruler-square" size={16} color="#FFD700" />
@@ -1401,27 +1367,16 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                 )}
               </View>
               <View style={styles.consoleBarActions}>
-                <TouchableOpacity
-                  style={styles.consoleBtnDanger}
-                  onPress={clearShapes}
-                >
+                <TouchableOpacity style={styles.consoleBtnDanger} onPress={clearShapes}>
                   <Text style={styles.consoleBtnDangerText}>BORRAR</Text>
                 </TouchableOpacity>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.consoleBtnPrimary,
-                    pressed && { opacity: 0.75 },
-                  ]}
-                  onPress={() => analyzeZone()}
-                  disabled={isAnalyzing}
-                >
+                <Pressable style={({ pressed }) => [styles.consoleBtnPrimary, pressed && { opacity: 0.75 }]} onPress={() => analyzeZone()} disabled={isAnalyzing}>
                   <MaterialCommunityIcons name="brain" size={14} color="#000" />
                   <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
                 </Pressable>
               </View>
             </View>
           ) : showResults ? (
-            /* Estado: resultados disponibles */
             <View style={styles.consoleBar}>
               <View style={styles.consoleBarLeft}>
                 <Text style={{ fontSize: 14 }}>✅</Text>
@@ -1429,16 +1384,12 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                   {' '}{analysisPoints.length} zonas · {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
                 </Text>
               </View>
-              <TouchableOpacity
-                style={styles.consoleBtnSecondary}
-                onPress={clearShapes}
-              >
+              <TouchableOpacity style={styles.consoleBtnSecondary} onPress={clearShapes}>
                 <MaterialCommunityIcons name="refresh" size={14} color="#FFD700" />
                 <Text style={styles.consoleBtnSecondaryText}> Nueva zona</Text>
               </TouchableOpacity>
             </View>
           ) : (
-            /* Estado: sin zona trazada */
             <View style={styles.consoleBar}>
               <MaterialCommunityIcons name="map-search-outline" size={16} color="#555" style={{ marginRight: 6 }} />
               <Text style={[styles.consoleBarText, { color: '#555' }]} numberOfLines={1}>

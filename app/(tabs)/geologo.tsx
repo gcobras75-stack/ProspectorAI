@@ -7,8 +7,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
 import { askClaudeGeologoExperto, photoUriToBase64 } from '../core/ClaudeServices';
 import { loadLastAnalysis, getMuestras, saveProjectChatHistory, loadProjectState, loadFieldPackage, loadProjectWaypoints } from '../core/Database';
+import { useBadge } from '../core/BadgeContext';
 
 const PROJ_KEY = 'currentProjectId';
 
@@ -160,6 +162,11 @@ export default function GeologoScreen() {
   const [showWaypointPicker, setShowWaypointPicker] = useState(false);
   const analysisPointsRef = useRef<any[]>([]);
   const scrollRef = useRef<ScrollView>(null);
+
+  const { setGeologoBadge } = useBadge();
+  useFocusEffect(useCallback(() => {
+    setGeologoBadge(false);
+  }, [setGeologoBadge]));
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
