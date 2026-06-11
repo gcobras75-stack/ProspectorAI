@@ -227,6 +227,14 @@ export default function ProspectorDashboard() {
 
       const acquisitionDates = satelliteData?.acquisition_date || 'N/D';
 
+      // Per-source acquisition dates — honest per-satellite metadata
+      const sourceDates = {
+        s2:        satelliteData?.acquisition_date || undefined,
+        aster:     (asterData as any)?.archive_range || (asterData as any)?.acquisition_date || 'Archivo 2000–2008',
+        emit:      (emitData as any)?.acquisition_date || undefined,
+        sentinel1: (structuralData as any)?.acquisition_date || undefined,
+      };
+
       const cellSizeM = satelliteData?.cell_size_m ?? 500;
 
       const geeServerUrl = process.env.EXPO_PUBLIC_SERVER_URL?.replace(/\/$/, '') ||
@@ -241,8 +249,10 @@ export default function ProspectorDashboard() {
         analysisPoints,
         satelitesSources,
         acquisitionDates,
+        sourceDates,
         cellSizeM,
         zoneCenter: { lat: centerLat, lng: centerLng },
+        polygonCoords: resolvedPolygonCoords,
         lat_min,
         lat_max,
         lng_min,

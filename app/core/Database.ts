@@ -75,6 +75,7 @@ export const initDB = async () => {
     `ALTER TABLE proyectos ADD COLUMN reporte_geologo_texto  TEXT DEFAULT ''`,
     `ALTER TABLE proyectos ADD COLUMN reporte_generado_at    TEXT DEFAULT ''`,
     `ALTER TABLE muestras  ADD COLUMN reporte_resena         TEXT DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN reporte_analisis_hash TEXT DEFAULT ''`,
   ];
   for (const sql of migrations) {
     try { await dbCache.execAsync(sql); } catch (_) { /* column already exists */ }
@@ -354,22 +355,26 @@ export async function loadFieldPackage(projectId: string): Promise<{
 
 // ─── REPORT PERSISTENCE ────────────────────────────────────────────────────
 
-export const saveReportContent = async (projectId: string, geologoTexto: string): Promise<void> => {
+export const saveReportContent = async (projectId: string, geologoTexto: string, analisisHash: string): Promise<void> => {
   const db = await initDB();
   await db.runAsync(
-    `UPDATE proyectos SET reporte_geologo_texto = ?, reporte_generado_at = datetime('now') WHERE id = ?`,
-    [geologoTexto, projectId]
+    `UPDATE proyectos SET reporte_geologo_texto = ?, reporte_generado_at = datetime('now'), reporte_analisis_hash = ? WHERE id = ?`,
+    [geologoTexto, analisisHash, projectId]
   );
 };
 
-export const loadReportContent = async (projectId: string): Promise<{ geologoTexto: string; generadoAt: string } | null> => {
+export const loadReportContent = async (projectId: string): Promise<{ geologoTexto: string; generadoAt: string; analisisHash: string } | null> => {
   const db = await initDB();
   const row = await db.getFirstAsync(
-    'SELECT reporte_geologo_texto, reporte_generado_at FROM proyectos WHERE id = ?',
+    'SELECT reporte_geologo_texto, reporte_generado_at, reporte_analisis_hash FROM proyectos WHERE id = ?',
     [projectId]
   ) as any;
   if (!row || !row.reporte_geologo_texto) return null;
-  return { geologoTexto: row.reporte_geologo_texto, generadoAt: row.reporte_generado_at || '' };
+  return {
+    geologoTexto: row.reporte_geologo_texto,
+    generadoAt: row.reporte_generado_at || '',
+    analisisHash: row.reporte_analisis_hash || '',
+  };
 };
 
 export const saveSampleResena = async (sampleId: string, resena: string): Promise<void> => {

@@ -298,44 +298,62 @@ export async function generateReportSection(
   terrainType: string,
   areaHa: string,
   satelitesSources: string,
+  zoneCenter: { lat: number; lng: number },
   chatHistory?: string
 ): Promise<string> {
   const API_KEY = getApiKey();
 
-  const top5 = analysisPoints.slice(0, 5).map((p, i) => ({
-    rank: i + 1,
-    lat: p.lat,
-    lng: p.lng,
-    score: p.score || p.base_score || 0,
-    analisis: p.analisis_integral || p.geologia_interpretada || '',
-    indices: p.indices_analizados || p.indices || [],
-  }));
+  // Build top-5 using ONLY real spectral data — no simulation scores or hallucinated minerals
+  const top5 = analysisPoints.slice(0, 5).map((p, i) => {
+    // Raw spectral indices from GEE (S2/ASTER/EMIT values)
+    const rawIndices = (p.indices || []).slice(0, 6).map((idx: any) => ({
+      name: idx.name || idx.nombre || '',
+      value: typeof idx.value === 'number' ? parseFloat(idx.value.toFixed(4)) : 0,
+    }));
+    return {
+      rank: i + 1,
+      lat: parseFloat(p.lat.toFixed(5)),
+      lng: parseFloat(p.lng.toFixed(5)),
+      base_score: parseFloat((p.base_score || 0).toFixed(1)),  // spectral score only
+      consensus_level: p.consensus_level || '',                // e.g. CONFIRMED, TRIPLE_SPECTRAL
+      evidence: p.evidence || '',                              // e.g. "S2 ✓ · ASTER ✓"
+      raw_indices: rawIndices,
+    };
+  });
 
-  const prompt = `Eres Dr. Marco Ruiz, geólogo explorador. Redacta con claridad profesional para mineros e inversores. Sé concreto. Sin markdown.
+  const prompt = `Eres Dr. Marco Ruiz, geólogo explorador con 30 años en México. Redacta con claridad profesional para mineros e inversores. Sin markdown.
 
 Datos del proyecto:
 - Metal objetivo: ${metalName}
 - Terreno: ${terrainType}
 - Área analizada: ${areaHa} ha
 - Fuentes satelitales: ${satelitesSources}
-- Puntos prioritarios (top 5):
+- Centro de zona: ${zoneCenter.lat.toFixed(4)}°N, ${Math.abs(zoneCenter.lng).toFixed(4)}°O
+- Puntos prioritarios (top 5, datos espectrales reales):
 ${JSON.stringify(top5, null, 2)}
 ${chatHistory ? `\nHistorial de análisis previo:\n${chatHistory}` : ''}
 
+INSTRUCCIONES CRÍTICAS:
+1. Todas las coordenadas y el área mencionados deben corresponder EXACTAMENTE al centro de zona arriba.
+2. PROHIBIDO inventar minerales específicos (esfalerita, galena, malaquita, etc.) a menos que los índices espectrales lo justifiquen técnicamente con los valores dados.
+3. Usa solo los nombres de índices espectrales del JSON: ferric_oxide, al_clay, mg_clay, carbonate_emit, etc. — sin inventar nombres.
+4. base_score es un índice espectral 0-1, NO una probabilidad de 0-100.
+5. consensus_level explica cuántos satélites confirman la anomalía.
+
 Genera EXACTAMENTE 3 secciones separadas por la cadena: \\n\\n--- SECCIÓN ---\\n\\n
 
-SECCIÓN 1 — RESUMEN EJECUTIVO (3-5 líneas): qué se encontró, nivel de anomalía, qué metal y en qué tipo de terreno.
+SECCIÓN 1 — RESUMEN EJECUTIVO (3-5 líneas): qué tipo de anomalía espectral se detectó, nivel de consenso, en qué tipo de terreno, coordenadas del centro de zona.
 
-SECCIÓN 2 — INTERPRETACIÓN GEOLÓGICA (4-6 líneas): qué patrón espectral y estructural sugiere, minerales guía, contexto tectónico esperado.
+SECCIÓN 2 — INTERPRETACIÓN GEOLÓGICA (4-6 líneas): qué patrón espectral y estructural sugiere, qué alteraciones hidrotermales son compatibles con los índices detectados, contexto tectónico esperado en la región.
 
-SECCIÓN 3 — PLAN DE CAMPO RECOMENDADO: lista numerada con el orden de visita de los top-5 puntos y qué muestrear en cada uno.
+SECCIÓN 3 — PLAN DE CAMPO RECOMENDADO: lista numerada con el orden de visita de los top-5 puntos (usa sus coordenadas reales) y qué verificar en cada uno.
 
-NO uses markdown, NO uses asteriscos, NO uses encabezados con #. Solo texto plano y la separación exacta indicada.`;
+NO uses markdown, NO uses asteriscos, NO uses #. Solo texto plano y la separación exacta indicada.`;
 
   const payload = {
     model: MODEL_SMART,
-    max_tokens: 800,
-    system: 'Eres Dr. Marco Ruiz, geólogo explorador. Redacta con claridad profesional para mineros e inversores. Sé concreto. Sin markdown.',
+    max_tokens: 900,
+    system: 'Eres Dr. Marco Ruiz, geólogo explorador. Redacta con claridad profesional. Sin markdown. Usa solo datos espectrales reales del prompt.',
     messages: [{ role: 'user', content: prompt }],
   };
 

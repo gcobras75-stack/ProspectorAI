@@ -647,30 +647,92 @@ app.post('/api/emit/grid', async (req, res) => {
   }
 });
 
+// POST /api/zone/map-image
+// Body: { lat_min, lat_max, lng_min, lng_max, width?,
+//         analysis_points?: [{lat, lng, score, rank}],
+//         polygon_coords?: [{latitude, longitude}],
+//         cell_size_m?: number }
+// Returns: { image_base64, overlay_svg, width, height, format }
+// The client stacks base image + SVG overlay for PDF compositing.
 // ---------------------------------------------------------------------------
-// GET /api/zone/map-image?lat_min=&lat_max=&lng_min=&lng_max=&width=600
-// Downloads the Sentinel-2 composite from GEE in Node and returns:
-//   { image_base64: "...", width: N, height: N, format: "png" }
-// This avoids sending earthengine.googleapis.com URLs to the phone, where
-// React Native's FileReader/Blob cannot reliably decode binary responses.
-// ---------------------------------------------------------------------------
-app.get('/api/zone/map-image', async (req, res) => {
-  const lat_min = parseFloat(req.query.lat_min);
-  const lat_max = parseFloat(req.query.lat_max);
-  const lng_min = parseFloat(req.query.lng_min);
-  const lng_max = parseFloat(req.query.lng_max);
-  const width   = parseInt(req.query.width || '600', 10);
+app.post('/api/zone/map-image', async (req, res) => {
+  const lat_min = parseFloat(req.body.lat_min);
+  const lat_max = parseFloat(req.body.lat_max);
+  const lng_min = parseFloat(req.body.lng_min);
+  const lng_max = parseFloat(req.body.lng_max);
+  const width   = parseInt(req.body.width || '600', 10);
+  const analysisPoints = Array.isArray(req.body.analysis_points) ? req.body.analysis_points : [];
+  const polygonCoords  = Array.isArray(req.body.polygon_coords)  ? req.body.polygon_coords  : [];
+  const cellSizeM      = parseFloat(req.body.cell_size_m || '500');
 
   if (isNaN(lat_min) || isNaN(lat_max) || isNaN(lng_min) || isNaN(lng_max)) {
     return res.status(400).json({ error: 'Se requieren lat_min, lat_max, lng_min, lng_max como números.' });
   }
   if (lat_min >= lat_max || lng_min >= lng_max) {
-    return res.status(400).json({ error: 'bbox inválido: lat_min debe ser menor que lat_max y lng_min menor que lng_max.' });
+    return res.status(400).json({ error: 'bbox inválido.' });
   }
 
+  // ── Coordinate → pixel helpers ────────────────────────────────────────────
+  const height = Math.round(width * (lat_max - lat_min) / (lng_max - lng_min));
+  const toPixel = (lat, lng) => ({
+    x: ((lng - lng_min) / (lng_max - lng_min)) * width,
+    y: ((lat_max - lat) / (lat_max - lat_min)) * height,
+  });
+
+  // ── Cell size in pixels (approximate: 1 deg lat ≈ 111 000 m) ─────────────
+  const metersPerPixelX = ((lng_max - lng_min) * 111000 * Math.cos((lat_min + lat_max) / 2 * Math.PI / 180)) / width;
+  const metersPerPixelY = ((lat_max - lat_min) * 111000) / height;
+  const cellW = Math.max(4, cellSizeM / metersPerPixelX);
+  const cellH = Math.max(4, cellSizeM / metersPerPixelY);
+
+  // ── SVG overlay ───────────────────────────────────────────────────────────
+  let svgParts = [];
+
+  // Heatmap cells (analysis points)
+  for (const pt of analysisPoints) {
+    const { x, y } = toPixel(pt.lat, pt.lng);
+    const score = parseFloat(pt.score || pt.base_score || 0);
+    let fill;
+    if (score >= 0.65) fill = 'rgba(229,57,53,0.55)';      // HIGH  — red
+    else if (score >= 0.35) fill = 'rgba(255,160,0,0.50)'; // MED   — orange
+    else fill = 'rgba(84,110,122,0.40)';                   // LOW   — gray
+    svgParts.push(
+      `<rect x="${(x - cellW / 2).toFixed(1)}" y="${(y - cellH / 2).toFixed(1)}" ` +
+      `width="${cellW.toFixed(1)}" height="${cellH.toFixed(1)}" fill="${fill}" rx="1"/>`
+    );
+  }
+
+  // Polygon outline (gold)
+  if (polygonCoords.length >= 3) {
+    const pts = polygonCoords.map(c => {
+      const { x, y } = toPixel(c.latitude ?? c.lat, c.longitude ?? c.lng);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    svgParts.push(`<polygon points="${pts}" fill="none" stroke="#FFD700" stroke-width="2.5" stroke-opacity="0.9"/>`);
+  }
+
+  // Top-10 priority markers (numbered circles)
+  const top10 = analysisPoints
+    .filter(pt => pt.rank != null && pt.rank <= 10)
+    .sort((a, b) => a.rank - b.rank);
+  for (const pt of top10) {
+    const { x, y } = toPixel(pt.lat, pt.lng);
+    const rank = pt.rank;
+    const score = parseFloat(pt.score || pt.base_score || 0);
+    const markerColor = score >= 0.65 ? '#FF4444' : score >= 0.35 ? '#FFA000' : '#90A4AE';
+    svgParts.push(
+      `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="9" fill="${markerColor}" stroke="#000" stroke-width="1"/>`,
+      `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" fill="#000" font-size="9" font-weight="bold" ` +
+      `text-anchor="middle" dominant-baseline="middle">${rank}</text>`
+    );
+  }
+
+  const overlaySvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" ` +
+    `width="${width}" height="${height}">${svgParts.join('')}</svg>`;
+
+  // ── Fetch S2 base image from GEE ──────────────────────────────────────────
   try {
-    const bbox   = ee.Geometry.Rectangle([lng_min, lat_min, lng_max, lat_max]);
-    const height = Math.round(width * (lat_max - lat_min) / (lng_max - lng_min));
+    const bbox = ee.Geometry.Rectangle([lng_min, lat_min, lng_max, lat_max]);
 
     const image = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
       .filterBounds(bbox)
@@ -681,16 +743,11 @@ app.get('/api/zone/map-image', async (req, res) => {
     const thumbUrl = await new Promise((resolve, reject) => {
       image.getThumbURL(
         { region: bbox, dimensions: `${width}x${height}`, format: 'png', min: 0, max: 3000 },
-        (url, err) => {
-          if (err) reject(new Error(err));
-          else resolve(url);
-        }
+        (url, err) => { if (err) reject(new Error(err)); else resolve(url); }
       );
     });
 
     console.log('[/api/zone/map-image] thumbUrl obtained, downloading in Node...');
-
-    // Node 18+ native fetch — follows the GEE redirect server-side where it works reliably
     const imgResp = await fetch(thumbUrl);
     if (!imgResp.ok) {
       const msg = `GEE image fetch failed: HTTP ${imgResp.status}`;
@@ -700,9 +757,9 @@ app.get('/api/zone/map-image', async (req, res) => {
 
     const arrayBuf = await imgResp.arrayBuffer();
     const image_base64 = Buffer.from(arrayBuf).toString('base64');
-    console.log(`[/api/zone/map-image] image downloaded OK, base64 length=${image_base64.length}`);
+    console.log(`[/api/zone/map-image] image OK, base64=${image_base64.length}, svg_chars=${overlaySvg.length}`);
 
-    res.json({ image_base64, width, height, format: 'png' });
+    res.json({ image_base64, overlay_svg: overlaySvg, width, height, format: 'png' });
   } catch (err) {
     console.error('[/api/zone/map-image]', err.message);
     res.status(500).json({ error: err.message });
