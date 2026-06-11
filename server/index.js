@@ -649,7 +649,10 @@ app.post('/api/emit/grid', async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // GET /api/zone/map-image?lat_min=&lat_max=&lng_min=&lng_max=&width=600
-// Returns a 302 redirect to a Sentinel-2 RGB natural-color ThumbURL from GEE.
+// Downloads the Sentinel-2 composite from GEE in Node and returns:
+//   { image_base64: "...", width: N, height: N, format: "png" }
+// This avoids sending earthengine.googleapis.com URLs to the phone, where
+// React Native's FileReader/Blob cannot reliably decode binary responses.
 // ---------------------------------------------------------------------------
 app.get('/api/zone/map-image', async (req, res) => {
   const lat_min = parseFloat(req.query.lat_min);
@@ -685,7 +688,21 @@ app.get('/api/zone/map-image', async (req, res) => {
       );
     });
 
-    res.redirect(302, thumbUrl);
+    console.log('[/api/zone/map-image] thumbUrl obtained, downloading in Node...');
+
+    // Node 18+ native fetch — follows the GEE redirect server-side where it works reliably
+    const imgResp = await fetch(thumbUrl);
+    if (!imgResp.ok) {
+      const msg = `GEE image fetch failed: HTTP ${imgResp.status}`;
+      console.error('[/api/zone/map-image]', msg);
+      return res.status(502).json({ error: msg });
+    }
+
+    const arrayBuf = await imgResp.arrayBuffer();
+    const image_base64 = Buffer.from(arrayBuf).toString('base64');
+    console.log(`[/api/zone/map-image] image downloaded OK, base64 length=${image_base64.length}`);
+
+    res.json({ image_base64, width, height, format: 'png' });
   } catch (err) {
     console.error('[/api/zone/map-image]', err.message);
     res.status(500).json({ error: err.message });

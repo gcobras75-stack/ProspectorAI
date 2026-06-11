@@ -260,21 +260,48 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
   const interpretacion = parts[1] || '';
   const planCampo      = parts[2] || '';
 
-  // ── B. Map image — fetch to base64 so expo-print can embed it ────────────
+  // ── B. Map image — server downloads from GEE and returns { image_base64 }
+  //
+  // Architecture: the Node server follows GEE's redirect and converts to base64.
+  // The phone NEVER touches earthengine.googleapis.com — avoids RN FileReader/Blob
+  // binary-decode unreliability on Hermes.
+  //
+  // Logs (a)–(e) appear in Metro/Expo console for diagnostics.
+  // ──────────────────────────────────────────────────────────────────────────
   const mapUrl = `${input.geeServerUrl}/api/zone/map-image?lat_min=${input.lat_min}&lat_max=${input.lat_max}&lng_min=${input.lng_min}&lng_max=${input.lng_max}&width=600`;
   let mapDataUri = '';
+  let mapErrorReason = 'no se pudo contactar al servidor GEE';
+
+  console.log('[PDF Map] (a) URL:', mapUrl);
   try {
-    const mapResp = await fetch(mapUrl); // fetch follows the 302 redirect to GEE ThumbURL
+    const mapResp = await fetch(mapUrl);
+    console.log('[PDF Map] (b) HTTP status:', mapResp.status, mapResp.ok ? 'OK' : 'FAIL');
+
     if (mapResp.ok) {
-      const blob = await mapResp.blob();
-      mapDataUri = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = () => reject(new Error('FileReader error'));
-        reader.readAsDataURL(blob);
-      });
+      const json = await mapResp.json() as { image_base64?: string; error?: string };
+      const b64 = json.image_base64 ?? '';
+      console.log('[PDF Map] (c) image_base64 length:', b64.length);
+
+      if (b64.length > 1000) {
+        mapDataUri = `data:image/png;base64,${b64}`;
+        console.log('[PDF Map] (d) dataUri prefix ok:', mapDataUri.substring(0, 26));
+        console.log('[PDF Map] (e) embeds in HTML: YES');
+      } else {
+        mapErrorReason = `base64 vacío o muy corto (${b64.length} chars)${json.error ? ': ' + json.error : ''}`;
+        console.log('[PDF Map] (d) FAIL:', mapErrorReason);
+      }
+    } else {
+      let errBody = '';
+      try { errBody = ((await mapResp.json()) as any).error ?? ''; } catch {}
+      mapErrorReason = `servidor respondió HTTP ${mapResp.status}${errBody ? ': ' + errBody : ''}`;
+      console.log('[PDF Map] (b) FAIL:', mapErrorReason);
     }
-  } catch (_) { /* graceful — placeholder shown below */ }
+  } catch (err: any) {
+    mapErrorReason = `excepción de red: ${err?.message ?? 'desconocida'}`;
+    console.log('[PDF Map] (e) EXCEPTION:', mapErrorReason);
+  }
+
+  console.log('[PDF Map] resultado final: mapDataUri.length =', mapDataUri.length, '|', mapDataUri.length > 0 ? 'SE EMBEDE' : 'PLACEHOLDER: ' + mapErrorReason);
 
   // ── C. Load muestras and generate reseñas for photos ─────────────────────
   const muestras = await loadMuestrasForReport(input.projectId);
@@ -352,7 +379,7 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
   <h2>Mapa de Anomalías</h2>
   ${mapDataUri
     ? `<img class="map-img" src="${mapDataUri}" />`
-    : `<div class="map-placeholder"><p>Imagen satelital no disponible — requiere conexión al servidor GEE</p></div>`
+    : `<div class="map-placeholder"><p>Imagen no disponible: ${mapErrorReason}</p></div>`
   }
   <div class="leyenda">
     <span style="color:#E53935">&#9632; ALTA anomalía</span>
