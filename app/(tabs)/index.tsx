@@ -895,7 +895,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             </Marker>
           ))}
 
-          {analysisPoints.map((point, idx) => (
+          {(currentZoom > 0.05 ? analysisPoints.filter(p => p.rank <= 10) : analysisPoints).map((point, idx) => (
             <Marker 
               key={idx} 
               coordinate={{latitude: point.lat, longitude: point.lng}}
@@ -933,12 +933,6 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           </View>
         )}
 
-        {/* DEBUG VERSION TAG */}
-        <View style={{ position: 'absolute', top: 44, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, zIndex: 50, maxWidth: 220 }}>
-          <Text style={{ color: '#4CAF50', fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>v9.0</Text>
-          <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
-        </View>
-
         {/* CONFIG CHIP — mineral + terrain quick access */}
         <TouchableOpacity
           style={styles.configChip}
@@ -960,15 +954,6 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           </View>
         )}
 
-        {/* ÁREA EN PANTALLA FIJA */}
-        {showStatsBox && (
-          <View style={[styles.panel, { top: 50, left: 10, backgroundColor: 'rgba(0,0,0,0.7)', paddingVertical: 4, paddingHorizontal: 8, alignItems: 'flex-start', borderRadius: 8 }]}>
-            <Text style={[styles.statsTextHighlight, {fontSize: 10, marginBottom: 0}]}>ZONA SELECCIONADA</Text>
-            <Text style={[styles.statsTextArea, {fontSize: 14}]}>{areaHa} ha</Text>
-            <Text style={[styles.statsTextAreaSm, {fontSize: 8, marginTop: 0}]}>{areaKm2} km² | {infoText}</Text>
-          </View>
-        )}
-
         {/* ZOOM BOTONES — ocultos durante trazado para no interferir con vértices */}
         {drawingType !== 'polygon' && (
           <View style={styles.zoomControlsContainer}>
@@ -985,32 +970,38 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
 
         <TouchableOpacity style={styles.northIndicator} onPress={() => { triggerHaptic('heavy'); setShowChatModal(true); }} onLongPress={() => { triggerHaptic('heavy'); setShowChatModal(true); }}><View style={[styles.northArrow, { transform: [{ rotate: `${-mapRotation}deg` }] }]}><MaterialCommunityIcons name="arrow-up" size={28} color="#FFD700" /><Text style={styles.northText}>N</Text></View></TouchableOpacity>
 
-        {/* CONNECTION & SPECTRAL INDICATOR (TOP RIGHT) */}
-        <View style={{ position: 'absolute', top: 50, right: 10, backgroundColor: 'rgba(0,0,0,0.7)', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, flexDirection: 'row', alignItems: 'center', zIndex: 30, borderWidth: 1, borderColor: '#333' }}>
-           <TouchableOpacity onPress={() => Alert.alert('Conexión', isSyncing ? 'Sincronizando...' : (isConnected ? 'Online (Conectado a Claude)' : 'Offline (Motor Local)'))} style={{flexDirection: 'row', alignItems: 'center'}}>
-             <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: isConnected ? '#44FF44' : '#888', marginRight: 6}} />
-             <Text style={{color: '#FFF', fontSize: 10, fontWeight: 'bold'}}>Online</Text>
-           </TouchableOpacity>
-           <View style={{width: 1, height: 12, backgroundColor: '#555', marginHorizontal: 8}} />
-           <TouchableOpacity onPress={() => setShowHeatmap(!showHeatmap)} style={{flexDirection: 'row', alignItems: 'center'}}>
-             <Text style={{color: showHeatmap ? '#FFD700' : '#888', fontSize: 10, fontWeight: 'bold'}}>🌈 Capa {showHeatmap ? 'ON' : 'OFF'}</Text>
-           </TouchableOpacity>
+        {/* STATUS PILL — Online/Offline · Capa ON/OFF (top right) */}
+        <View style={styles.statusPill}>
+          <TouchableOpacity
+            onPress={() => Alert.alert('Conexión', isSyncing ? 'Sincronizando...' : (isConnected ? 'Online — Conectado a Claude' : 'Offline — Motor Local'))}
+            style={styles.statusPillSide}
+          >
+            <View style={[styles.statusDot, { backgroundColor: isConnected ? '#44FF44' : '#666' }]} />
+            <Text style={styles.statusPillText}>{isConnected ? 'Online' : 'Offline'}</Text>
+          </TouchableOpacity>
+          <View style={styles.statusPillDivider} />
+          <TouchableOpacity onPress={() => setShowHeatmap(!showHeatmap)} style={styles.statusPillSide}>
+            <Text style={[styles.statusPillText, { color: showHeatmap ? '#FFD700' : '#666' }]}>
+              Capa {showHeatmap ? 'ON' : 'OFF'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {/* ALTITUDE & COMPASS (CORNERS) */}
-        <View style={[styles.panel, { bottom: 10, left: 10, width: 50, height: 50, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.7)', padding: 0 }]}>
-          <Text style={[styles.labelText, {fontSize: 8}]}>ALTITUD</Text>
-          <Text style={[styles.dataTextLarge, {fontSize: 12, marginTop: 4}]}>{altitude !== null && altitude !== undefined ? `${altitude.toFixed(0)}m` : '---'}</Text>
+        {/* ALTITUDE — compact horizontal pill, bottom-left */}
+        <View style={styles.hudCornerPill}>
+          <MaterialCommunityIcons name="image-filter-hdr" size={13} color="#88CCFF" />
+          <Text style={styles.hudCornerText}>{altitude != null ? `${altitude.toFixed(0)} m` : '—'}</Text>
         </View>
 
-        <View style={[styles.panel, { bottom: 10, right: 10, width: 60, height: 60, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.7)', padding: 0 }]}>
-          <Text style={[styles.labelText, {fontSize: 8}]}>RUMBO</Text>
-          <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4}}>
-             {trueHeading !== null && trueHeading !== undefined && (
-               <MaterialCommunityIcons name="navigation" size={12} color="#00FFFF" style={{ transform: [{ rotate: `${trueHeading}deg` }], marginRight: 4 }} />
-             )}
-            <Text style={[styles.dataTextLarge, {fontSize: 12, marginTop: 0}]}>{trueHeading !== null && trueHeading !== undefined ? `${Math.round(trueHeading)}°` : '---'}</Text>
-          </View>
+        {/* RUMBO — compact horizontal pill, bottom-right */}
+        <View style={[styles.hudCornerPill, { left: undefined, right: 10 }]}>
+          <MaterialCommunityIcons
+            name="navigation"
+            size={13}
+            color="#00FFFF"
+            style={trueHeading != null ? { transform: [{ rotate: `${trueHeading}deg` }] } : undefined}
+          />
+          <Text style={styles.hudCornerText}>{trueHeading != null ? `${Math.round(trueHeading)}°` : '—'}</Text>
         </View>
 
       </View>
@@ -1528,7 +1519,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
-  northIndicator: { position: 'absolute', top: 60, right: 10, width: 50, height: 50, backgroundColor: 'rgba(0,0,0,0.8)', borderRadius: 25, borderWidth: 2, borderColor: '#FFD700', justifyContent: 'center', alignItems: 'center', zIndex: 20 },
+  northIndicator: { position: 'absolute', top: 88, right: 10, width: 50, height: 50, backgroundColor: 'rgba(0,0,0,0.8)', borderRadius: 25, borderWidth: 2, borderColor: '#FFD700', justifyContent: 'center', alignItems: 'center', zIndex: 20 },
   northArrow: { alignItems: 'center', justifyContent: 'center' },
   northText: { color: '#FFD700', fontSize: 10, fontWeight: 'bold', marginTop: -4 },
   compassContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 4 },
@@ -1764,7 +1755,7 @@ const styles = StyleSheet.create({
   // ── Config chip ────────────────────────────────────────────────────────────
   configChip: {
     position: 'absolute',
-    top: 100,
+    top: 44,
     left: 10,
     backgroundColor: 'rgba(20,20,20,0.88)',
     borderWidth: 1,
@@ -1780,6 +1771,63 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
+  },
+
+  // ── Status pill (top-right) ─────────────────────────────────────────────
+  statusPill: {
+    position: 'absolute',
+    top: 44,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    borderRadius: 999,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    zIndex: 30,
+  },
+  statusPillSide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusPillDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: '#444',
+    marginHorizontal: 8,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 4,
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: '700' as const,
+    color: '#FFFFFF',
+  },
+
+  // ── HUD corner pills (altitude + rumbo) ─────────────────────────────────
+  hudCornerPill: {
+    position: 'absolute',
+    bottom: 12,
+    left: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.70)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    columnGap: 4,
+    minHeight: 28,
+  },
+  hudCornerText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: '#FFFFFF',
   },
 
   // ── Ranking section ────────────────────────────────────────────────────────
