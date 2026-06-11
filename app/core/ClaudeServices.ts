@@ -543,4 +543,85 @@ export async function photoUriToBase64(uri: string): Promise<string | null> {
   }
 }
 
+// ═══════════════════════════════════════════════════════
+// 7. OCR CERTIFICADO DE LABORATORIO
+// ═══════════════════════════════════════════════════════
+
+export interface LabCertificateOCR {
+  au_gt?: number | null;
+  ag_gt?: number | null;
+  cu_pct?: number | null;
+  pb_pct?: number | null;
+  zn_pct?: number | null;
+  laboratorio?: string | null;
+  fecha_certificado?: string | null;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  notes?: string;
+}
+
+export async function extractLabCertificateOCR(
+  base64Image: string
+): Promise<LabCertificateOCR> {
+  const API_KEY = getApiKey();
+
+  const payload = {
+    model: MODEL_SMART,
+    max_tokens: 800,
+    messages: [{
+      role: 'user',
+      content: [
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/jpeg', data: base64Image },
+        },
+        {
+          type: 'text',
+          text: `Eres un asistente experto en análisis de certificados de laboratorio minero. Extrae los valores analíticos de esta imagen de certificado.
+
+Busca valores de: Oro (Au en g/t o ppm), Plata (Ag en g/t o ppm), Cobre (Cu en % o ppm), Plomo (Pb en % o ppm), Zinc (Zn en % o ppm), nombre del laboratorio y fecha del certificado.
+
+Convierte unidades si es necesario (ppm = g/t para Au y Ag; para Cu/Pb/Zn convierte ppm/% apropiadamente).
+
+Devuelve EXCLUSIVAMENTE JSON válido (sin markdown):
+{
+  "au_gt": número o null,
+  "ag_gt": número o null,
+  "cu_pct": número o null,
+  "pb_pct": número o null,
+  "zn_pct": número o null,
+  "laboratorio": "nombre del laboratorio" o null,
+  "fecha_certificado": "YYYY-MM-DD" o null,
+  "confidence": "HIGH" | "MEDIUM" | "LOW",
+  "notes": "advertencias si hay ambigüedad, ilegibilidad, etc." o null
+}
+
+HIGH = todos los valores principales legibles y claros.
+MEDIUM = algunos valores legibles, otros con incertidumbre.
+LOW = imagen borrosa, mal encuadrada o pocos valores visibles.`,
+        },
+      ],
+    }],
+  };
+
+  const response = await fetchWithRetry(
+    'https://api.anthropic.com/v1/messages',
+    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
+  );
+
+  if (!response.ok) {
+    const err = await response.text();
+    let msg = err;
+    try { msg = JSON.parse(err).error?.message || err; } catch {}
+    throw new Error(`OCR certificado (${response.status}): ${msg.substring(0, 100)}`);
+  }
+
+  const data = await response.json();
+  const content = data.content?.[0]?.text || '';
+  const match = content.match(/\{[\s\S]*\}/);
+  if (match) {
+    try { return JSON.parse(match[0]); } catch {}
+  }
+  throw new Error('La IA no pudo extraer valores del certificado. Intenta con una imagen más clara.');
+}
+
 export default function DummyClaudeRoute() { return null; }

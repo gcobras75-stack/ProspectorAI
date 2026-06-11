@@ -9,10 +9,11 @@ interface HistoryModalProps {
   onClose: () => void;
   onClear: () => void;
   onExport: () => void;
+  onViewDetail?: (wp: any) => void;
 }
 
 export default function HistoryModal({
-  visible, waypoints, isFieldMode, onClose, onClear, onExport,
+  visible, waypoints, isFieldMode, onClose, onClear, onExport, onViewDetail,
 }: HistoryModalProps) {
   return (
     <Modal visible={visible} transparent animationType="slide">
@@ -48,6 +49,21 @@ export default function HistoryModal({
                     ? `💎 ${wp.mineral_detectado.toUpperCase()} (${wp.score_ia}%)`
                     : (wp.descripcion_texto || wp.note || 'Muestra sin IA')}
                 </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                  {wp.muestra_codigo ? (
+                    <Text style={{ color: '#00BCD4', fontSize: 11, fontFamily: 'monospace' }}>{wp.muestra_codigo}</Text>
+                  ) : null}
+                  {wp.validation_verdict ? (
+                    <Text style={{ fontSize: 11, color: wp.validation_verdict === 'CONFIRMED' ? '#4CAF50' : wp.validation_verdict === 'PARTIAL' ? '#FF9800' : '#E53935', fontWeight: 'bold' }}>
+                      {wp.validation_verdict === 'CONFIRMED' ? '✅ CONF.' : wp.validation_verdict === 'PARTIAL' ? '⚠️ PARCIAL' : '❌ N/C'}
+                    </Text>
+                  ) : null}
+                  {onViewDetail && (
+                    <TouchableOpacity onPress={() => onViewDetail(wp)} style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: '#FFD700', borderRadius: 4 }}>
+                      <Text style={{ color: '#FFD700', fontSize: 11 }}>Ver detalle →</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
             ))}
             {waypoints.length === 0 && (
