@@ -32,6 +32,7 @@ import {
   renameProject,
 } from '../core/Database';
 import { Colors, Radii, Shadows, Spacing, Touch, Typography } from '../core/theme';
+import ValidationView from '../components/ValidationView';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -254,6 +255,10 @@ function ProjectDetail({ project, onBack, onDeleted, onRenamed }: DetailProps) {
         <View style={styles.infoBlock}>
           <InfoRow label="Mensajes" value={String(project.chat_count)} />
         </View>
+
+        {/* Validation */}
+        <SectionHeader title="Validación" />
+        <ValidationView projectId={project.id} metalTarget={project.mineral || 'oro'} />
 
         {/* Actions */}
         <SectionHeader title="Acciones" />

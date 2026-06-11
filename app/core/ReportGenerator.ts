@@ -266,14 +266,28 @@ function buildSamplePages(muestras: any[]): string {
         : `<div class="sample-photo-placeholder"><p>Sin foto</p></div>`;
       const analisisObj = m.analisis_texto ? (() => { try { return JSON.parse(m.analisis_texto); } catch { return null; } })() : null;
       const analisisStr = analisisObj?.analisis_detallado || analisisObj?.recomendacion || m.analisis_texto || '';
+      // Lab results if available
+      const hasLab = m.lab_au_gt != null || m.lab_ag_gt != null || m.lab_cu_pct != null;
+      const labHtml = hasLab ? `
+        <div style="margin-top:8px;padding:8px;background:#f0f8f0;border-radius:4px;border-left:3px solid #4CAF50">
+          <div style="font-size:11px;font-weight:bold;color:#2e7d32;margin-bottom:4px">RESULTADOS DE LABORATORIO</div>
+          ${m.lab_au_gt != null ? `<div style="font-size:12px">Au: <strong>${m.lab_au_gt} g/t</strong></div>` : ''}
+          ${m.lab_ag_gt != null ? `<div style="font-size:12px">Ag: <strong>${m.lab_ag_gt} g/t</strong></div>` : ''}
+          ${m.lab_cu_pct != null ? `<div style="font-size:12px">Cu: <strong>${m.lab_cu_pct}%</strong></div>` : ''}
+          ${m.lab_pb_pct != null ? `<div style="font-size:12px">Pb: <strong>${m.lab_pb_pct}%</strong></div>` : ''}
+          ${m.lab_zn_pct != null ? `<div style="font-size:12px">Zn: <strong>${m.lab_zn_pct}%</strong></div>` : ''}
+          ${m.lab_laboratorio ? `<div style="font-size:11px;color:#555;margin-top:4px">${m.lab_laboratorio}</div>` : ''}
+          ${m.validation_verdict ? `<div style="font-size:11px;font-weight:bold;color:${m.validation_verdict === 'CONFIRMED' ? '#2e7d32' : m.validation_verdict === 'PARTIAL' ? '#e65100' : '#c62828'};margin-top:4px">${m.validation_verdict === 'CONFIRMED' ? '✅ Confirmada' : m.validation_verdict === 'PARTIAL' ? '⚠️ Parcial' : '❌ No confirmada'}</div>` : ''}
+        </div>` : '';
       pairHtml += `
         <div class="sample-page">
           ${photoHtml}
           <div class="sample-info">
-            <h4>Muestra #${m.id}</h4>
+            <h4>${m.muestra_codigo || `Muestra #${m.id}`}</h4>
             <div class="sample-coord">${latLngToUTM(m.lat, m.lng)} · ${m.fecha ? new Date(m.fecha).toLocaleDateString('es-MX') : ''}</div>
             <div class="sample-resena">${m.reporte_resena || 'Sin reseña generada.'}</div>
             ${analisisStr ? `<div class="sample-analisis">Análisis IA: ${analisisStr.substring(0, 200)}</div>` : ''}
+            ${labHtml}
           </div>
         </div>`;
     }

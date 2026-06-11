@@ -23,12 +23,69 @@ import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
 import WaypointModal from '../components/WaypointModal';
 import ResultsPanel from '../components/ResultsPanel';
-import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, loadProjectState, listProjects, createProject } from '../core/Database';
+import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, loadProjectState, listProjects, createProject, updateMuestraCodigo } from '../core/Database';
+import SampleDetailModal from '../components/SampleDetailModal';
+import SampleLabelModal from '../components/SampleLabelModal';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
 import { generateAndShareReport } from '../core/ReportGenerator';
 
 type Coordinate = { latitude: number; longitude: number };
 type DrawingType = 'none' | 'polygon' | 'rectangle';
+
+// ── UTM helpers ────────────────────────────────────────────────────────────────
+
+function latLngToUTMComponents(lat: number, lng: number): { zona: string; easting: number; northing: number } {
+  // WGS84 to UTM — Transverse Mercator
+  const a = 6378137.0, f = 1 / 298.257223563;
+  const b = a * (1 - f);
+  const e2 = 1 - (b * b) / (a * a);
+  const e = Math.sqrt(e2);
+  const n0 = lat < 0 ? 10000000 : 0;
+  const zoneNum = Math.floor((lng + 180) / 6) + 1;
+  const lng0 = (zoneNum - 1) * 6 - 180 + 3;
+  const latR = lat * Math.PI / 180;
+  const lngR = lng * Math.PI / 180;
+  const lng0R = lng0 * Math.PI / 180;
+  const N = a / Math.sqrt(1 - e2 * Math.sin(latR) ** 2);
+  const T = Math.tan(latR) ** 2;
+  const C = (e2 / (1 - e2)) * Math.cos(latR) ** 2;
+  const A2 = Math.cos(latR) * (lngR - lng0R);
+  const e1sq = e2;
+  const M = a * ((1 - e1sq/4 - 3*e1sq**2/64 - 5*e1sq**3/256) * latR
+    - (3*e1sq/8 + 3*e1sq**2/32 + 45*e1sq**3/1024) * Math.sin(2*latR)
+    + (15*e1sq**2/256 + 45*e1sq**3/1024) * Math.sin(4*latR)
+    - (35*e1sq**3/3072) * Math.sin(6*latR));
+  const k0 = 0.9996;
+  const easting = k0 * N * (A2 + (1 - T + C) * A2**3/6 + (5 - 18*T + T**2 + 72*C) * A2**5/120) + 500000;
+  const northing = n0 + k0 * (M + N * Math.tan(latR) * (A2**2/2 + (5 - T + 9*C + 4*C**2) * A2**4/24 + (61 - 58*T + T**2) * A2**6/720));
+  const latBands = 'CDEFGHJKLMNPQRSTUVWXX';
+  const bandIndex = Math.min(Math.max(Math.floor((lat + 80) / 8), 0), 20);
+  const zona = `${zoneNum}${latBands[bandIndex]}`;
+  return { zona, easting: Math.round(easting), northing: Math.round(northing) };
+}
+
+function generateMuestraCodigo(
+  projectName: string,
+  analysisPoints: any[],
+  sampleLat: number,
+  sampleLng: number,
+  existingSamplesCount: number
+): { codigo: string; rank: number } {
+  // Short project tag: first 8 alphanumeric chars, uppercase
+  const tag = projectName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 8) || 'PROJ';
+  // Find nearest analysis point
+  let nearestRank = 0;
+  if (analysisPoints.length > 0) {
+    let minDist = Infinity;
+    for (const p of analysisPoints) {
+      const d = Math.sqrt((p.lat - sampleLat) ** 2 + (p.lng - sampleLng) ** 2);
+      if (d < minDist) { minDist = d; nearestRank = p.rank ?? 0; }
+    }
+  }
+  const pLabel = nearestRank > 0 ? String(nearestRank).padStart(2, '0') : '00';
+  const mLabel = existingSamplesCount + 1;
+  return { codigo: `${tag}-P${pLabel}-M${mLabel}`, rank: nearestRank };
+}
 
 // --- GEO CALCULATIONS ---
 
@@ -210,6 +267,11 @@ export default function ProspectorDashboard() {
 
   // Navigation target HUD
   const [navTarget, setNavTarget] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Sample detail / label modals
+  const [showSampleDetail, setShowSampleDetail] = useState(false);
+  const [selectedSample, setSelectedSample] = useState<any | null>(null);
+  const [showSampleLabel, setShowSampleLabel] = useState(false);
 
   const handleGenerateReport = async () => {
     if (analysisPoints.length === 0) {
@@ -530,7 +592,31 @@ export default function ProspectorDashboard() {
     };
     
     await saveMuestra(newWp);
-    
+
+    // Generate sample code and UTM coords
+    const utmComp = latLngToUTMComponents(sampleLat, sampleLng);
+    const { codigo } = generateMuestraCodigo(activeProject, analysisPoints, sampleLat, sampleLng, waypoints.length);
+
+    // Freeze spectral snapshot from nearest analysis point
+    let spectralSnapshot: any = {};
+    if (analysisPoints.length > 0) {
+      let minDist = Infinity, nearest: any = null;
+      for (const p of analysisPoints) {
+        const d = Math.sqrt((p.lat - sampleLat) ** 2 + (p.lng - sampleLng) ** 2);
+        if (d < minDist) { minDist = d; nearest = p; }
+      }
+      if (nearest) {
+        spectralSnapshot = {
+          consensus_level: nearest.consensus_level ?? nearest.consensus ?? '',
+          evidence: nearest.evidence ?? '',
+          base_score: nearest.base_score ?? 0,
+          indices: nearest.indices ?? {},
+        };
+      }
+    }
+
+    await updateMuestraCodigo(newWp.id, codigo, utmComp.zona, utmComp.easting, utmComp.northing, spectralSnapshot);
+
     setSampleBase64(null);
     setAiResult(null);
     setSampleCaptureType('normal');
@@ -1375,7 +1461,28 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         onClose={() => setShowHistoryModal(false)}
         onClear={async () => { await clearMuestras(); loadMuestras(); }}
         onExport={exportCSV}
+        onViewDetail={(wp: any) => { setSelectedSample(wp); setShowSampleDetail(true); }}
       />
+
+      {selectedSample && (
+        <SampleDetailModal
+          visible={showSampleDetail}
+          onClose={() => { setShowSampleDetail(false); setSelectedSample(null); }}
+          onLabelPress={() => { setShowSampleDetail(false); setShowSampleLabel(true); }}
+          sample={selectedSample}
+          projectId={activeProject}
+          metalTarget={selectedMineral}
+          onLabSaved={async () => { await loadMuestras(); }}
+          onValidationSaved={async () => { await loadMuestras(); }}
+        />
+      )}
+      {selectedSample && (
+        <SampleLabelModal
+          visible={showSampleLabel}
+          onClose={() => { setShowSampleLabel(false); setSelectedSample(null); }}
+          sample={selectedSample}
+        />
+      )}
 
       <MoreSheet
         visible={showMoreSheet}
