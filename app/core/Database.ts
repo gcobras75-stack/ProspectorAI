@@ -50,6 +50,25 @@ export const initDB = async () => {
       satellite      TEXT DEFAULT 'SENTINEL2_REAL',
       fecha_guardado TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS validation_pairs (
+      id TEXT PRIMARY KEY,
+      muestra_id TEXT NOT NULL,
+      proyecto_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      spectral_consensus TEXT DEFAULT '',
+      spectral_evidence TEXT DEFAULT '',
+      spectral_base_score REAL DEFAULT 0,
+      spectral_indices_json TEXT DEFAULT '{}',
+      metal_target TEXT DEFAULT '',
+      lab_au_gt REAL,
+      lab_ag_gt REAL,
+      lab_cu_pct REAL,
+      lab_pb_pct REAL,
+      lab_zn_pct REAL,
+      verdict TEXT DEFAULT '',
+      verdict_comment TEXT DEFAULT '',
+      verdict_threshold REAL DEFAULT 0.5
+    );
   `);
 
   // ── Schema migration: add new columns (safe to re-run) ──────────────────
@@ -76,6 +95,25 @@ export const initDB = async () => {
     `ALTER TABLE proyectos ADD COLUMN reporte_generado_at    TEXT DEFAULT ''`,
     `ALTER TABLE muestras  ADD COLUMN reporte_resena         TEXT DEFAULT ''`,
     `ALTER TABLE proyectos ADD COLUMN reporte_analisis_hash TEXT DEFAULT ''`,
+    // Muestras — sample identity + UTM + spectral snapshot
+    `ALTER TABLE muestras ADD COLUMN muestra_codigo TEXT DEFAULT ''`,
+    `ALTER TABLE muestras ADD COLUMN utm_zona TEXT DEFAULT ''`,
+    `ALTER TABLE muestras ADD COLUMN utm_easting INTEGER DEFAULT 0`,
+    `ALTER TABLE muestras ADD COLUMN utm_northing INTEGER DEFAULT 0`,
+    `ALTER TABLE muestras ADD COLUMN spectral_snapshot TEXT DEFAULT '{}'`,
+    // Muestras — lab results
+    `ALTER TABLE muestras ADD COLUMN lab_au_gt REAL`,
+    `ALTER TABLE muestras ADD COLUMN lab_ag_gt REAL`,
+    `ALTER TABLE muestras ADD COLUMN lab_cu_pct REAL`,
+    `ALTER TABLE muestras ADD COLUMN lab_pb_pct REAL`,
+    `ALTER TABLE muestras ADD COLUMN lab_zn_pct REAL`,
+    `ALTER TABLE muestras ADD COLUMN lab_laboratorio TEXT DEFAULT ''`,
+    `ALTER TABLE muestras ADD COLUMN lab_fecha_certificado TEXT DEFAULT ''`,
+    `ALTER TABLE muestras ADD COLUMN lab_certificado_b64 TEXT DEFAULT ''`,
+    `ALTER TABLE muestras ADD COLUMN lab_guardado_at TEXT DEFAULT ''`,
+    // Muestras — validation
+    `ALTER TABLE muestras ADD COLUMN validation_verdict TEXT DEFAULT ''`,
+    `ALTER TABLE muestras ADD COLUMN validation_comment TEXT DEFAULT ''`,
   ];
   for (const sql of migrations) {
     try { await dbCache.execAsync(sql); } catch (_) { /* column already exists */ }
@@ -435,5 +473,135 @@ export async function loadProjectWaypoints(projectId: string): Promise<Array<{
     foto_uri: String(r.foto_uri), analisis_texto: String(r.analisis_texto), fecha: String(r.fecha),
   }));
 }
+
+// ─── MUESTRA EXTENDED UPDATES ─────────────────────────────────────────────
+
+export const updateMuestraCodigo = async (
+  id: string,
+  codigo: string,
+  utmZona: string,
+  utmEasting: number,
+  utmNorthing: number,
+  spectralSnapshot: object
+): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync(
+    `UPDATE muestras SET muestra_codigo = ?, utm_zona = ?, utm_easting = ?, utm_northing = ?, spectral_snapshot = ? WHERE id = ?`,
+    [codigo, utmZona, utmEasting, utmNorthing, JSON.stringify(spectralSnapshot), id]
+  );
+};
+
+export interface LabResult {
+  au_gt?: number | null;
+  ag_gt?: number | null;
+  cu_pct?: number | null;
+  pb_pct?: number | null;
+  zn_pct?: number | null;
+  laboratorio?: string;
+  fecha_certificado?: string;
+  certificado_b64?: string;
+}
+
+export const updateMuestraLab = async (id: string, lab: LabResult): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync(
+    `UPDATE muestras SET
+      lab_au_gt = ?, lab_ag_gt = ?, lab_cu_pct = ?, lab_pb_pct = ?, lab_zn_pct = ?,
+      lab_laboratorio = ?, lab_fecha_certificado = ?, lab_certificado_b64 = ?,
+      lab_guardado_at = datetime('now')
+     WHERE id = ?`,
+    [
+      lab.au_gt ?? null, lab.ag_gt ?? null, lab.cu_pct ?? null, lab.pb_pct ?? null, lab.zn_pct ?? null,
+      lab.laboratorio ?? '', lab.fecha_certificado ?? '', lab.certificado_b64 ?? '',
+      id,
+    ]
+  );
+};
+
+export const updateMuestraValidation = async (
+  id: string,
+  verdict: 'CONFIRMED' | 'PARTIAL' | 'NOT_CONFIRMED',
+  comment: string
+): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync(
+    `UPDATE muestras SET validation_verdict = ?, validation_comment = ? WHERE id = ?`,
+    [verdict, comment, id]
+  );
+};
+
+// ─── VALIDATION PAIRS ─────────────────────────────────────────────────────
+
+export interface ValidationPair {
+  id: string;
+  muestra_id: string;
+  proyecto_id: string;
+  created_at: string;
+  spectral_consensus: string;
+  spectral_evidence: string;
+  spectral_base_score: number;
+  spectral_indices_json: string;
+  metal_target: string;
+  lab_au_gt: number | null;
+  lab_ag_gt: number | null;
+  lab_cu_pct: number | null;
+  lab_pb_pct: number | null;
+  lab_zn_pct: number | null;
+  verdict: string;
+  verdict_comment: string;
+  verdict_threshold: number;
+}
+
+export const upsertValidationPair = async (
+  muestraId: string,
+  proyectoId: string,
+  data: {
+    spectralConsensus: string;
+    spectralEvidence: string;
+    spectralBaseScore: number;
+    spectralIndices: object;
+    metalTarget: string;
+    lab: LabResult;
+    verdict: string;
+    verdictComment: string;
+    verdictThreshold: number;
+  }
+): Promise<void> => {
+  const db = await initDB();
+  const existing = await db.getFirstAsync('SELECT id FROM validation_pairs WHERE muestra_id = ?', [muestraId]) as any;
+  const id = existing?.id ?? 'vp_' + Date.now().toString(36);
+  await db.runAsync(
+    `INSERT OR REPLACE INTO validation_pairs
+     (id, muestra_id, proyecto_id, created_at, spectral_consensus, spectral_evidence,
+      spectral_base_score, spectral_indices_json, metal_target,
+      lab_au_gt, lab_ag_gt, lab_cu_pct, lab_pb_pct, lab_zn_pct,
+      verdict, verdict_comment, verdict_threshold)
+     VALUES (?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id, muestraId, proyectoId, data.spectralConsensus, data.spectralEvidence,
+      data.spectralBaseScore, JSON.stringify(data.spectralIndices), data.metalTarget,
+      data.lab.au_gt ?? null, data.lab.ag_gt ?? null, data.lab.cu_pct ?? null,
+      data.lab.pb_pct ?? null, data.lab.zn_pct ?? null,
+      data.verdict, data.verdictComment, data.verdictThreshold,
+    ]
+  );
+};
+
+export const getValidationPairs = async (proyectoId: string): Promise<ValidationPair[]> => {
+  const db = await initDB();
+  return await db.getAllAsync(
+    `SELECT vp.*, m.muestra_codigo, m.lat, m.lng
+     FROM validation_pairs vp
+     JOIN muestras m ON vp.muestra_id = m.id
+     WHERE vp.proyecto_id = ?
+     ORDER BY vp.created_at DESC`,
+    [proyectoId]
+  ) as ValidationPair[];
+};
+
+export const getMuestraById = async (id: string): Promise<any | null> => {
+  const db = await initDB();
+  return await db.getFirstAsync('SELECT * FROM muestras WHERE id = ?', [id]) as any;
+};
 
 export default function DummyDatabaseRoute() { return null; }

@@ -448,6 +448,87 @@ export async function generateSampleResena(
 }
 
 // ═══════════════════════════════════════════════════════
+// 2b. OCR DE CERTIFICADO DE LABORATORIO
+// ═══════════════════════════════════════════════════════
+export interface LabCertificateOCR {
+  au_gt: number | null;
+  ag_gt: number | null;
+  cu_pct: number | null;
+  pb_pct: number | null;
+  zn_pct: number | null;
+  laboratorio: string;
+  fecha_certificado: string;
+  raw_text: string;
+  confidence: 'high' | 'medium' | 'low';
+  notes: string;
+}
+
+export async function extractLabCertificateOCR(base64Image: string, mediaType: string = 'image/jpeg'): Promise<LabCertificateOCR> {
+  const API_KEY = getApiKey();
+  const payload = {
+    model: MODEL_FAST,
+    max_tokens: 800,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mediaType, data: base64Image },
+          },
+          {
+            type: 'text',
+            text: `Eres un sistema OCR especializado en certificados de análisis de laboratorio minero.
+Extrae ÚNICAMENTE los valores numéricos presentes en la imagen. Si un valor no está visible, devuelve null.
+
+Responde SOLO con JSON válido, sin texto adicional:
+{
+  "au_gt": <número en g/t o ppm, null si no visible>,
+  "ag_gt": <número en g/t o ppm, null si no visible>,
+  "cu_pct": <número en %, null si no visible>,
+  "pb_pct": <número en %, null si no visible>,
+  "zn_pct": <número en %, null si no visible>,
+  "laboratorio": "<nombre del laboratorio o vacío>",
+  "fecha_certificado": "<fecha en formato YYYY-MM-DD o vacío>",
+  "raw_text": "<todo el texto relevante que pudiste leer>",
+  "confidence": "<high|medium|low según calidad de la imagen>",
+  "notes": "<advertencias: unidades ambiguas, valores dudosos, etc.>"
+}`,
+          },
+        ],
+      },
+    ],
+  };
+  const response = await fetchWithRetry(
+    'https://api.anthropic.com/v1/messages',
+    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
+  );
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`OCR certificado (${response.status}): ${err.substring(0, 100)}`);
+  }
+  const data = await response.json();
+  const text = data.content?.[0]?.text ?? '{}';
+  try {
+    const parsed = JSON.parse(text);
+    return {
+      au_gt: typeof parsed.au_gt === 'number' ? parsed.au_gt : null,
+      ag_gt: typeof parsed.ag_gt === 'number' ? parsed.ag_gt : null,
+      cu_pct: typeof parsed.cu_pct === 'number' ? parsed.cu_pct : null,
+      pb_pct: typeof parsed.pb_pct === 'number' ? parsed.pb_pct : null,
+      zn_pct: typeof parsed.zn_pct === 'number' ? parsed.zn_pct : null,
+      laboratorio: parsed.laboratorio || '',
+      fecha_certificado: parsed.fecha_certificado || '',
+      raw_text: parsed.raw_text || '',
+      confidence: parsed.confidence || 'low',
+      notes: parsed.notes || '',
+    };
+  } catch {
+    return { au_gt: null, ag_gt: null, cu_pct: null, pb_pct: null, zn_pct: null, laboratorio: '', fecha_certificado: '', raw_text: text, confidence: 'low', notes: 'Error al parsear respuesta JSON' };
+  }
+}
+
+// ═══════════════════════════════════════════════════════
 // 5. UTILIDAD: convertir URI local a base64
 // ═══════════════════════════════════════════════════════
 export async function photoUriToBase64(uri: string): Promise<string | null> {
