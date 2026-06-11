@@ -273,6 +273,10 @@ export default function ProspectorDashboard() {
   const [selectedSample, setSelectedSample] = useState<any | null>(null);
   const [showSampleLabel, setShowSampleLabel] = useState(false);
 
+  // Field package info for field mode status bar
+  const [fieldPackageInfo, setFieldPackageInfo] = useState<{ preparado_at: string; size_kb: number } | null>(null);
+  const [hasAutoSuggestedField, setHasAutoSuggestedField] = useState(false);
+
   const handleGenerateReport = async () => {
     if (analysisPoints.length === 0) {
       Alert.alert('Sin análisis', 'Analiza una zona primero antes de generar el reporte.');
@@ -517,6 +521,20 @@ export default function ProspectorDashboard() {
     };
     loadSaved();
   }, []);
+
+  useEffect(() => {
+    if (fieldPackageInfo && !isConnected && !isFieldMode && !hasAutoSuggestedField) {
+      setHasAutoSuggestedField(true);
+      Alert.alert(
+        '🎒 Campo disponible',
+        'Este proyecto está listo y estás sin conexión. ¿Activar modo campo?',
+        [
+          { text: 'No ahora', style: 'cancel' },
+          { text: 'Activar', onPress: () => setIsFieldMode(true) },
+        ]
+      );
+    }
+  }, [fieldPackageInfo, isConnected]);
 
   const loadMuestras = async () => {
     const data = await getMuestras();
@@ -995,6 +1013,12 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
   const trueHeading = heading ? heading.trueHeading || heading.magHeading : 0;
   const blockScroll = drawingType === 'rectangle';
 
+  function fieldDaysSince(dateStr: string): number {
+    if (!dateStr) return 0;
+    const normalized = dateStr.replace(' ', 'T') + (dateStr.includes('T') ? '' : 'Z');
+    return Math.max(0, Math.floor((Date.now() - new Date(normalized).getTime()) / 86400000));
+  }
+
   return (
     <View style={styles.container}>
       
@@ -1168,220 +1192,262 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
       </View>
 
       {/* CONSOLA INFERIOR COMPACTA */}
-      <View style={[styles.consoleContainer, isFieldMode && styles.consoleContainerField]}>
-
-        {/* ONBOARDING TIP BANNER */}
-        {activeTip && (
-          <TouchableOpacity
-            onPress={dismissTip}
-            style={{
-              backgroundColor: isFieldMode ? '#FFFDE7' : 'rgba(255,215,0,0.12)',
-              borderTopWidth: 1,
-              borderColor: isFieldMode ? '#F9A825' : '#B8960C',
-              paddingHorizontal: 16,
-              paddingVertical: 10,
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{ flex: 1, fontSize: 13, color: isFieldMode ? '#333' : '#FFD700', lineHeight: 18 }}>
-              {activeTip === 1 && '1️⃣  Revisa el chip oro·sierra arriba — define qué mineral buscas en Ajustes'}
-              {activeTip === 2 && '✏️  Marca mínimo 3 puntos y presiona ANALIZAR para ver resultados'}
-              {activeTip === 3 && '🧑‍🔬  Siguiente: pregunta al Dr. Ruiz en Geólogo y prepara el paquete en Más → Campo'}
+      {isFieldMode ? (
+        /* ─── FIELD MODE CONSOLE ─────────────────────────────────── */
+        <View style={fieldStyles.console}>
+          {/* Status bar */}
+          <View style={fieldStyles.statusBar}>
+            <Text style={fieldStyles.statusText} numberOfLines={1}>
+              {fieldPackageInfo
+                ? `🎒 Modo campo · datos guardados hace ${fieldDaysSince(fieldPackageInfo.preparado_at)} días`
+                : '🎒 Modo campo activo'}
             </Text>
-            <Text style={{ color: isFieldMode ? '#666' : '#888', fontSize: 12, marginLeft: 8 }}>✕</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* BARRA DE HERRAMIENTAS FIJA — 3 botones: Ajustes · Trazar · Más
-            Flujo natural: configurar → trazar → analizar                   */}
-        <View style={[styles.toolbarRow, isFieldMode && styles.toolbarRowField]}>
-
-          {/* ① Ajustes — va primero: se definen parámetros antes de trazar */}
-          <TouchableOpacity
-            style={[styles.toolbarBtn, isFieldMode && styles.toolbarBtnField]}
-            onPress={() => setShowConfigModal(true)}
-          >
-            <MaterialCommunityIcons name="cog" size={22} color={isFieldMode ? '#000' : '#FFD700'} />
-            <Text style={[styles.toolbarBtnLabel, isFieldMode && { color: '#000' }]} numberOfLines={1}>Ajustes</Text>
-          </TouchableOpacity>
-
-          {/* ② Trazar / Nuevo trazado / Salir — estado-aware */}
-          <TouchableOpacity
-            style={[
-              styles.toolbarBtn,
-              drawingType === 'polygon' && styles.toolbarBtnActive,
-              isFieldMode && styles.toolbarBtnField,
-            ]}
-            onPress={() => {
-              if (drawingType === 'polygon') {
-                // Cancelar dibujo en curso
-                selectMode('none');
-              } else if (resolvedPolygonCoords.length >= 3 && showResults) {
-                // Hay análisis: pedir confirmación antes de descartar
-                Alert.alert(
-                  'Nuevo trazado',
-                  'Hay un análisis sin guardar. ¿Descartar y trazar nueva zona?',
-                  [
-                    { text: 'Cancelar', style: 'cancel' },
-                    { text: 'Descartar y trazar', style: 'destructive', onPress: () => selectMode('polygon') },
-                  ]
-                );
-              } else if (resolvedPolygonCoords.length >= 3) {
-                // Hay polígono pero sin análisis: empezar nuevo directo
-                selectMode('polygon');
-              } else {
-                // Sin polígono: iniciar dibujo
-                selectMode('polygon');
-              }
-            }}
-            onLongPress={() => {
-              if (drawingType === 'none') {
-                Alert.alert('Modo de trazado', 'Elige el tipo de zona a trazar:', [
-                  { text: '⬠ Polígono libre', onPress: () => { setDrawingType('polygon'); triggerHaptic('medium'); } },
-                  { text: '▭ Rectángulo', onPress: () => { setDrawingType('rectangle'); triggerHaptic('medium'); } },
-                  { text: 'Cancelar', style: 'cancel' },
-                ]);
-              }
-            }}
-          >
-            <MaterialCommunityIcons
-              name={
-                drawingType === 'polygon'
-                  ? 'close-circle-outline'
-                  : resolvedPolygonCoords.length >= 3
-                  ? 'vector-polygon'
-                  : 'draw-pen'
-              }
-              size={22}
-              color={drawingType === 'polygon' ? '#000' : (isFieldMode ? '#000' : '#FFD700')}
-            />
-            <Text
-              style={[styles.toolbarBtnLabel, drawingType === 'polygon' && { color: '#000' }, isFieldMode && { color: '#000' }]}
-              numberOfLines={1}
-            >
-              {drawingType === 'polygon'
-                ? 'Salir'
-                : resolvedPolygonCoords.length >= 3
-                ? 'Nuevo'
-                : 'Trazar'}
-            </Text>
-          </TouchableOpacity>
-
-          {/* ③ Más — Cámara, Solar/Noche, Historial, Guardar, Campo, PDF */}
-          <TouchableOpacity
-            style={[styles.toolbarBtn, isFieldMode && styles.toolbarBtnField]}
-            onPress={() => setShowMoreSheet(true)}
-          >
-            <MaterialCommunityIcons name="dots-horizontal-circle-outline" size={22} color={isFieldMode ? '#000' : '#FFD700'} />
-            <Text style={[styles.toolbarBtnLabel, isFieldMode && { color: '#000' }]} numberOfLines={1}>Más</Text>
-          </TouchableOpacity>
-
-        </View>
-
-        {/* CONSOLA COMPACTA DE 1 LÍNEA */}
-        {drawingType === 'polygon' ? (
-          /* Estado: dibujando polígono */
-          <View style={[styles.consoleBar, isFieldMode && styles.consoleBarField]}>
-            <View style={styles.consoleBarLeft}>
-              <MaterialCommunityIcons name="vector-polygon" size={16} color={isFieldMode ? '#333' : '#FFD700'} />
-              <Text style={[styles.consoleBarText, isFieldMode && { color: '#333' }]} numberOfLines={1}>
-                {' '}Polígono — {polygonCoords.length} vértices
-              </Text>
-            </View>
-            <View style={styles.consoleBarActions}>
-              <TouchableOpacity
-                style={[styles.consoleBtnSecondary, isFieldMode && styles.consoleBtnSecondaryField]}
-                onPress={addPointFromCrosshair}
-              >
-                <MaterialCommunityIcons name="target" size={14} color={isFieldMode ? '#000' : '#FFD700'} />
-                <Text style={[styles.consoleBtnSecondaryText, isFieldMode && { color: '#000' }]}> MARCAR</Text>
-              </TouchableOpacity>
-              {polygonCoords.length >= 3 && (
-                <TouchableOpacity
-                  style={[styles.consoleBtnPrimary, isFieldMode && styles.consoleBtnPrimaryField]}
-                  onPress={() => finishDrawing()}
-                >
-                  <MaterialCommunityIcons name="radar" size={14} color="#000" />
-                  <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                style={[styles.consoleBtnDanger, isFieldMode && styles.consoleBtnDangerField]}
-                onPress={() => setPolygonCoords([])}
-              >
-                <Text style={styles.consoleBtnDangerText}>LIMPIAR</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : isAnalyzing ? (
-          /* Estado: analizando */
-          <View style={[styles.consoleBar, isFieldMode && styles.consoleBarField]}>
-            <ActivityIndicator size="small" color={isFieldMode ? '#333' : '#FFD700'} style={{ marginRight: 8 }} />
-            <Text style={[styles.consoleBarText, isFieldMode && { color: '#333' }]} numberOfLines={1}>
-              {analysisStep || 'Consultando Sentinel-2...'}
-            </Text>
-          </View>
-        ) : resolvedPolygonCoords.length >= 3 && !showResults ? (
-          /* Estado: zona cargada, sin resultados aún */
-          <View style={[styles.consoleBar, isFieldMode && styles.consoleBarField]}>
-            <View style={styles.consoleBarLeft}>
-              <MaterialCommunityIcons name="ruler-square" size={16} color={isFieldMode ? '#333' : '#FFD700'} />
-              <Text style={[styles.consoleBarText, isFieldMode && { color: '#333' }]} numberOfLines={1}>
-                {' '}{areaHa} ha · {resolvedPolygonCoords.length} vértices
-              </Text>
-              {parseFloat(areaHa) > 50_000 && (
-                <Text style={{ color: '#FF9800', fontSize: 10, marginLeft: 4 }}>⚠️</Text>
-              )}
-            </View>
-            <View style={styles.consoleBarActions}>
-              <TouchableOpacity
-                style={[styles.consoleBtnDanger, isFieldMode && styles.consoleBtnDangerField]}
-                onPress={clearShapes}
-              >
-                <Text style={styles.consoleBtnDangerText}>BORRAR</Text>
-              </TouchableOpacity>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.consoleBtnPrimary,
-                  isFieldMode && styles.consoleBtnPrimaryField,
-                  pressed && { opacity: 0.75 },
-                ]}
-                onPress={() => analyzeZone()}
-                disabled={isAnalyzing}
-              >
-                <MaterialCommunityIcons name="brain" size={14} color="#000" />
-                <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : showResults ? (
-          /* Estado: resultados disponibles */
-          <View style={[styles.consoleBar, isFieldMode && styles.consoleBarField]}>
-            <View style={styles.consoleBarLeft}>
-              <Text style={{ fontSize: 14 }}>✅</Text>
-              <Text style={[styles.consoleBarText, isFieldMode && { color: '#333' }]} numberOfLines={1}>
-                {' '}{analysisPoints.length} zonas · {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
-              </Text>
-            </View>
             <TouchableOpacity
-              style={[styles.consoleBtnSecondary, isFieldMode && styles.consoleBtnSecondaryField]}
-              onPress={clearShapes}
+              style={fieldStyles.exitBtn}
+              onPress={() => setIsFieldMode(false)}
+              accessibilityLabel="Salir del modo campo"
             >
-              <MaterialCommunityIcons name="refresh" size={14} color={isFieldMode ? '#000' : '#FFD700'} />
-              <Text style={[styles.consoleBtnSecondaryText, isFieldMode && { color: '#000' }]}> Nueva zona</Text>
+              <Text style={fieldStyles.exitBtnText}>✕ Salir</Text>
             </TouchableOpacity>
           </View>
-        ) : (
-          /* Estado: sin zona trazada */
-          <View style={[styles.consoleBar, isFieldMode && styles.consoleBarField]}>
-            <MaterialCommunityIcons name="map-search-outline" size={16} color={isFieldMode ? '#555' : '#555'} style={{ marginRight: 6 }} />
-            <Text style={[styles.consoleBarText, { color: isFieldMode ? '#555' : '#555' }]} numberOfLines={1}>
-              Toca Trazar para delimitar una zona
-            </Text>
+          {/* Large action buttons */}
+          <View style={fieldStyles.btnRow}>
+            <TouchableOpacity
+              style={fieldStyles.bigBtn}
+              onPress={() => setShowWaypointModal(true)}
+              activeOpacity={0.75}
+            >
+              <MaterialCommunityIcons name="camera-plus" size={30} color={Colors.fieldPrimary} />
+              <Text style={fieldStyles.bigBtnLabel}>📷 MUESTRA</Text>
+              <Text style={fieldStyles.bigBtnSub}>1 toque</Text>
+            </TouchableOpacity>
+            <View style={fieldStyles.btnDivider} />
+            <TouchableOpacity
+              style={fieldStyles.bigBtn}
+              onPress={() => setShowHistoryModal(true)}
+              activeOpacity={0.75}
+            >
+              <MaterialCommunityIcons name="history" size={30} color={Colors.fieldPrimary} />
+              <Text style={fieldStyles.bigBtnLabel}>HISTORIAL</Text>
+              <Text style={fieldStyles.bigBtnSub}>{waypoints.length} muestras</Text>
+            </TouchableOpacity>
           </View>
-        )}
-      </View>
+        </View>
+      ) : (
+        /* ─── EXISTING CONSOLE (unchanged) ───────────────────────── */
+        <View style={styles.consoleContainer}>
+
+          {/* ONBOARDING TIP BANNER */}
+          {activeTip && (
+            <TouchableOpacity
+              onPress={dismissTip}
+              style={{
+                backgroundColor: 'rgba(255,215,0,0.12)',
+                borderTopWidth: 1,
+                borderColor: '#B8960C',
+                paddingHorizontal: 16,
+                paddingVertical: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ flex: 1, fontSize: 13, color: '#FFD700', lineHeight: 18 }}>
+                {activeTip === 1 && '1️⃣  Revisa el chip oro·sierra arriba — define qué mineral buscas en Ajustes'}
+                {activeTip === 2 && '✏️  Marca mínimo 3 puntos y presiona ANALIZAR para ver resultados'}
+                {activeTip === 3 && '🧑‍🔬  Siguiente: pregunta al Dr. Ruiz en Geólogo y prepara el paquete en Más → Campo'}
+              </Text>
+              <Text style={{ color: '#888', fontSize: 12, marginLeft: 8 }}>✕</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* BARRA DE HERRAMIENTAS FIJA — 3 botones: Ajustes · Trazar · Más
+              Flujo natural: configurar → trazar → analizar                   */}
+          <View style={styles.toolbarRow}>
+
+            {/* ① Ajustes — va primero: se definen parámetros antes de trazar */}
+            <TouchableOpacity
+              style={styles.toolbarBtn}
+              onPress={() => setShowConfigModal(true)}
+            >
+              <MaterialCommunityIcons name="cog" size={22} color="#FFD700" />
+              <Text style={styles.toolbarBtnLabel} numberOfLines={1}>Ajustes</Text>
+            </TouchableOpacity>
+
+            {/* ② Trazar / Nuevo trazado / Salir — estado-aware */}
+            <TouchableOpacity
+              style={[
+                styles.toolbarBtn,
+                drawingType === 'polygon' && styles.toolbarBtnActive,
+              ]}
+              onPress={() => {
+                if (drawingType === 'polygon') {
+                  // Cancelar dibujo en curso
+                  selectMode('none');
+                } else if (resolvedPolygonCoords.length >= 3 && showResults) {
+                  // Hay análisis: pedir confirmación antes de descartar
+                  Alert.alert(
+                    'Nuevo trazado',
+                    'Hay un análisis sin guardar. ¿Descartar y trazar nueva zona?',
+                    [
+                      { text: 'Cancelar', style: 'cancel' },
+                      { text: 'Descartar y trazar', style: 'destructive', onPress: () => selectMode('polygon') },
+                    ]
+                  );
+                } else if (resolvedPolygonCoords.length >= 3) {
+                  // Hay polígono pero sin análisis: empezar nuevo directo
+                  selectMode('polygon');
+                } else {
+                  // Sin polígono: iniciar dibujo
+                  selectMode('polygon');
+                }
+              }}
+              onLongPress={() => {
+                if (drawingType === 'none') {
+                  Alert.alert('Modo de trazado', 'Elige el tipo de zona a trazar:', [
+                    { text: '⬠ Polígono libre', onPress: () => { setDrawingType('polygon'); triggerHaptic('medium'); } },
+                    { text: '▭ Rectángulo', onPress: () => { setDrawingType('rectangle'); triggerHaptic('medium'); } },
+                    { text: 'Cancelar', style: 'cancel' },
+                  ]);
+                }
+              }}
+            >
+              <MaterialCommunityIcons
+                name={
+                  drawingType === 'polygon'
+                    ? 'close-circle-outline'
+                    : resolvedPolygonCoords.length >= 3
+                    ? 'vector-polygon'
+                    : 'draw-pen'
+                }
+                size={22}
+                color={drawingType === 'polygon' ? '#000' : '#FFD700'}
+              />
+              <Text
+                style={[styles.toolbarBtnLabel, drawingType === 'polygon' && { color: '#000' }]}
+                numberOfLines={1}
+              >
+                {drawingType === 'polygon'
+                  ? 'Salir'
+                  : resolvedPolygonCoords.length >= 3
+                  ? 'Nuevo'
+                  : 'Trazar'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* ③ Más — Cámara, Solar/Noche, Historial, Guardar, Campo, PDF */}
+            <TouchableOpacity
+              style={styles.toolbarBtn}
+              onPress={() => setShowMoreSheet(true)}
+            >
+              <MaterialCommunityIcons name="dots-horizontal-circle-outline" size={22} color="#FFD700" />
+              <Text style={styles.toolbarBtnLabel} numberOfLines={1}>Más</Text>
+            </TouchableOpacity>
+
+          </View>
+
+          {/* CONSOLA COMPACTA DE 1 LÍNEA */}
+          {drawingType === 'polygon' ? (
+            /* Estado: dibujando polígono */
+            <View style={styles.consoleBar}>
+              <View style={styles.consoleBarLeft}>
+                <MaterialCommunityIcons name="vector-polygon" size={16} color="#FFD700" />
+                <Text style={styles.consoleBarText} numberOfLines={1}>
+                  {' '}Polígono — {polygonCoords.length} vértices
+                </Text>
+              </View>
+              <View style={styles.consoleBarActions}>
+                <TouchableOpacity
+                  style={styles.consoleBtnSecondary}
+                  onPress={addPointFromCrosshair}
+                >
+                  <MaterialCommunityIcons name="target" size={14} color="#FFD700" />
+                  <Text style={styles.consoleBtnSecondaryText}> MARCAR</Text>
+                </TouchableOpacity>
+                {polygonCoords.length >= 3 && (
+                  <TouchableOpacity
+                    style={styles.consoleBtnPrimary}
+                    onPress={() => finishDrawing()}
+                  >
+                    <MaterialCommunityIcons name="radar" size={14} color="#000" />
+                    <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={styles.consoleBtnDanger}
+                  onPress={() => setPolygonCoords([])}
+                >
+                  <Text style={styles.consoleBtnDangerText}>LIMPIAR</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : isAnalyzing ? (
+            /* Estado: analizando */
+            <View style={styles.consoleBar}>
+              <ActivityIndicator size="small" color="#FFD700" style={{ marginRight: 8 }} />
+              <Text style={styles.consoleBarText} numberOfLines={1}>
+                {analysisStep || 'Consultando Sentinel-2...'}
+              </Text>
+            </View>
+          ) : resolvedPolygonCoords.length >= 3 && !showResults ? (
+            /* Estado: zona cargada, sin resultados aún */
+            <View style={styles.consoleBar}>
+              <View style={styles.consoleBarLeft}>
+                <MaterialCommunityIcons name="ruler-square" size={16} color="#FFD700" />
+                <Text style={styles.consoleBarText} numberOfLines={1}>
+                  {' '}{areaHa} ha · {resolvedPolygonCoords.length} vértices
+                </Text>
+                {parseFloat(areaHa) > 50_000 && (
+                  <Text style={{ color: '#FF9800', fontSize: 10, marginLeft: 4 }}>⚠️</Text>
+                )}
+              </View>
+              <View style={styles.consoleBarActions}>
+                <TouchableOpacity
+                  style={styles.consoleBtnDanger}
+                  onPress={clearShapes}
+                >
+                  <Text style={styles.consoleBtnDangerText}>BORRAR</Text>
+                </TouchableOpacity>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.consoleBtnPrimary,
+                    pressed && { opacity: 0.75 },
+                  ]}
+                  onPress={() => analyzeZone()}
+                  disabled={isAnalyzing}
+                >
+                  <MaterialCommunityIcons name="brain" size={14} color="#000" />
+                  <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : showResults ? (
+            /* Estado: resultados disponibles */
+            <View style={styles.consoleBar}>
+              <View style={styles.consoleBarLeft}>
+                <Text style={{ fontSize: 14 }}>✅</Text>
+                <Text style={styles.consoleBarText} numberOfLines={1}>
+                  {' '}{analysisPoints.length} zonas · {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.consoleBtnSecondary}
+                onPress={clearShapes}
+              >
+                <MaterialCommunityIcons name="refresh" size={14} color="#FFD700" />
+                <Text style={styles.consoleBtnSecondaryText}> Nueva zona</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            /* Estado: sin zona trazada */
+            <View style={styles.consoleBar}>
+              <MaterialCommunityIcons name="map-search-outline" size={16} color="#555" style={{ marginRight: 6 }} />
+              <Text style={[styles.consoleBarText, { color: '#555' }]} numberOfLines={1}>
+                Toca Trazar para delimitar una zona
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
 
       {showResults && !isAnalyzing && (
         <TouchableOpacity
@@ -1522,6 +1588,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           geologoResumen={geologoResumen}
           zoneCoords={resolvedPolygonCoords.map(c => ({ lat: c.latitude, lng: c.longitude }))}
           isConnected={isConnected}
+          onInfo={(info) => setFieldPackageInfo(info)}
         />
       </View>
 
@@ -2132,6 +2199,72 @@ const styles = StyleSheet.create({
     color: '#555',
     fontSize: 9,
     marginTop: 2,
+  },
+});
+
+const fieldStyles = StyleSheet.create({
+  console: {
+    backgroundColor: Colors.fieldBg,
+    borderTopWidth: 2,
+    borderTopColor: Colors.fieldPrimary,
+  },
+  statusBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+    backgroundColor: Colors.fieldSurface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.fieldBorder,
+  },
+  statusText: {
+    flex: 1,
+    fontSize: 12,
+    color: Colors.fieldTextSub,
+    fontWeight: '600',
+  },
+  exitBtn: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    minHeight: Touch.min,
+    justifyContent: 'center',
+  },
+  exitBtnText: {
+    fontSize: 13,
+    color: Colors.fieldPrimary,
+    fontWeight: '700',
+  },
+  btnRow: {
+    flexDirection: 'row',
+    height: Touch.field,
+  },
+  bigBtn: {
+    flex: 1,
+    height: Touch.field,
+    backgroundColor: Colors.fieldSurface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  bigBtnLabel: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: Colors.fieldPrimary,
+    letterSpacing: 0.5,
+  },
+  bigBtnSub: {
+    fontSize: 11,
+    color: Colors.fieldTextSub,
+    marginLeft: 4,
+    alignSelf: 'flex-end',
+    marginBottom: 2,
+  },
+  btnDivider: {
+    width: 1,
+    backgroundColor: Colors.fieldBorder,
+    marginVertical: 10,
   },
 });
 

@@ -14,6 +14,7 @@ interface FieldModeButtonProps {
   geologoResumen: string;
   zoneCoords: { lat: number; lng: number }[];
   isConnected: boolean;
+  onInfo?: (info: { preparado_at: string; size_kb: number } | null) => void;
 }
 
 function daysSince(dateStr: string): number {
@@ -31,6 +32,7 @@ const FieldModeButton = forwardRef<FieldModeButtonHandle, FieldModeButtonProps>(
   geologoResumen,
   zoneCoords,
   isConnected,
+  onInfo,
 }, ref) {
   const [packageInfo, setPackageInfo] = useState<{
     preparado_at: string;
@@ -45,8 +47,10 @@ const FieldModeButton = forwardRef<FieldModeButtonHandle, FieldModeButtonProps>(
       if (cancelled) return;
       if (pkg && pkg.preparado_at) {
         setPackageInfo({ preparado_at: pkg.preparado_at, size_kb: pkg.size_kb });
+        onInfo?.({ preparado_at: pkg.preparado_at, size_kb: pkg.size_kb });
       } else {
         setPackageInfo(null);
+        onInfo?.(null);
       }
       setInitialized(true);
     }).catch(() => {
@@ -107,6 +111,7 @@ const FieldModeButton = forwardRef<FieldModeButtonHandle, FieldModeButtonProps>(
                 preparado_at: new Date().toISOString(),
                 size_kb,
               });
+              onInfo?.({ preparado_at: new Date().toISOString(), size_kb });
             } catch (err: any) {
               Alert.alert('Error', 'No se pudo guardar el paquete: ' + err.message);
             } finally {
@@ -159,9 +164,6 @@ const FieldModeButton = forwardRef<FieldModeButtonHandle, FieldModeButtonProps>(
           <Text style={[styles.label, { color: btnColor }]}>
             {btnIcon ? `${btnIcon} ` : ''}{btnLabel}
           </Text>
-          {subLabel ? (
-            <Text style={[styles.sub, { color: btnColor }]}>{subLabel}</Text>
-          ) : null}
         </View>
       )}
     </TouchableOpacity>
@@ -187,10 +189,5 @@ const styles = StyleSheet.create({
     fontSize: Typography.caption.fontSize,
     fontWeight: '700',
     letterSpacing: 0.2,
-  },
-  sub: {
-    fontSize: 8,
-    marginTop: 1,
-    opacity: 0.85,
   },
 });
