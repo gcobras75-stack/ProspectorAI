@@ -14,8 +14,7 @@ import { analyzeZoneLocal, computeAllMetalScores, MetalScore } from '../core/Geo
 import { Colors, Typography, Spacing, Radii, Touch } from '../core/theme';
 import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult } from '../core/SatelliteEngine';
 import { fuseAnalysisPoints } from '../core/ConsensusFusion';
-import ChatModal from '../components/ChatModal';
-import FieldModeButton from '../components/FieldModeButton';
+import FieldModeButton, { FieldModeButtonHandle } from '../components/FieldModeButton';
 import HistoryModal from '../components/HistoryModal';
 import ConfigModal from '../components/ConfigModal';
 import MoreSheet from '../components/MoreSheet';
@@ -56,11 +55,28 @@ function calcPolygonArea(coords: Coordinate[]): number {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Navigation helpers ─────────────────────────────────────────────────────
+function bearingTo(fromLat: number, fromLng: number, toLat: number, toLng: number): number {
+  const dLng = (toLng - fromLng) * Math.PI / 180;
+  const lat1 = fromLat * Math.PI / 180;
+  const lat2 = toLat * Math.PI / 180;
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+function distanceMTo(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
 export default function ProspectorDashboard() {
   const mapRef = useRef<MapView>(null);
-  
-  // --- Chat IA ---
-  const [showChatModal, setShowChatModal] = useState(false);
+  const fieldModeButtonRef = useRef<FieldModeButtonHandle>(null);
+
+  // --- Chat IA (state kept for potential future use by geologo tab) ---
   const [chatMessages, setChatMessages] = useState<{role: string, content: string}[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [isTypingChat, setIsTypingChat] = useState(false);
@@ -189,6 +205,12 @@ export default function ProspectorDashboard() {
   // More sheet (secondary actions bottom sheet)
   const [showMoreSheet, setShowMoreSheet] = useState(false);
 
+  // Onboarding tips (one-time, dismissable)
+  const [activeTip, setActiveTip] = useState<1 | 2 | 3 | null>(null);
+
+  // Navigation target HUD
+  const [navTarget, setNavTarget] = useState<{ lat: number; lng: number } | null>(null);
+
   const handleGenerateReport = async () => {
     if (analysisPoints.length === 0) {
       Alert.alert('Sin análisis', 'Analiza una zona primero antes de generar el reporte.');
@@ -266,6 +288,28 @@ export default function ProspectorDashboard() {
       setIsGeneratingReport(false);
     }
   };
+
+  // ── Onboarding tips ────────────────────────────────────────────────────────
+  const dismissTip = async () => {
+    if (activeTip) {
+      await AsyncStorage.setItem(`hasSeenTip_${activeTip}`, '1');
+      setActiveTip(null);
+    }
+  };
+
+  // ── Config persist handlers ────────────────────────────────────────────────
+  const handleSetMineral = useCallback((v: string) => {
+    setSelectedMineral(v);
+    AsyncStorage.setItem('config_mineral', v);
+  }, []);
+  const handleSetTerrain = useCallback((v: string) => {
+    setTerrainType(v);
+    AsyncStorage.setItem('config_terrain', v);
+  }, []);
+  const handleSetDeepAnalysis = useCallback((v: boolean) => {
+    setDeepAnalysis(v);
+    AsyncStorage.setItem('config_deepAnalysis', String(v));
+  }, []);
 
   const sendChatMessage = async () => {
     if (!chatInput.trim() || isTypingChat) return;
@@ -395,6 +439,18 @@ export default function ProspectorDashboard() {
             .find((m: { role: string; content: string }) => m.role === 'assistant');
           if (lastAssistant) setGeologoResumen(lastAssistant.content);
         }
+
+        // Restore persisted config settings
+        const savedMineral = await AsyncStorage.getItem('config_mineral');
+        const savedTerrain = await AsyncStorage.getItem('config_terrain');
+        const savedDeepAnalysis = await AsyncStorage.getItem('config_deepAnalysis');
+        if (savedMineral) setSelectedMineral(savedMineral);
+        if (savedTerrain) setTerrainType(savedTerrain);
+        if (savedDeepAnalysis) setDeepAnalysis(savedDeepAnalysis === 'true');
+
+        // Show tip 1 if not seen
+        const seen1 = await AsyncStorage.getItem('hasSeenTip_1');
+        if (!seen1) setActiveTip(1);
       } catch (e) {}
     };
     loadSaved();
@@ -452,13 +508,16 @@ export default function ProspectorDashboard() {
   };
 
   const saveWaypoint = async () => {
-    if (!mapCenter) return;
-    
+    // Prefer real GPS position for the sample location
+    const sampleLat = location?.coords.latitude ?? mapCenter?.latitude;
+    const sampleLng = location?.coords.longitude ?? mapCenter?.longitude;
+    if (sampleLat == null || sampleLng == null) return;
+
     const newWp = {
       id: Date.now().toString(),
       proyecto_id: activeProject,
-      lat: mapCenter.latitude,
-      lng: mapCenter.longitude,
+      lat: sampleLat,
+      lng: sampleLng,
       altitud: altitude,
       rumbo: trueHeading,
       fecha_hora: new Date().toISOString(),
@@ -570,7 +629,13 @@ export default function ProspectorDashboard() {
     if (!center) return;
     triggerHaptic('heavy');
     const newPoint = { latitude: center.latitude, longitude: center.longitude };
-    setPolygonCoords((prev) => [...prev, newPoint]);
+    setPolygonCoords((prev) => {
+      // Show tip 2 when adding the very first vertex
+      if (prev.length === 0) {
+        AsyncStorage.getItem('hasSeenTip_2').then(seen => { if (!seen) setActiveTip(2); });
+      }
+      return [...prev, newPoint];
+    });
   };
 
   const finishDrawing = async (overrideCoords?: Coordinate[]) => {
@@ -978,7 +1043,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
 
         <TouchableOpacity style={styles.locationButton} onPress={() => { if (location) { mapRef.current?.animateToRegion({ latitude: location.coords.latitude, longitude: location.coords.longitude, latitudeDelta: 0.005, longitudeDelta: 0.005 }, 500); } }}><MaterialCommunityIcons name="crosshairs-gps" size={24} color="#FFD700" /></TouchableOpacity>
 
-        <TouchableOpacity style={styles.northIndicator} onPress={() => { triggerHaptic('heavy'); setShowChatModal(true); }} onLongPress={() => { triggerHaptic('heavy'); setShowChatModal(true); }}><View style={[styles.northArrow, { transform: [{ rotate: `${-mapRotation}deg` }] }]}><MaterialCommunityIcons name="arrow-up" size={28} color="#FFD700" /><Text style={styles.northText}>N</Text></View></TouchableOpacity>
+        <View style={styles.northIndicator}><View style={[styles.northArrow, { transform: [{ rotate: `${-mapRotation}deg` }] }]}><MaterialCommunityIcons name="arrow-up" size={28} color="#FFD700" /><Text style={styles.northText}>N</Text></View></View>
 
         {/* STATUS PILL — Online/Offline · Capa ON/OFF (top right) */}
         <View style={styles.statusPill}>
@@ -1018,6 +1083,29 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
 
       {/* CONSOLA INFERIOR COMPACTA */}
       <View style={[styles.consoleContainer, isFieldMode && styles.consoleContainerField]}>
+
+        {/* ONBOARDING TIP BANNER */}
+        {activeTip && (
+          <TouchableOpacity
+            onPress={dismissTip}
+            style={{
+              backgroundColor: isFieldMode ? '#FFFDE7' : 'rgba(255,215,0,0.12)',
+              borderTopWidth: 1,
+              borderColor: isFieldMode ? '#F9A825' : '#B8960C',
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ flex: 1, fontSize: 13, color: isFieldMode ? '#333' : '#FFD700', lineHeight: 18 }}>
+              {activeTip === 1 && '1️⃣  Revisa el chip oro·sierra arriba — define qué mineral buscas en Ajustes'}
+              {activeTip === 2 && '✏️  Marca mínimo 3 puntos y presiona ANALIZAR para ver resultados'}
+              {activeTip === 3 && '🧑‍🔬  Siguiente: pregunta al Dr. Ruiz en Geólogo y prepara el paquete en Más → Campo'}
+            </Text>
+            <Text style={{ color: isFieldMode ? '#666' : '#888', fontSize: 12, marginLeft: 8 }}>✕</Text>
+          </TouchableOpacity>
+        )}
 
         {/* BARRA DE HERRAMIENTAS FIJA — 3 botones: Ajustes · Trazar · Más
             Flujo natural: configurar → trazar → analizar                   */}
@@ -1059,6 +1147,15 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               } else {
                 // Sin polígono: iniciar dibujo
                 selectMode('polygon');
+              }
+            }}
+            onLongPress={() => {
+              if (drawingType === 'none') {
+                Alert.alert('Modo de trazado', 'Elige el tipo de zona a trazar:', [
+                  { text: '⬠ Polígono libre', onPress: () => { setDrawingType('polygon'); triggerHaptic('medium'); } },
+                  { text: '▭ Rectángulo', onPress: () => { setDrawingType('rectangle'); triggerHaptic('medium'); } },
+                  { text: 'Cancelar', style: 'cancel' },
+                ]);
               }
             }}
           >
@@ -1219,7 +1316,11 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           terrainType={terrainType}
           areaHa={areaHa}
           mapRef={mapRef}
-          onClose={() => setShowResults(false)}
+          onClose={() => {
+            setShowResults(false);
+            AsyncStorage.getItem('hasSeenTip_3').then(seen => { if (!seen) setActiveTip(3); });
+          }}
+          onNavigateTo={(lat, lng) => setNavTarget({ lat, lng })}
         />
       )}
 
@@ -1252,6 +1353,8 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         isFieldMode={isFieldMode}
         activeProject={activeProject}
         mapCenterLat={mapCenter?.latitude}
+        gpsLat={location?.coords.latitude}
+        gpsLng={location?.coords.longitude}
         sampleBase64={sampleBase64}
         sampleCaptureType={sampleCaptureType}
         isAiProcessing={isAiProcessing}
@@ -1263,17 +1366,6 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         onRetry={() => { setSampleBase64(null); setAiResult(null); }}
         onSave={saveWaypoint}
         onClose={() => { setSampleBase64(null); setAiResult(null); setShowWaypointModal(false); }}
-      />
-
-      <ChatModal
-        visible={showChatModal}
-        messages={chatMessages}
-        isTypingChat={isTypingChat}
-        input={chatInput}
-        onInputChange={setChatInput}
-        onSend={sendChatMessage}
-        onClose={() => setShowChatModal(false)}
-        isFieldMode={isFieldMode}
       />
 
       <HistoryModal
@@ -1309,10 +1401,41 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             Alert.alert('Error', 'No se pudo guardar: ' + e.message);
           }
         }}
-        onCampo={() => {/* FieldModeButton handles its own logic */}}
+        onCampo={() => fieldModeButtonRef.current?.triggerPrepare()}
         onPDF={handleGenerateReport}
         onAjustes={() => setShowConfigModal(true)}
       />
+
+      {/* FieldModeButton mounted off-screen so the ref + imperative handle works */}
+      <View style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}>
+        <FieldModeButton
+          ref={fieldModeButtonRef}
+          projectId={currentProjectId}
+          analysisPoints={analysisPoints}
+          geologoResumen={geologoResumen}
+          zoneCoords={resolvedPolygonCoords.map(c => ({ lat: c.latitude, lng: c.longitude }))}
+          isConnected={isConnected}
+        />
+      </View>
+
+      {/* NAV HUD — bearing + distance to selected ranking point */}
+      {navTarget && location && (() => {
+        const dist = distanceMTo(location.coords.latitude, location.coords.longitude, navTarget.lat, navTarget.lng);
+        const bear = bearingTo(location.coords.latitude, location.coords.longitude, navTarget.lat, navTarget.lng);
+        const relBear = (bear - (heading?.trueHeading ?? 0) + 360) % 360;
+        const cardinalDir = ['N','NE','E','SE','S','SO','O','NO'][Math.round(bear / 45) % 8];
+        const distStr = dist < 1000 ? `${Math.round(dist)} m` : `${(dist/1000).toFixed(1)} km`;
+        return (
+          <TouchableOpacity
+            style={{ position: 'absolute', top: 136, right: 10, backgroundColor: 'rgba(0,0,0,0.85)', borderRadius: 12, borderWidth: 1, borderColor: '#FFD700', paddingHorizontal: 10, paddingVertical: 8, zIndex: 25, alignItems: 'center' }}
+            onPress={() => setNavTarget(null)}
+          >
+            <MaterialCommunityIcons name="navigation" size={20} color="#FFD700" style={{ transform: [{ rotate: `${relBear}deg` }] }} />
+            <Text style={{ color: '#FFD700', fontSize: 13, fontWeight: '700' }}>{distStr}</Text>
+            <Text style={{ color: '#AAA', fontSize: 10 }}>{cardinalDir} · tocar para cerrar</Text>
+          </TouchableOpacity>
+        );
+      })()}
 
       <ConfigModal
         visible={showConfigModal}
@@ -1330,8 +1453,8 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         vibrationEnabled={vibrationEnabled}
         onClose={() => setShowConfigModal(false)}
         setActiveProject={setActiveProject}
-        setSelectedMineral={setSelectedMineral}
-        setTerrainType={setTerrainType}
+        setSelectedMineral={handleSetMineral}
+        setTerrainType={handleSetTerrain}
         setDepth={setDepth}
         setRockType={setRockType}
         setUseAI={setUseAI}
@@ -1342,7 +1465,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         setIsFieldMode={setIsFieldMode}
         setVibrationEnabled={setVibrationEnabled}
         deepAnalysis={deepAnalysis}
-        setDeepAnalysis={setDeepAnalysis}
+        setDeepAnalysis={handleSetDeepAnalysis}
       />
 
     </View>

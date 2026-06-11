@@ -1,7 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { View, Text, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from 'react-native';
 import { loadFieldPackage, saveFieldPackage } from '../core/Database';
 import { fetchZoneMapImage } from '../core/SatelliteEngine';
+
+export interface FieldModeButtonHandle {
+  triggerPrepare: () => void;
+}
 
 interface FieldModeButtonProps {
   projectId: string;
@@ -20,13 +24,13 @@ function daysSince(dateStr: string): number {
   return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
 }
 
-export default function FieldModeButton({
+const FieldModeButton = forwardRef<FieldModeButtonHandle, FieldModeButtonProps>(function FieldModeButton({
   projectId,
   analysisPoints,
   geologoResumen,
   zoneCoords,
   isConnected,
-}: FieldModeButtonProps) {
+}, ref) {
   const [packageInfo, setPackageInfo] = useState<{
     preparado_at: string;
     size_kb: number;
@@ -113,6 +117,8 @@ export default function FieldModeButton({
     );
   }, [isConnected, analysisPoints, geologoResumen, zoneCoords, projectId]);
 
+  useImperativeHandle(ref, () => ({ triggerPrepare: handlePress }), [handlePress]);
+
   if (!initialized) return null;
 
   // Determine button state
@@ -159,7 +165,9 @@ export default function FieldModeButton({
       )}
     </TouchableOpacity>
   );
-}
+});
+
+export default FieldModeButton;
 
 const styles = StyleSheet.create({
   button: {

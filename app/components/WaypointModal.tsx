@@ -8,6 +8,8 @@ interface WaypointModalProps {
   isFieldMode: boolean;
   activeProject: string;
   mapCenterLat?: number;
+  gpsLat?: number;
+  gpsLng?: number;
   sampleBase64: string | null;
   sampleCaptureType: string;
   isAiProcessing: boolean;
@@ -22,7 +24,7 @@ interface WaypointModalProps {
 }
 
 export default function WaypointModal({
-  visible, isFieldMode, activeProject, mapCenterLat, sampleBase64, sampleCaptureType,
+  visible, isFieldMode, activeProject, mapCenterLat, gpsLat, gpsLng, sampleBase64, sampleCaptureType,
   isAiProcessing, aiResult, waypointNote, onWaypointNoteChange,
   onTakePhoto, onRunAI, onRetry, onSave, onClose,
 }: WaypointModalProps) {
@@ -43,7 +45,7 @@ export default function WaypointModal({
           </View>
 
           <Text style={[styles.sub, { fontSize: 12, color: '#FFF' }]}>
-            Proyecto: {activeProject} | GPS: {mapCenterLat?.toFixed(5) ?? '---'}
+            Proyecto: {activeProject} | GPS: {gpsLat != null ? `${gpsLat.toFixed(5)}, ${gpsLng?.toFixed(5)}` : mapCenterLat?.toFixed(5) ?? '---'}
           </Text>
 
           {!sampleBase64 ? (
@@ -136,6 +138,9 @@ export default function WaypointModal({
                 multiline
               />
 
+              <Text style={{ color: '#888', fontSize: 11, textAlign: 'center', marginBottom: 8 }}>
+                📍 {gpsLat != null ? `${gpsLat.toFixed(5)}, ${gpsLng?.toFixed(5)} (GPS)` : `${mapCenterLat?.toFixed(5) ?? '---'} (centro mapa)`}
+              </Text>
               <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 20, gap: 12 }}>
                 <TouchableOpacity style={styles.btnOutlineRed} onPress={onClose}>
                   <Text style={{ color: '#FF3B30', fontSize: 14, fontWeight: 'bold' }}>CANCELAR</Text>

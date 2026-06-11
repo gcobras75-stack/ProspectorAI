@@ -16,10 +16,11 @@ interface ResultsPanelProps {
   areaHa: string;
   mapRef: React.RefObject<MapView | null>;
   onClose: () => void;
+  onNavigateTo?: (lat: number, lng: number) => void;
 }
 
 export default function ResultsPanel({
-  satelliteData, metalScores, analysisPoints, selectedMineral, terrainType, areaHa, mapRef, onClose,
+  satelliteData, metalScores, analysisPoints, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo,
 }: ResultsPanelProps) {
   const regionalAvg = analysisPoints.length > 0
     ? analysisPoints.reduce((s, p) => s + (p.base_score || 0), 0) / analysisPoints.length
@@ -133,6 +134,7 @@ export default function ResultsPanel({
                       latitude: p.lat, longitude: p.lng,
                       latitudeDelta: 0.005, longitudeDelta: 0.005,
                     }, 500);
+                    onNavigateTo?.(p.lat, p.lng);
                   }}
                 >
                   <Text style={styles.rankingRank}>#{p.rank}</Text>
