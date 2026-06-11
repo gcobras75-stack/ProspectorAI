@@ -377,6 +377,21 @@ export const loadReportContent = async (projectId: string): Promise<{ geologoTex
   };
 };
 
+export const deleteProject = async (projectId: string): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync('DELETE FROM muestras WHERE proyecto_id = ?', [projectId]);
+  await db.runAsync('DELETE FROM proyectos WHERE id = ?', [projectId]);
+  // spectral_cache and poligonos_cache don't have proyecto_id columns — skip
+};
+
+export const renameProject = async (projectId: string, nombre: string): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync(
+    'UPDATE proyectos SET nombre = ?, ultimo_acceso = ? WHERE id = ?',
+    [nombre, new Date().toISOString(), projectId]
+  );
+};
+
 export const saveSampleResena = async (sampleId: string, resena: string): Promise<void> => {
   const db = await initDB();
   await db.runAsync('UPDATE muestras SET reporte_resena = ? WHERE id = ?', [resena, sampleId]);
