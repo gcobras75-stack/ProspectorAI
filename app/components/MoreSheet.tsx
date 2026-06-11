@@ -12,6 +12,8 @@ interface MoreSheetProps {
   onCampo: () => void;
   onPDF: () => void;
   onAjustes: () => void;
+  onCamara: () => void;
+  onToggleSolarNoche: () => void;
   isFieldMode?: boolean;
 }
 
@@ -51,6 +53,8 @@ export default function MoreSheet({
   onCampo,
   onPDF,
   onAjustes,
+  onCamara,
+  onToggleSolarNoche,
   isFieldMode = false,
 }: MoreSheetProps) {
   return (
@@ -75,8 +79,22 @@ export default function MoreSheet({
         <SheetRow
           icon="cog"
           iconColor={Colors.primary}
-          label="Configuracion"
+          label="Configuración"
           onPress={() => { onClose(); onAjustes(); }}
+          isFieldMode={isFieldMode}
+        />
+        <SheetRow
+          icon="camera-plus"
+          iconColor={Colors.primary}
+          label="Cámara / waypoint"
+          onPress={() => { onClose(); onCamara(); }}
+          isFieldMode={isFieldMode}
+        />
+        <SheetRow
+          icon={isFieldMode ? 'weather-night' : 'white-balance-sunny'}
+          iconColor={Colors.textSub}
+          label={isFieldMode ? 'Modo noche' : 'Modo solar / campo'}
+          onPress={() => { onClose(); onToggleSolarNoche(); }}
           isFieldMode={isFieldMode}
         />
         <SheetRow

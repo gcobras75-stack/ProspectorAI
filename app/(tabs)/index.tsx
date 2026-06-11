@@ -1018,52 +1018,73 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
       {/* CONSOLA INFERIOR COMPACTA */}
       <View style={[styles.consoleContainer, isFieldMode && styles.consoleContainerField]}>
 
-        {/* BARRA DE HERRAMIENTAS FIJA — 4 botones esenciales */}
+        {/* BARRA DE HERRAMIENTAS FIJA — 3 botones: Ajustes · Trazar · Más
+            Flujo natural: configurar → trazar → analizar                   */}
         <View style={[styles.toolbarRow, isFieldMode && styles.toolbarRowField]}>
-          {/* Trazar / Limpiar */}
+
+          {/* ① Ajustes — va primero: se definen parámetros antes de trazar */}
+          <TouchableOpacity
+            style={[styles.toolbarBtn, isFieldMode && styles.toolbarBtnField]}
+            onPress={() => setShowConfigModal(true)}
+          >
+            <MaterialCommunityIcons name="cog" size={22} color={isFieldMode ? '#000' : '#FFD700'} />
+            <Text style={[styles.toolbarBtnLabel, isFieldMode && { color: '#000' }]} numberOfLines={1}>Ajustes</Text>
+          </TouchableOpacity>
+
+          {/* ② Trazar / Nuevo trazado / Salir — estado-aware */}
           <TouchableOpacity
             style={[
               styles.toolbarBtn,
               drawingType === 'polygon' && styles.toolbarBtnActive,
               isFieldMode && styles.toolbarBtnField,
             ]}
-            onPress={() => drawingType === 'polygon' ? selectMode('none') : selectMode('polygon')}
+            onPress={() => {
+              if (drawingType === 'polygon') {
+                // Cancelar dibujo en curso
+                selectMode('none');
+              } else if (resolvedPolygonCoords.length >= 3 && showResults) {
+                // Hay análisis: pedir confirmación antes de descartar
+                Alert.alert(
+                  'Nuevo trazado',
+                  'Hay un análisis sin guardar. ¿Descartar y trazar nueva zona?',
+                  [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { text: 'Descartar y trazar', style: 'destructive', onPress: () => selectMode('polygon') },
+                  ]
+                );
+              } else if (resolvedPolygonCoords.length >= 3) {
+                // Hay polígono pero sin análisis: empezar nuevo directo
+                selectMode('polygon');
+              } else {
+                // Sin polígono: iniciar dibujo
+                selectMode('polygon');
+              }
+            }}
           >
             <MaterialCommunityIcons
-              name={drawingType === 'polygon' ? 'close-circle-outline' : resolvedPolygonCoords.length >= 3 ? 'delete-outline' : 'draw-pen'}
+              name={
+                drawingType === 'polygon'
+                  ? 'close-circle-outline'
+                  : resolvedPolygonCoords.length >= 3
+                  ? 'vector-polygon'
+                  : 'draw-pen'
+              }
               size={22}
               color={drawingType === 'polygon' ? '#000' : (isFieldMode ? '#000' : '#FFD700')}
             />
-            <Text style={[styles.toolbarBtnLabel, drawingType === 'polygon' && { color: '#000' }, isFieldMode && { color: '#000' }]} numberOfLines={1}>
-              {drawingType === 'polygon' ? 'Salir' : resolvedPolygonCoords.length >= 3 ? 'Limpiar' : 'Trazar'}
+            <Text
+              style={[styles.toolbarBtnLabel, drawingType === 'polygon' && { color: '#000' }, isFieldMode && { color: '#000' }]}
+              numberOfLines={1}
+            >
+              {drawingType === 'polygon'
+                ? 'Salir'
+                : resolvedPolygonCoords.length >= 3
+                ? 'Nuevo'
+                : 'Trazar'}
             </Text>
           </TouchableOpacity>
 
-          {/* Cámara */}
-          <TouchableOpacity
-            style={[styles.toolbarBtn, isFieldMode && styles.toolbarBtnField]}
-            onPress={() => setShowWaypointModal(true)}
-          >
-            <MaterialCommunityIcons name="camera-plus" size={22} color={isFieldMode ? '#000' : '#FFD700'} />
-            <Text style={[styles.toolbarBtnLabel, isFieldMode && { color: '#000' }]} numberOfLines={1}>Cámara</Text>
-          </TouchableOpacity>
-
-          {/* Modo solar/noche */}
-          <TouchableOpacity
-            style={[styles.toolbarBtn, isFieldMode && styles.toolbarBtnField]}
-            onPress={() => setIsFieldMode(!isFieldMode)}
-          >
-            <MaterialCommunityIcons
-              name={isFieldMode ? 'weather-night' : 'white-balance-sunny'}
-              size={22}
-              color={isFieldMode ? '#000' : '#888'}
-            />
-            <Text style={[styles.toolbarBtnLabel, isFieldMode && { color: '#000' }]} numberOfLines={1}>
-              {isFieldMode ? 'Noche' : 'Solar'}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Más — abre MoreSheet */}
+          {/* ③ Más — Cámara, Solar/Noche, Historial, Guardar, Campo, PDF */}
           <TouchableOpacity
             style={[styles.toolbarBtn, isFieldMode && styles.toolbarBtnField]}
             onPress={() => setShowMoreSheet(true)}
@@ -1071,6 +1092,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             <MaterialCommunityIcons name="dots-horizontal-circle-outline" size={22} color={isFieldMode ? '#000' : '#FFD700'} />
             <Text style={[styles.toolbarBtnLabel, isFieldMode && { color: '#000' }]} numberOfLines={1}>Más</Text>
           </TouchableOpacity>
+
         </View>
 
         {/* CONSOLA COMPACTA DE 1 LÍNEA */}
@@ -1267,6 +1289,8 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         onClose={() => setShowMoreSheet(false)}
         projectName={activeProject}
         isFieldMode={isFieldMode}
+        onCamara={() => setShowWaypointModal(true)}
+        onToggleSolarNoche={() => setIsFieldMode(v => !v)}
         onHistorial={() => setShowHistoryModal(true)}
         onGuardar={async () => {
           try {
