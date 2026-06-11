@@ -65,7 +65,7 @@ function labSummary(pair: ValidationPair, metalTarget: string): string {
 
 function PairRow({ pair, metalTarget }: { pair: ValidationPair; metalTarget: string }) {
   const snap = (() => {
-    try { return JSON.parse(pair.spectral_snapshot || '{}'); } catch { return {}; }
+    try { return JSON.parse(pair.spectral_indices_json || '{}'); } catch { return {}; }
   })();
   const consensusLevel: string = snap.consensus_level || '';
 
@@ -92,9 +92,9 @@ function PairRow({ pair, metalTarget }: { pair: ValidationPair; metalTarget: str
 
       {/* Right: verdict badge */}
       <View style={rowStyles.right}>
-        {pair.validation_verdict ? (
-          <Text style={[rowStyles.verdict, { color: VERDICT_COLOR[pair.validation_verdict] ?? Colors.textSub }]}>
-            {VERDICT_SHORT[pair.validation_verdict] ?? pair.validation_verdict}
+        {pair.verdict ? (
+          <Text style={[rowStyles.verdict, { color: VERDICT_COLOR[pair.verdict] ?? Colors.textSub }]}>
+            {VERDICT_SHORT[pair.verdict] ?? pair.verdict}
           </Text>
         ) : (
           <Text style={rowStyles.pending}>— pendiente</Text>
@@ -124,7 +124,7 @@ export default function ValidationView({ projectId, metalTarget, isFieldMode }: 
 
   useEffect(() => { load(); }, [load]);
 
-  const confirmed = pairs.filter(p => p.validation_verdict === 'CONFIRMED').length;
+  const confirmed = pairs.filter(p => p.verdict === 'CONFIRMED').length;
   const total = pairs.length;
   const pct = total > 0 ? Math.round((confirmed / total) * 100) : 0;
 

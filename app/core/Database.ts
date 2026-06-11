@@ -535,6 +535,7 @@ export const updateMuestraValidation = async (
 export interface ValidationPair {
   id: string;
   muestra_id: string;
+  muestra_codigo?: string;  // from JOIN with muestras
   proyecto_id: string;
   created_at: string;
   spectral_consensus: string;

@@ -463,41 +463,23 @@ export interface LabCertificateOCR {
   notes: string;
 }
 
-export async function extractLabCertificateOCR(base64Image: string, mediaType: string = 'image/jpeg'): Promise<LabCertificateOCR> {
+export async function extractLabCertificateOCR(base64Image: string, _mediaType: string = 'image/jpeg'): Promise<LabCertificateOCR> {
   const API_KEY = getApiKey();
   const payload = {
-    model: MODEL_FAST,
+    model: MODEL_SMART,
     max_tokens: 800,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: mediaType, data: base64Image },
-          },
-          {
-            type: 'text',
-            text: `Eres un sistema OCR especializado en certificados de análisis de laboratorio minero.
-Extrae ÚNICAMENTE los valores numéricos presentes en la imagen. Si un valor no está visible, devuelve null.
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64Image } },
+        { type: 'text', text: `Eres un asistente experto en análisis de certificados de laboratorio minero. Extrae los valores analíticos de esta imagen.
 
-Responde SOLO con JSON válido, sin texto adicional:
-{
-  "au_gt": <número en g/t o ppm, null si no visible>,
-  "ag_gt": <número en g/t o ppm, null si no visible>,
-  "cu_pct": <número en %, null si no visible>,
-  "pb_pct": <número en %, null si no visible>,
-  "zn_pct": <número en %, null si no visible>,
-  "laboratorio": "<nombre del laboratorio o vacío>",
-  "fecha_certificado": "<fecha en formato YYYY-MM-DD o vacío>",
-  "raw_text": "<todo el texto relevante que pudiste leer>",
-  "confidence": "<high|medium|low según calidad de la imagen>",
-  "notes": "<advertencias: unidades ambiguas, valores dudosos, etc.>"
-}`,
-          },
-        ],
-      },
-    ],
+Busca: Au (g/t), Ag (g/t), Cu (%), Pb (%), Zn (%), nombre del laboratorio, fecha. Convierte unidades (ppm→g/t para Au/Ag).
+
+Devuelve EXCLUSIVAMENTE JSON válido (sin markdown):
+{"au_gt":número o null,"ag_gt":número o null,"cu_pct":número o null,"pb_pct":número o null,"zn_pct":número o null,"laboratorio":"nombre o null","fecha_certificado":"YYYY-MM-DD o null","raw_text":"texto leído","confidence":"high|medium|low","notes":"advertencias"}` },
+      ],
+    }],
   };
   const response = await fetchWithRetry(
     'https://api.anthropic.com/v1/messages',
@@ -509,22 +491,23 @@ Responde SOLO con JSON válido, sin texto adicional:
   }
   const data = await response.json();
   const text = data.content?.[0]?.text ?? '{}';
+  const match = text.match(/\{[\s\S]*\}/);
   try {
-    const parsed = JSON.parse(text);
+    const p = JSON.parse(match ? match[0] : text);
     return {
-      au_gt: typeof parsed.au_gt === 'number' ? parsed.au_gt : null,
-      ag_gt: typeof parsed.ag_gt === 'number' ? parsed.ag_gt : null,
-      cu_pct: typeof parsed.cu_pct === 'number' ? parsed.cu_pct : null,
-      pb_pct: typeof parsed.pb_pct === 'number' ? parsed.pb_pct : null,
-      zn_pct: typeof parsed.zn_pct === 'number' ? parsed.zn_pct : null,
-      laboratorio: parsed.laboratorio || '',
-      fecha_certificado: parsed.fecha_certificado || '',
-      raw_text: parsed.raw_text || '',
-      confidence: parsed.confidence || 'low',
-      notes: parsed.notes || '',
+      au_gt: typeof p.au_gt === 'number' ? p.au_gt : null,
+      ag_gt: typeof p.ag_gt === 'number' ? p.ag_gt : null,
+      cu_pct: typeof p.cu_pct === 'number' ? p.cu_pct : null,
+      pb_pct: typeof p.pb_pct === 'number' ? p.pb_pct : null,
+      zn_pct: typeof p.zn_pct === 'number' ? p.zn_pct : null,
+      laboratorio: p.laboratorio || '',
+      fecha_certificado: p.fecha_certificado || '',
+      raw_text: p.raw_text || '',
+      confidence: (p.confidence as any)?.toLowerCase?.() || 'low',
+      notes: p.notes || '',
     };
   } catch {
-    return { au_gt: null, ag_gt: null, cu_pct: null, pb_pct: null, zn_pct: null, laboratorio: '', fecha_certificado: '', raw_text: text, confidence: 'low', notes: 'Error al parsear respuesta JSON' };
+    return { au_gt: null, ag_gt: null, cu_pct: null, pb_pct: null, zn_pct: null, laboratorio: '', fecha_certificado: '', raw_text: text, confidence: 'low', notes: 'Error al parsear JSON' };
   }
 }
 
@@ -541,87 +524,6 @@ export async function photoUriToBase64(uri: string): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-// ═══════════════════════════════════════════════════════
-// 7. OCR CERTIFICADO DE LABORATORIO
-// ═══════════════════════════════════════════════════════
-
-export interface LabCertificateOCR {
-  au_gt?: number | null;
-  ag_gt?: number | null;
-  cu_pct?: number | null;
-  pb_pct?: number | null;
-  zn_pct?: number | null;
-  laboratorio?: string | null;
-  fecha_certificado?: string | null;
-  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
-  notes?: string;
-}
-
-export async function extractLabCertificateOCR(
-  base64Image: string
-): Promise<LabCertificateOCR> {
-  const API_KEY = getApiKey();
-
-  const payload = {
-    model: MODEL_SMART,
-    max_tokens: 800,
-    messages: [{
-      role: 'user',
-      content: [
-        {
-          type: 'image',
-          source: { type: 'base64', media_type: 'image/jpeg', data: base64Image },
-        },
-        {
-          type: 'text',
-          text: `Eres un asistente experto en análisis de certificados de laboratorio minero. Extrae los valores analíticos de esta imagen de certificado.
-
-Busca valores de: Oro (Au en g/t o ppm), Plata (Ag en g/t o ppm), Cobre (Cu en % o ppm), Plomo (Pb en % o ppm), Zinc (Zn en % o ppm), nombre del laboratorio y fecha del certificado.
-
-Convierte unidades si es necesario (ppm = g/t para Au y Ag; para Cu/Pb/Zn convierte ppm/% apropiadamente).
-
-Devuelve EXCLUSIVAMENTE JSON válido (sin markdown):
-{
-  "au_gt": número o null,
-  "ag_gt": número o null,
-  "cu_pct": número o null,
-  "pb_pct": número o null,
-  "zn_pct": número o null,
-  "laboratorio": "nombre del laboratorio" o null,
-  "fecha_certificado": "YYYY-MM-DD" o null,
-  "confidence": "HIGH" | "MEDIUM" | "LOW",
-  "notes": "advertencias si hay ambigüedad, ilegibilidad, etc." o null
-}
-
-HIGH = todos los valores principales legibles y claros.
-MEDIUM = algunos valores legibles, otros con incertidumbre.
-LOW = imagen borrosa, mal encuadrada o pocos valores visibles.`,
-        },
-      ],
-    }],
-  };
-
-  const response = await fetchWithRetry(
-    'https://api.anthropic.com/v1/messages',
-    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
-  );
-
-  if (!response.ok) {
-    const err = await response.text();
-    let msg = err;
-    try { msg = JSON.parse(err).error?.message || err; } catch {}
-    throw new Error(`OCR certificado (${response.status}): ${msg.substring(0, 100)}`);
-  }
-
-  const data = await response.json();
-  const content = data.content?.[0]?.text || '';
-  const match = content.match(/\{[\s\S]*\}/);
-  if (match) {
-    try { return JSON.parse(match[0]); } catch {}
-  }
-  throw new Error('La IA no pudo extraer valores del certificado. Intenta con una imagen más clara.');
 }
 
 export default function DummyClaudeRoute() { return null; }

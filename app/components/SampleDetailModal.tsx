@@ -230,11 +230,20 @@ export default function SampleDetailModal({
     if (!sample) return;
     setValSaving(true);
     try {
-      await updateMuestraValidation(sample.id, verdict, valComment);
-      await upsertValidationPair({
-        muestra_id: sample.id,
-        validation_verdict: verdict,
-        validation_comment: valComment,
+      await updateMuestraValidation(sample.id, verdict as 'CONFIRMED' | 'PARTIAL' | 'NOT_CONFIRMED', valComment);
+      const snap = (() => { try { return JSON.parse(sample.spectral_snapshot || '{}'); } catch { return {}; } })();
+      await upsertValidationPair(sample.id, sample.proyecto_id || '', {
+        spectralConsensus: snap.consensus_level || '',
+        spectralEvidence: snap.evidence || '',
+        spectralBaseScore: snap.base_score ?? 0,
+        spectralIndices: snap.indices || {},
+        metalTarget: metalTarget,
+        lab: {
+          au_gt: sample.lab_au_gt ?? null, ag_gt: sample.lab_ag_gt ?? null,
+          cu_pct: sample.lab_cu_pct ?? null, pb_pct: sample.lab_pb_pct ?? null,
+          zn_pct: sample.lab_zn_pct ?? null,
+        },
+        verdict, verdictComment: valComment, verdictThreshold: 0.5,
       });
       onValidationSaved();
       Alert.alert('Guardado', 'Veredicto de validación guardado.');
