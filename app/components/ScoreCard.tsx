@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Colors, Typography } from '../core/theme';
+import { Colors, Typography, Radii } from '../core/theme';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -15,9 +15,9 @@ export const METAL_COLORS: Record<string, string> = {
 // Anomaly level thresholds (based on score_percent, which is derived from
 // real spectral indices when satellite data is available)
 function getAnomalyLevel(pct: number): { level: 'ALTA' | 'MEDIA' | 'BAJA'; color: string } {
-  if (pct >= 65) return { level: 'ALTA',  color: '#E53935' };
-  if (pct >= 35) return { level: 'MEDIA', color: '#FFA000' };
-  return             { level: 'BAJA',  color: '#546E7A' };
+  if (pct >= 65) return { level: 'ALTA',  color: Colors.anomalyHigh };
+  if (pct >= 35) return { level: 'MEDIA', color: Colors.anomalyMed  };
+  return             { level: 'BAJA',  color: Colors.anomalyLow  };
 }
 
 // Mineralogical association text (honest context, not a measurement)
@@ -105,7 +105,7 @@ export default function ScoreCard({
       {guideMineral && guideMineral.length > 0 && (
         <Text style={styles.guideText}>
           Buscar en campo:{' '}
-          <Text style={{ color: '#00FFFF' }}>{guideMineral.join(' · ')}</Text>
+          <Text style={{ color: Colors.tripleSpectral }}>{guideMineral.join(' · ')}</Text>
         </Text>
       )}
 
@@ -127,10 +127,10 @@ export default function ScoreCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#0C0C0C',
-    borderRadius: 10,
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.md,
     borderWidth: 1,
-    borderColor: '#252525',
+    borderColor: Colors.surface4,
     padding: 13,
     marginBottom: 10,
   },
@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
   track: {
     width: '100%',
     height: 8,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: Colors.surface2,
     borderRadius: 4,
     overflow: 'hidden',
   },

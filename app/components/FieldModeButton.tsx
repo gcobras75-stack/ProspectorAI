@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRe
 import { View, Text, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from 'react-native';
 import { loadFieldPackage, saveFieldPackage } from '../core/Database';
 import { fetchZoneMapImage } from '../core/SatelliteEngine';
+import { Colors, Typography, Touch, Radii } from '../core/theme';
 
 export interface FieldModeButtonHandle {
   triggerPrepare: () => void;
@@ -125,20 +126,20 @@ const FieldModeButton = forwardRef<FieldModeButtonHandle, FieldModeButtonProps>(
   const hasPackage = packageInfo !== null;
   const canPrepare = isConnected && analysisPoints.length > 0;
 
-  let btnColor = '#FF9800';
+  let btnColor: string = Colors.warning;
   let btnLabel = 'Preparar para campo';
   let btnIcon = '';
   let subLabel = '';
 
   if (hasPackage) {
     const days = daysSince(packageInfo!.preparado_at);
-    btnColor = '#4CAF50';
+    btnColor = Colors.success;
     btnIcon = '';
     const whenLabel = days === 0 ? 'hoy' : days === 1 ? 'ayer' : `hace ${days} días`;
     btnLabel = `✅ Listo para campo · ${whenLabel}`;
     subLabel = `${packageInfo!.size_kb} KB`;
   } else if (!isConnected) {
-    btnColor = '#FF5722';
+    btnColor = Colors.danger;
     btnIcon = '';
     btnLabel = 'Requiere conexión';
     subLabel = 'conecta para preparar';
@@ -171,9 +172,9 @@ export default FieldModeButton;
 
 const styles = StyleSheet.create({
   button: {
-    height: 40,
+    height: Touch.min,
     paddingHorizontal: 10,
-    borderRadius: 8,
+    borderRadius: Radii.md,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -183,7 +184,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   label: {
-    fontSize: 11,
+    fontSize: Typography.caption.fontSize,
     fontWeight: '700',
     letterSpacing: 0.2,
   },

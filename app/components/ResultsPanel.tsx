@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Animated } from 'react-native';
 import MapView from 'react-native-maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ScoreCard, { METAL_COLORS } from './ScoreCard';
@@ -23,6 +23,14 @@ export default function ResultsPanel({
   satelliteData, metalScores, analysisPoints, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo,
 }: ResultsPanelProps) {
   const [legendOpen, setLegendOpen] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, []);
   const regionalAvg = analysisPoints.length > 0
     ? analysisPoints.reduce((s, p) => s + (p.base_score || 0), 0) / analysisPoints.length
     : undefined;
@@ -34,7 +42,7 @@ export default function ResultsPanel({
   const csmLabel = csm >= 1000 ? `${csm / 1000} km` : `${csm} m`;
 
   return (
-    <View style={styles.panel}>
+    <Animated.View style={[styles.panel, { opacity: fadeAnim }]}>
       {/* Header — subtitle only */}
       <View style={styles.header}>
         <Text style={{ color: Colors.textSub, ...Typography.caption }}>
@@ -42,7 +50,7 @@ export default function ResultsPanel({
           {analysisPoints.length > 0 ? `  ·  ${analysisPoints.length} puntos` : ''}
         </Text>
         <TouchableOpacity onPress={onClose}>
-          <MaterialCommunityIcons name="close" size={24} color="#FFD700" />
+          <MaterialCommunityIcons name="close" size={24} color={Colors.primary} />
         </TouchableOpacity>
       </View>
 
@@ -52,15 +60,15 @@ export default function ResultsPanel({
         {satelliteData && (
           <View style={{
             backgroundColor: satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90
-              ? '#2A2A00' : '#0A2A0A',
+              ? 'rgba(255,215,0,0.06)' : 'rgba(0,200,100,0.06)',
             borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6,
             marginHorizontal: 8, marginBottom: 8,
           }}>
-            <Text style={{ fontSize: 11, color: '#DDDDDD', textAlign: 'center' }}>
+            <Text style={{ fontSize: 11, color: Colors.textSub, textAlign: 'center' }}>
               {satelliteData.source_label}
             </Text>
             {satelliteData.cache_age_days !== undefined && satelliteData.cache_age_days > 90 && (
-              <Text style={{ fontSize: 10, color: '#FF9800', textAlign: 'center', marginTop: 2 }}>
+              <Text style={{ fontSize: 10, color: Colors.warning, textAlign: 'center', marginTop: 2 }}>
                 ⚠️ Datos de hace {satelliteData.cache_age_days} días — actualiza con conexión
               </Text>
             )}
@@ -211,11 +219,11 @@ export default function ResultsPanel({
         <View style={{ height: 14 }} />
       </ScrollView>
       {csm > 0 && (
-        <Text style={{ color: '#333', fontSize: 9, textAlign: 'center', paddingTop: 3 }}>
+        <Text style={{ color: Colors.textDisabled, fontSize: 9, textAlign: 'center', paddingTop: 3 }}>
           Malla {csmLabel}
         </Text>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -226,33 +234,33 @@ const styles = StyleSheet.create({
     maxHeight: '58%',
     backgroundColor: 'rgba(0,0,0,0.97)',
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    borderTopWidth: 2, borderTopColor: '#FFD700',
+    borderTopWidth: 2, borderTopColor: Colors.primary,
     padding: 12, zIndex: 100,
   },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#FFD700', paddingBottom: 8,
+    marginBottom: 10, borderBottomWidth: 1, borderBottomColor: Colors.primary, paddingBottom: 8,
   },
-  rankingSection: { marginTop: 4, borderTopWidth: 1, borderTopColor: '#222', paddingTop: 12 },
+  rankingSection: { marginTop: 4, borderTopWidth: 1, borderTopColor: Colors.surface3, paddingTop: 12 },
   rankingHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   rankingTitle: { color: Colors.primary, fontWeight: '900', ...Typography.caption, letterSpacing: 0.8, flex: 1 },
   rankingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: Colors.surface3 },
   rankingRank: { color: Colors.primary, fontWeight: '900', fontSize: 14, width: 24 },
   rankingCoord: { color: Colors.textDim, ...Typography.micro, marginBottom: 4, fontFamily: 'monospace' },
-  rankingTrack: { width: '100%', height: 5, backgroundColor: '#111', borderRadius: 3, overflow: 'hidden' },
+  rankingTrack: { width: '100%', height: 5, backgroundColor: Colors.surface2, borderRadius: 3, overflow: 'hidden' },
   rankingFill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 3, opacity: 0.85 },
   rankingScore: { fontWeight: '900', ...Typography.caption },
   rankingPct: { color: Colors.textDim, ...Typography.micro, marginTop: 2 },
   assocBox: {
-    backgroundColor: '#0A0A0A',
+    backgroundColor: Colors.surface,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#1E1E1E',
+    borderColor: Colors.surface3,
     padding: 10,
     marginBottom: 10,
   },
   assocTitle: {
-    color: '#444',
+    color: Colors.textDisabled,
     fontSize: 9,
     letterSpacing: 0.8,
     marginBottom: 8,
@@ -271,7 +279,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   assocNote: {
-    color: '#333',
+    color: Colors.textDisabled,
     fontSize: 9,
     marginTop: 8,
     fontStyle: 'italic',

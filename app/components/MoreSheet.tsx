@@ -37,9 +37,9 @@ function SheetRow({ icon, iconColor, label, onPress, isLast, isFieldMode }: Shee
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <MaterialCommunityIcons name={icon} size={22} color={isFieldMode ? '#000' : iconColor} />
+      <MaterialCommunityIcons name={icon} size={22} color={isFieldMode ? Colors.fieldPrimary : iconColor} />
       <Text style={[styles.rowLabel, isFieldMode && styles.rowLabelField]}>{label}</Text>
-      <MaterialCommunityIcons name="chevron-right" size={18} color={isFieldMode ? '#666' : Colors.textDim} />
+      <MaterialCommunityIcons name="chevron-right" size={18} color={isFieldMode ? Colors.fieldTextSub : Colors.textDim} />
     </TouchableOpacity>
   );
 }
@@ -147,8 +147,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   sheetField: {
-    backgroundColor: '#F5F5F5',
-    borderColor: '#CCCCCC',
+    backgroundColor: Colors.fieldBg,
+    borderColor: Colors.fieldBorder,
   },
   handle: {
     width: 36,
@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   projectNameField: {
-    color: '#888',
+    color: Colors.fieldTextSub,
   },
   row: {
     flexDirection: 'row',
@@ -176,7 +176,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
   },
   rowField: {
-    backgroundColor: '#F5F5F5',
+    backgroundColor: Colors.fieldBg,
   },
   rowBorder: {
     borderBottomWidth: 1,
@@ -189,6 +189,6 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.md,
   },
   rowLabelField: {
-    color: '#111',
+    color: Colors.fieldText,
   },
 });
