@@ -232,13 +232,12 @@ function buildTopPointsRows(analysisPoints: any[], metalName: string): string {
     // Evidence string (from ConsensusFusion)
     const evidence = p.evidence || p.evidence_string || '—';
 
-    // Real spectral indices: p.indices is the raw array from GEE
-    const indices = (p.indices || [])
+    // p.indices is an object {key: value} from GEE — e.g. {iron_oxide: 0.43, clay: 0.21}
+    const indices = Object.entries(p.indices || {})
       .slice(0, 3)
-      .map((idx: any) => {
-        const name = idx.name || idx.nombre || '';
-        const val  = typeof idx.value === 'number' ? idx.value.toFixed(3) : '';
-        return val ? `${name}: ${val}` : name;
+      .map(([name, val]) => {
+        const v = typeof val === 'number' ? (val as number).toFixed(3) : '';
+        return v ? `${name}: ${v}` : name;
       })
       .filter(Boolean)
       .join(', ') || metalName;
