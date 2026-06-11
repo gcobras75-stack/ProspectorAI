@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import MapView from 'react-native-maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -22,6 +22,7 @@ interface ResultsPanelProps {
 export default function ResultsPanel({
   satelliteData, metalScores, analysisPoints, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo,
 }: ResultsPanelProps) {
+  const [legendOpen, setLegendOpen] = useState(false);
   const regionalAvg = analysisPoints.length > 0
     ? analysisPoints.reduce((s, p) => s + (p.base_score || 0), 0) / analysisPoints.length
     : undefined;
@@ -63,6 +64,57 @@ export default function ResultsPanel({
                 ⚠️ Datos de hace {satelliteData.cache_age_days} días — actualiza con conexión
               </Text>
             )}
+          </View>
+        )}
+
+        {/* ¿Qué significa? — collapsible legend */}
+        <TouchableOpacity
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            marginBottom: legendOpen ? 0 : 4,
+          }}
+          onPress={() => setLegendOpen(v => !v)}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons
+            name={legendOpen ? 'chevron-down' : 'chevron-right'}
+            size={14}
+            color={Colors.textDim}
+          />
+          <Text style={{ color: Colors.textDim, fontSize: 12, marginLeft: 4 }}>
+            ¿Qué significan estos resultados?
+          </Text>
+        </TouchableOpacity>
+
+        {legendOpen && (
+          <View style={{
+            backgroundColor: Colors.surface3,
+            marginHorizontal: 8,
+            marginBottom: 8,
+            borderRadius: 8,
+            padding: 12,
+          }}>
+            {[
+              { label: '🎯 OBJETIVO', desc: 'Anomalía espectral + falla geológica coinciden — máxima prioridad de campo' },
+              { label: '🌈 3×', desc: 'Tres satélites (S2 + ASTER + EMIT) de acuerdo — alta confianza espectral' },
+              { label: '✅ CONF.', desc: 'Dos satélites (S2 + ASTER) coinciden — buena señal, merece visita' },
+              { label: 'INDIVIDUAL', desc: 'Solo una fuente detectó anomalía — explorar con precaución' },
+              { label: 'ALTA ≥65%', desc: 'Alteración espectral significativa' },
+              { label: 'MEDIA 35–64%', desc: 'Señal moderada' },
+              { label: `Malla ${csmLabel || '60 m'}`, desc: 'Tamaño de cada cuadro del análisis espectral' },
+            ].map(item => (
+              <View key={item.label} style={{ flexDirection: 'row', marginBottom: 6 }}>
+                <Text style={{ color: Colors.primary, fontSize: 11, fontWeight: '700', minWidth: 80 }}>
+                  {item.label}
+                </Text>
+                <Text style={{ color: Colors.textSub, fontSize: 11, flex: 1, lineHeight: 15 }}>
+                  {item.desc}
+                </Text>
+              </View>
+            ))}
           </View>
         )}
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, Modal, TouchableOpacity, ScrollView, TextInput, Switch, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -40,6 +40,9 @@ export default function ConfigModal({
   setUseAI, setAutoAnalyzeSample, setUvLamp, setMicroscopeConnected, setAutoSync,
   setIsFieldMode, setVibrationEnabled,
 }: ConfigModalProps) {
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+
   return (
     <Modal visible={visible} transparent animationType="slide">
       <View style={styles.overlay}>
@@ -64,14 +67,7 @@ export default function ConfigModal({
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
             <TouchableOpacity
               style={{ flex: 1, backgroundColor: '#111', borderWidth: 1, borderColor: '#4CAF50', borderRadius: 8, padding: 10, alignItems: 'center' }}
-              onPress={async () => {
-                const { Alert: RNAlert } = require('react-native');
-                RNAlert.prompt
-                  ? RNAlert.prompt('Nuevo Proyecto', 'Nombre del proyecto:', async (name: string) => {
-                      if (name?.trim()) { await require('../core/Database').createProject(name.trim()); }
-                    })
-                  : RNAlert.alert('Nuevo Proyecto', 'Edita el nombre en el campo de arriba y guarda.');
-              }}
+              onPress={() => setShowNewProjectModal(true)}
             >
               <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold' }}>+ Nuevo proyecto</Text>
             </TouchableOpacity>
@@ -149,21 +145,24 @@ export default function ConfigModal({
             ))}
           </View>
           <View style={styles.prefRow}>
-            <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight, { marginBottom: 0, marginTop: 0 }]}>Microscopio USB-C Carson</Text>
-            <TouchableOpacity
-              style={{ padding: 6, backgroundColor: microscopeConnected ? '#00FF00' : '#333', borderRadius: 8 }}
-              onPress={() => setMicroscopeConnected(!microscopeConnected)}
-            >
-              <Text style={{ color: microscopeConnected ? '#000' : '#FFF', fontWeight: 'bold' }}>
-                {microscopeConnected ? 'CONECTADO' : 'INACTIVO'}
-              </Text>
-            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight, { marginBottom: 0, marginTop: 0 }]}>Microscopio USB-C Carson</Text>
+              <Text style={{ color: '#555', fontSize: 10 }}>Próximamente</Text>
+            </View>
+            <View style={{ padding: 8, backgroundColor: '#2A2A2A', borderRadius: 8, opacity: 0.5 }}>
+              <Text style={{ color: '#888', fontWeight: 'bold', fontSize: 12 }}>PRÓXIMAMENTE</Text>
+            </View>
           </View>
 
           <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 30 }]}>4. BASE DE DATOS Y NUBE</Text>
           <View style={styles.prefRow}>
-            <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight, { marginBottom: 0, marginTop: 0 }]}>Sincronización Cloud Automática</Text>
-            <Switch value={autoSync} onValueChange={setAutoSync} trackColor={{ true: '#FFD700' }} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight, { marginBottom: 0, marginTop: 0, opacity: 0.5 }]}>
+                Sincronización Cloud Automática
+              </Text>
+              <Text style={{ color: '#555', fontSize: 10 }}>Próximamente</Text>
+            </View>
+            <Switch value={false} onValueChange={() => {}} trackColor={{ true: '#FFD700' }} disabled />
           </View>
 
           <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 30 }]}>5. SISTEMA / INTERFAZ</Text>
@@ -178,10 +177,55 @@ export default function ConfigModal({
 
           <View style={[styles.actions, { marginTop: 30 }]}>
             <TouchableOpacity style={styles.btnSave} onPress={onClose}>
-              <Text style={styles.btnTextBlack}>Guardar Parámetros Globales</Text>
+              <Text style={styles.btnTextBlack}>Aplicar Configuración</Text>
             </TouchableOpacity>
           </View>
           <View style={{ height: 40 }} />
+
+          {/* Cross-platform new project modal */}
+          <Modal visible={showNewProjectModal} transparent animationType="fade">
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+              <View style={{ backgroundColor: '#1A1A1A', borderRadius: 12, padding: 24, width: '100%', borderWidth: 1, borderColor: '#FFD700' }}>
+                <Text style={{ color: '#FFD700', fontWeight: '900', fontSize: 16, marginBottom: 16 }}>NUEVO PROYECTO</Text>
+                <TextInput
+                  style={{ backgroundColor: '#222', color: '#FFF', borderRadius: 8, padding: 12, fontSize: 15, borderWidth: 1, borderColor: '#444', marginBottom: 16 }}
+                  placeholder="Nombre del proyecto..."
+                  placeholderTextColor="#666"
+                  value={newProjectName}
+                  onChangeText={setNewProjectName}
+                  autoFocus
+                  returnKeyType="done"
+                  onSubmitEditing={async () => {
+                    if (newProjectName.trim()) {
+                      await require('../core/Database').createProject(newProjectName.trim());
+                      setNewProjectName('');
+                      setShowNewProjectModal(false);
+                    }
+                  }}
+                />
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity
+                    style={{ flex: 1, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#555', alignItems: 'center' }}
+                    onPress={() => { setShowNewProjectModal(false); setNewProjectName(''); }}
+                  >
+                    <Text style={{ color: '#AAA', fontWeight: 'bold' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flex: 1, padding: 12, borderRadius: 8, backgroundColor: '#4CAF50', alignItems: 'center' }}
+                    onPress={async () => {
+                      if (newProjectName.trim()) {
+                        await require('../core/Database').createProject(newProjectName.trim());
+                        setNewProjectName('');
+                        setShowNewProjectModal(false);
+                      }
+                    }}
+                  >
+                    <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Crear</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
         </ScrollView>
       </View>
     </Modal>
