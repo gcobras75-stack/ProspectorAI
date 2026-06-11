@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { router } from 'expo-router';
-import { StyleSheet, View, Text, ActivityIndicator, Platform, TouchableOpacity, Alert, Pressable, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, ActivityIndicator, Platform, TouchableOpacity, Alert, Pressable, ScrollView, Dimensions } from 'react-native';
 import MapView, { Marker, Polygon, Region, MapPressEvent, PanDragEvent } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -18,6 +18,8 @@ import ChatModal from '../components/ChatModal';
 import FieldModeButton from '../components/FieldModeButton';
 import HistoryModal from '../components/HistoryModal';
 import ConfigModal from '../components/ConfigModal';
+import MoreSheet from '../components/MoreSheet';
+import { TAP_METAL_META } from '../core/spectralHelpers';
 import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
 import WaypointModal from '../components/WaypointModal';
@@ -183,6 +185,9 @@ export default function ProspectorDashboard() {
 
   // Report generation
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
+  // More sheet (secondary actions bottom sheet)
+  const [showMoreSheet, setShowMoreSheet] = useState(false);
 
   const handleGenerateReport = async () => {
     if (analysisPoints.length === 0) {
@@ -934,6 +939,16 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           <Text style={{ color: '#888', fontSize: 7, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 1 }} numberOfLines={1}>{process.env.EXPO_PUBLIC_SERVER_URL || 'ENV:null→fallback'}</Text>
         </View>
 
+        {/* CONFIG CHIP — mineral + terrain quick access */}
+        <TouchableOpacity
+          style={styles.configChip}
+          onPress={() => setShowConfigModal(true)}
+        >
+          <Text style={styles.configChipText} numberOfLines={1}>
+            {TAP_METAL_META[selectedMineral]?.icon ?? '⛏'} {selectedMineral} · {terrainType}
+          </Text>
+        </TouchableOpacity>
+
 
         {/* MINI OVERLAY PANELES */}
         {!showStatsBox && (
@@ -1000,167 +1015,166 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
 
       </View>
 
-      {/* 30% CONSOLA DE MANDO INFERIOR */}
-      <View style={[styles.consoleContainer, isFieldMode && { backgroundColor: '#F0F0F0', borderTopColor: '#000' }]}>
-        
-        {/* BARRA DE HERRAMIENTAS PERMANENTE */}
-        <View style={[{ width: '100%', backgroundColor: '#000', borderBottomWidth: 1, borderBottomColor: '#FFD700', paddingVertical: 8 }, isFieldMode && { backgroundColor: '#E0E0E0', borderBottomColor: '#000' }]}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, gap: 8 }}>
-            
-            <TouchableOpacity 
-              style={[{ width: 55, height: 55, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#FFD700' }, drawingType === 'polygon' && { backgroundColor: '#FFD700' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }]} 
-              onPress={() => drawingType === 'polygon' ? selectMode('none') : selectMode('polygon')}
-            >
-              <MaterialCommunityIcons name="draw-pen" size={20} color={drawingType === 'polygon' ? '#000' : (isFieldMode ? '#000' : '#FFD700')} />
-              <Text style={[{ color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 4 }, drawingType === 'polygon' && { color: '#000' }, isFieldMode && drawingType !== 'polygon' && { color: '#000' }]}>
-                {drawingType === 'polygon' ? 'Trazando' : 'Trazar'}
-              </Text>
-            </TouchableOpacity>
+      {/* CONSOLA INFERIOR COMPACTA */}
+      <View style={[styles.consoleContainer, isFieldMode && styles.consoleContainerField]}>
 
-            <TouchableOpacity style={[{ width: 55, height: 55, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#FFD700' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }]} onPress={() => setShowWaypointModal(true)}>
-               <MaterialCommunityIcons name="camera-plus" size={20} color={isFieldMode ? "#000" : "#FFD700"} />
-               <Text style={[{ color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 4 }, isFieldMode && { color: '#000' }]}>Cámara</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={[{ width: 55, height: 55, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#FFD700' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }]} onPress={() => setIsFieldMode(!isFieldMode)}>
-               <MaterialCommunityIcons name={isFieldMode ? "weather-night" : "white-balance-sunny"} size={20} color={isFieldMode ? "#000" : "#888"} />
-               <Text style={[{ color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 4 }, isFieldMode && { color: '#000' }]}>{isFieldMode ? 'Noche' : 'Solar'}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={[{ width: 55, height: 55, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#FFD700' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }]} onPress={() => setShowHistoryModal(true)}>
-               <MaterialCommunityIcons name="history" size={20} color={isFieldMode ? "#000" : "#FFD700"} />
-               <Text style={[{ color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 4 }, isFieldMode && { color: '#000' }]}>Historial</Text>
-            </TouchableOpacity>
-
-               <TouchableOpacity
-                 style={[{ width: 46, height: 46, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#4CAF50' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }]}
-                 onPress={async () => {
-                   try {
-                     await saveProjectState(currentProjectId, {
-                       mineral: selectedMineral,
-                       terrain: terrainType,
-                       depth,
-                       rock_type: rockType,
-                       coordenadas: polygonCoords,
-                       analisis_resultado: analysisPoints,
-                       area_ha: parseFloat(areaHa) || 0,
-                     });
-                     Alert.alert('Guardado', 'Proyecto actualizado correctamente.');
-                   } catch (e: any) {
-                     Alert.alert('Error', 'No se pudo guardar: ' + e.message);
-                   }
-                 }}
-               >
-                 <MaterialCommunityIcons name="content-save" size={20} color={isFieldMode ? '#000' : '#4CAF50'} />
-                 <Text style={[{ color: '#4CAF50', fontSize: 9, fontWeight: 'bold', marginTop: 2 }, isFieldMode && { color: '#000' }]}>Guardar</Text>
-               </TouchableOpacity>
-
-            <FieldModeButton
-              projectId={currentProjectId}
-              analysisPoints={analysisPoints}
-              geologoResumen={geologoResumen}
-              zoneCoords={polygonCoords.map(c => ({ lat: c.latitude, lng: c.longitude }))}
-              isConnected={isConnected}
+        {/* BARRA DE HERRAMIENTAS FIJA — 4 botones esenciales */}
+        <View style={[styles.toolbarRow, isFieldMode && styles.toolbarRowField]}>
+          {/* Trazar / Limpiar */}
+          <TouchableOpacity
+            style={[
+              styles.toolbarBtn,
+              drawingType === 'polygon' && styles.toolbarBtnActive,
+              isFieldMode && styles.toolbarBtnField,
+            ]}
+            onPress={() => drawingType === 'polygon' ? selectMode('none') : selectMode('polygon')}
+          >
+            <MaterialCommunityIcons
+              name={drawingType === 'polygon' ? 'close-circle-outline' : resolvedPolygonCoords.length >= 3 ? 'delete-outline' : 'draw-pen'}
+              size={22}
+              color={drawingType === 'polygon' ? '#000' : (isFieldMode ? '#000' : '#FFD700')}
             />
+            <Text style={[styles.toolbarBtnLabel, drawingType === 'polygon' && { color: '#000' }, isFieldMode && { color: '#000' }]} numberOfLines={1}>
+              {drawingType === 'polygon' ? 'Salir' : resolvedPolygonCoords.length >= 3 ? 'Limpiar' : 'Trazar'}
+            </Text>
+          </TouchableOpacity>
 
-               <TouchableOpacity
-                 style={[{ width: 46, height: 46, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#2196F3' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }, isGeneratingReport && { opacity: 0.5 }]}
-                 onPress={handleGenerateReport}
-                 disabled={isGeneratingReport}
-               >
-                 {isGeneratingReport
-                   ? <ActivityIndicator size="small" color={isFieldMode ? '#000' : '#2196F3'} />
-                   : <Text style={{ fontSize: 18 }}>📄</Text>
-                 }
-                 <Text style={[{ color: '#2196F3', fontSize: 9, fontWeight: 'bold', marginTop: 2 }, isFieldMode && { color: '#000' }]}>
-                   {isGeneratingReport ? 'PDF...' : 'PDF'}
-                 </Text>
-               </TouchableOpacity>
+          {/* Cámara */}
+          <TouchableOpacity
+            style={[styles.toolbarBtn, isFieldMode && styles.toolbarBtnField]}
+            onPress={() => setShowWaypointModal(true)}
+          >
+            <MaterialCommunityIcons name="camera-plus" size={22} color={isFieldMode ? '#000' : '#FFD700'} />
+            <Text style={[styles.toolbarBtnLabel, isFieldMode && { color: '#000' }]} numberOfLines={1}>Cámara</Text>
+          </TouchableOpacity>
 
-            <TouchableOpacity style={[{ width: 55, height: 55, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#FFD700' }, isFieldMode && { backgroundColor: '#FFF', borderColor: '#000' }]} onPress={() => setShowConfigModal(true)}>
-               <MaterialCommunityIcons name="cog" size={20} color={isFieldMode ? "#000" : "#FFD700"} />
-               <Text style={[{ color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 4 }, isFieldMode && { color: '#000' }]}>Ajustes</Text>
+          {/* Modo solar/noche */}
+          <TouchableOpacity
+            style={[styles.toolbarBtn, isFieldMode && styles.toolbarBtnField]}
+            onPress={() => setIsFieldMode(!isFieldMode)}
+          >
+            <MaterialCommunityIcons
+              name={isFieldMode ? 'weather-night' : 'white-balance-sunny'}
+              size={22}
+              color={isFieldMode ? '#000' : '#888'}
+            />
+            <Text style={[styles.toolbarBtnLabel, isFieldMode && { color: '#000' }]} numberOfLines={1}>
+              {isFieldMode ? 'Noche' : 'Solar'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Más — abre MoreSheet */}
+          <TouchableOpacity
+            style={[styles.toolbarBtn, isFieldMode && styles.toolbarBtnField]}
+            onPress={() => setShowMoreSheet(true)}
+          >
+            <MaterialCommunityIcons name="dots-horizontal-circle-outline" size={22} color={isFieldMode ? '#000' : '#FFD700'} />
+            <Text style={[styles.toolbarBtnLabel, isFieldMode && { color: '#000' }]} numberOfLines={1}>Más</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* CONSOLA COMPACTA DE 1 LÍNEA */}
+        {drawingType === 'polygon' ? (
+          /* Estado: dibujando polígono */
+          <View style={[styles.consoleBar, isFieldMode && styles.consoleBarField]}>
+            <View style={styles.consoleBarLeft}>
+              <MaterialCommunityIcons name="vector-polygon" size={16} color={isFieldMode ? '#333' : '#FFD700'} />
+              <Text style={[styles.consoleBarText, isFieldMode && { color: '#333' }]} numberOfLines={1}>
+                {' '}Polígono — {polygonCoords.length} vértices
+              </Text>
+            </View>
+            <View style={styles.consoleBarActions}>
+              <TouchableOpacity
+                style={[styles.consoleBtnSecondary, isFieldMode && styles.consoleBtnSecondaryField]}
+                onPress={addPointFromCrosshair}
+              >
+                <MaterialCommunityIcons name="target" size={14} color={isFieldMode ? '#000' : '#FFD700'} />
+                <Text style={[styles.consoleBtnSecondaryText, isFieldMode && { color: '#000' }]}> MARCAR</Text>
+              </TouchableOpacity>
+              {polygonCoords.length >= 3 && (
+                <TouchableOpacity
+                  style={[styles.consoleBtnPrimary, isFieldMode && styles.consoleBtnPrimaryField]}
+                  onPress={() => finishDrawing()}
+                >
+                  <MaterialCommunityIcons name="radar" size={14} color="#000" />
+                  <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.consoleBtnDanger, isFieldMode && styles.consoleBtnDangerField]}
+                onPress={() => setPolygonCoords([])}
+              >
+                <Text style={styles.consoleBtnDangerText}>LIMPIAR</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : isAnalyzing ? (
+          /* Estado: analizando */
+          <View style={[styles.consoleBar, isFieldMode && styles.consoleBarField]}>
+            <ActivityIndicator size="small" color={isFieldMode ? '#333' : '#FFD700'} style={{ marginRight: 8 }} />
+            <Text style={[styles.consoleBarText, isFieldMode && { color: '#333' }]} numberOfLines={1}>
+              {analysisStep || 'Consultando Sentinel-2...'}
+            </Text>
+          </View>
+        ) : resolvedPolygonCoords.length >= 3 && !showResults ? (
+          /* Estado: zona cargada, sin resultados aún */
+          <View style={[styles.consoleBar, isFieldMode && styles.consoleBarField]}>
+            <View style={styles.consoleBarLeft}>
+              <MaterialCommunityIcons name="ruler-square" size={16} color={isFieldMode ? '#333' : '#FFD700'} />
+              <Text style={[styles.consoleBarText, isFieldMode && { color: '#333' }]} numberOfLines={1}>
+                {' '}{areaHa} ha · {resolvedPolygonCoords.length} vértices
+              </Text>
+              {parseFloat(areaHa) > 50_000 && (
+                <Text style={{ color: '#FF9800', fontSize: 10, marginLeft: 4 }}>⚠️</Text>
+              )}
+            </View>
+            <View style={styles.consoleBarActions}>
+              <TouchableOpacity
+                style={[styles.consoleBtnDanger, isFieldMode && styles.consoleBtnDangerField]}
+                onPress={clearShapes}
+              >
+                <Text style={styles.consoleBtnDangerText}>BORRAR</Text>
+              </TouchableOpacity>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.consoleBtnPrimary,
+                  isFieldMode && styles.consoleBtnPrimaryField,
+                  pressed && { opacity: 0.75 },
+                ]}
+                onPress={() => analyzeZone()}
+                disabled={isAnalyzing}
+              >
+                <MaterialCommunityIcons name="brain" size={14} color="#000" />
+                <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : showResults ? (
+          /* Estado: resultados disponibles */
+          <View style={[styles.consoleBar, isFieldMode && styles.consoleBarField]}>
+            <View style={styles.consoleBarLeft}>
+              <Text style={{ fontSize: 14 }}>✅</Text>
+              <Text style={[styles.consoleBarText, isFieldMode && { color: '#333' }]} numberOfLines={1}>
+                {' '}{analysisPoints.length} zonas · {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.consoleBtnSecondary, isFieldMode && styles.consoleBtnSecondaryField]}
+              onPress={clearShapes}
+            >
+              <MaterialCommunityIcons name="refresh" size={14} color={isFieldMode ? '#000' : '#FFD700'} />
+              <Text style={[styles.consoleBtnSecondaryText, isFieldMode && { color: '#000' }]}> Nueva zona</Text>
             </TouchableOpacity>
-
-          </ScrollView>
-        </View>
-
-        {/* ÁREA DINÁMICA DE TRABAJO */}
-        <View style={styles.consoleContentArea}>
-          {drawingType === 'polygon' ? (
-             <View style={styles.actionBox}>
-               <Text style={[styles.instructionText, isFieldMode && { color: '#333' }, {fontSize: 10, marginBottom: 5}]}>NUEVO POLÍGONO ({polygonCoords.length} VERTICES)</Text>
-               
-               <View style={{ flexDirection: 'row', width: '100%', alignItems: 'center', marginTop: 5, paddingHorizontal: 10, gap: 8 }}>
-                 <TouchableOpacity
-                   style={[
-                     { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 8, borderWidth: 2, borderColor: '#000', backgroundColor: '#FFD700', elevation: 5 },
-                     isFieldMode ? { backgroundColor: '#FFFFFF', borderColor: '#000000' } : null,
-                   ]}
-                   onPress={addPointFromCrosshair}
-                 >
-                    <MaterialCommunityIcons name="target" size={20} color="#000" />
-                    <Text style={{ color: '#000', fontWeight: '900', fontSize: 11, marginLeft: 6 }}> MARCAR PUNTO ({polygonCoords.length})</Text>
-                 </TouchableOpacity>
-
-                 {polygonCoords.length >= 3 && (
-                   <TouchableOpacity
-                     style={[
-                       { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 48, borderRadius: 8, borderWidth: 2, borderColor: '#000', backgroundColor: '#FFD700', elevation: 5 },
-                       isFieldMode ? { backgroundColor: '#FFFFFF', borderColor: '#000000' } : null,
-                     ]}
-                     onPress={() => finishDrawing()}
-                   >
-                      <MaterialCommunityIcons name="radar" size={20} color="#000" />
-                      <Text style={{ color: '#000', fontWeight: '900', fontSize: 11, marginLeft: 6 }}> ANALIZAR POLÍGONO</Text>
-                   </TouchableOpacity>
-                 )}
-               </View>
-
-               <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-between', marginTop: 8, paddingHorizontal: 10 }}>
-                 <TouchableOpacity style={[styles.cancelDrawBtn, isFieldMode ? { backgroundColor: '#FFFFFF', borderColor: '#FF3B30', borderWidth: 2 } : null, { flex: 1, marginRight: 8, height: 35, borderRadius: 8, justifyContent: 'center', padding: 0, marginTop: 0 }]} onPress={() => setPolygonCoords([])}>
-                    <Text style={[styles.cancelDrawText, { textAlign: 'center', fontSize: 10 }]}>LIMPIAR</Text>
-                 </TouchableOpacity>
-                 <TouchableOpacity style={[styles.cancelDrawBtn, isFieldMode ? { backgroundColor: '#FFFFFF', borderColor: '#FF3B30', borderWidth: 2 } : null, { flex: 1, height: 35, borderRadius: 8, justifyContent: 'center', padding: 0, marginTop: 0 }]} onPress={() => selectMode('none')}>
-                    <Text style={[styles.cancelDrawText, { textAlign: 'center', fontSize: 10 }]}>SALIR</Text>
-                 </TouchableOpacity>
-               </View>
-             </View>
-          ) : (
-             <View style={styles.actionBox}>
-               {(polygonCoords.length >= 3) ? (
-                 <>
-                   <Text style={[styles.instructionText, isFieldMode && { color: '#444' }, { fontSize: 10, marginBottom: 5 }]}>ZONA CARGADA: {selectedMineral.toUpperCase()}</Text>
-                   {parseFloat(areaHa) > 50_000 && (
-                     <Text style={{ color: '#FF9800', fontSize: 9, textAlign: 'center', marginBottom: 4 }}>
-                       ⚠️ Zona amplia — dibuja más chico para ver detalle de 20 m
-                     </Text>
-                   )}
-                   <View style={{flexDirection: 'row', width: '100%', justifyContent: 'center', gap: 8, paddingHorizontal: 10}}>
-                     <Pressable
-                       style={({ pressed }) => [{ backgroundColor: '#FFD700', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 40, flex: 1, borderRadius: 8, borderWidth: 1, borderColor: '#000' }, isFieldMode ? { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 2 } : null, pressed && { opacity: 0.7 }, isAnalyzing && { backgroundColor: '#555' }]}
-                       onPress={() => analyzeZone()}
-                       disabled={isAnalyzing}
-                     >
-                       {isAnalyzing ? <ActivityIndicator color={isFieldMode ? "#000" : "#FFF"} size="small" /> : <MaterialCommunityIcons name="brain" size={16} color="#000" />}
-                       <Text style={[{ color: '#000', fontWeight: 'bold', fontSize: 10, marginLeft: 5 }, isFieldMode ? { color: '#000000' } : null]}>{isAnalyzing ? ' CALCULANDO...' : ' ANALIZAR ZONA CARGADA'}</Text>
-                     </Pressable>
-                     <TouchableOpacity style={[{ backgroundColor: 'rgba(255, 60, 60, 0.2)', borderWidth: 1, borderColor: '#FF3B30', height: 40, flex: 0.5, borderRadius: 8, justifyContent: 'center', alignItems: 'center' }, isFieldMode ? { backgroundColor: '#FFFFFF', borderColor: '#FF3B30', borderWidth: 2 } : null]} onPress={clearShapes}>
-                        <Text style={[{ color: '#FF3B30', fontWeight: 'bold', fontSize: 10 }]}>BORRAR</Text>
-                     </TouchableOpacity>
-                   </View>
-                   {isAnalyzing && analysisStep ? (
-                     <Text style={{ color: Colors.textSub, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
-                       {analysisStep}
-                     </Text>
-                   ) : null}
-                 </>
-               ) : (
-                 <Text style={[styles.instructionText, { color: '#888' }]}>Toca "Trazar" para delimitar una zona de 3 vértices</Text>
-               )}
-             </View>
-          )}
-        </View>
+          </View>
+        ) : (
+          /* Estado: sin zona trazada */
+          <View style={[styles.consoleBar, isFieldMode && styles.consoleBarField]}>
+            <MaterialCommunityIcons name="map-search-outline" size={16} color={isFieldMode ? '#555' : '#555'} style={{ marginRight: 6 }} />
+            <Text style={[styles.consoleBarText, { color: isFieldMode ? '#555' : '#555' }]} numberOfLines={1}>
+              Toca Trazar para delimitar una zona
+            </Text>
+          </View>
+        )}
       </View>
 
       {showResults && !isAnalyzing && (
@@ -1248,6 +1262,33 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         onExport={exportCSV}
       />
 
+      <MoreSheet
+        visible={showMoreSheet}
+        onClose={() => setShowMoreSheet(false)}
+        projectName={activeProject}
+        isFieldMode={isFieldMode}
+        onHistorial={() => setShowHistoryModal(true)}
+        onGuardar={async () => {
+          try {
+            await saveProjectState(currentProjectId, {
+              mineral: selectedMineral,
+              terrain: terrainType,
+              depth,
+              rock_type: rockType,
+              coordenadas: polygonCoords,
+              analisis_resultado: analysisPoints,
+              area_ha: parseFloat(areaHa) || 0,
+            });
+            Alert.alert('Guardado', 'Proyecto actualizado correctamente.');
+          } catch (e: any) {
+            Alert.alert('Error', 'No se pudo guardar: ' + e.message);
+          }
+        }}
+        onCampo={() => {/* FieldModeButton handles its own logic */}}
+        onPDF={handleGenerateReport}
+        onAjustes={() => setShowConfigModal(true)}
+      />
+
       <ConfigModal
         visible={showConfigModal}
         isFieldMode={isFieldMode}
@@ -1287,8 +1328,9 @@ const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' },
   container: { flex: 1, backgroundColor: '#000' },
   
-  mapContainer: { flex: 0.70, position: 'relative' },
-  consoleContainer: { flex: 0.30, backgroundColor: '#111', borderTopWidth: 2, borderTopColor: '#FFD700' },
+  mapContainer: { flex: 1, position: 'relative' },
+  consoleContainer: { backgroundColor: '#111', borderTopWidth: 2, borderTopColor: '#FFD700' },
+  consoleContainerField: { backgroundColor: '#F0F0F0', borderTopColor: '#000' },
   topToolbar: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', width: '100%', paddingVertical: 8, backgroundColor: '#222', borderBottomWidth: 1, borderBottomColor: '#333' },
   hudBtnBase: { alignItems: 'center', justifyContent: 'center', padding: 6, minWidth: 70 },
   hudBtnText: { color: '#FFD700', fontSize: 14, fontWeight: 'bold', marginTop: 4 },
@@ -1562,6 +1604,158 @@ const styles = StyleSheet.create({
   indicatorText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+
+  // ── Compact toolbar ────────────────────────────────────────────────────────
+  toolbarRow: {
+    flexDirection: 'row',
+    width: '100%',
+    backgroundColor: '#000',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FFD700',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    gap: 6,
+  },
+  toolbarRowField: {
+    backgroundColor: '#E0E0E0',
+    borderBottomColor: '#000',
+  },
+  toolbarBtn: {
+    flex: 1,
+    height: 52,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#111',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFD700',
+    minWidth: 44,
+  },
+  toolbarBtnActive: {
+    backgroundColor: '#FFD700',
+    borderColor: '#FFD700',
+  },
+  toolbarBtnField: {
+    backgroundColor: '#FFF',
+    borderColor: '#000',
+  },
+  toolbarBtnLabel: {
+    color: '#FFD700',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 3,
+  },
+
+  // ── Compact console bar ────────────────────────────────────────────────────
+  consoleBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 50,
+    maxHeight: 60,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#111',
+  },
+  consoleBarField: {
+    backgroundColor: '#F0F0F0',
+  },
+  consoleBarLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  consoleBarText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  consoleBarHint: {
+    flex: 1,
+    color: '#555',
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  consoleBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginLeft: 8,
+  },
+  consoleBtnPrimary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFD700',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    minHeight: 34,
+  },
+  consoleBtnPrimaryField: {
+    backgroundColor: '#000',
+  },
+  consoleBtnPrimaryText: {
+    color: '#000',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  consoleBtnSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFD700',
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    borderRadius: 8,
+    minHeight: 34,
+  },
+  consoleBtnSecondaryField: {
+    borderColor: '#000',
+  },
+  consoleBtnSecondaryText: {
+    color: '#FFD700',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  consoleBtnDanger: {
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    borderRadius: 8,
+    minHeight: 34,
+    justifyContent: 'center',
+  },
+  consoleBtnDangerField: {
+    backgroundColor: '#FFF',
+    borderWidth: 2,
+  },
+  consoleBtnDangerText: {
+    color: '#FF3B30',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+
+  // ── Config chip ────────────────────────────────────────────────────────────
+  configChip: {
+    position: 'absolute',
+    top: 100,
+    left: 10,
+    backgroundColor: 'rgba(20,20,20,0.88)',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    minHeight: 30,
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  configChipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
 
   // ── Ranking section ────────────────────────────────────────────────────────
