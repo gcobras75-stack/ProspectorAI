@@ -229,7 +229,10 @@ export default function ProspectorDashboard() {
   const [mapRotation, setMapRotation] = useState(0);
   const [showHeatmap, setShowHeatmap] = useState(false);
   // Capas del mapa (#6): tipo base (satélite/híbrido) + overlay OSM (ríos/caminos finos)
-  const [mapLayer, setMapLayer] = useState<'satellite' | 'hybrid'>('satellite');
+  // Default 'hybrid': Apple Maps muestra calles, poblados, ciudades, límites y ríos
+  // principales sobre el satélite (contexto visible desde el arranque). El usuario
+  // puede volver a 'satellite' puro o activar el detalle OSM (ríos/arroyos finos).
+  const [mapLayer, setMapLayer] = useState<'satellite' | 'hybrid'>('hybrid');
   const [osmOverlay, setOsmOverlay] = useState(false);
   const [showLayerMenu, setShowLayerMenu] = useState(false);
   const [zoneColors, setZoneColors] = useState<any[]>([]);
@@ -1446,7 +1449,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                   </View>
                 ) : (
                   <Text style={styles.consoleBarText} numberOfLines={1}>
-                    {' '}{areaHa} ha · {polygonCoords.length} vértices
+                    {' '}{areaHa} ha · ~{Math.round(computeAdaptiveCellSize(parseFloat(areaHa) || 0))} m/celda
                   </Text>
                 )}
               </View>
@@ -1478,19 +1481,17 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               </Text>
             </View>
           ) : resolvedPolygonCoords.length >= 3 && !showResults ? (
-            <View style={styles.consoleBar}>
-              <View style={styles.consoleBarLeft}>
+            <View style={[styles.consoleBar, { flexDirection: 'column', alignItems: 'stretch', maxHeight: undefined, minHeight: undefined, paddingVertical: 8 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
                 <MaterialCommunityIcons name="ruler-square" size={18} color="#FFD700" />
-                <View style={{ marginLeft: 6, flexShrink: 1 }}>
-                  <Text style={styles.consoleAreaMain} numberOfLines={1}>
-                    {areaHa} ha{parseFloat(areaHa) > 50_000 ? '  ⚠️' : ''}
-                  </Text>
-                  <Text style={styles.consoleAreaSub} numberOfLines={1}>
-                    {resolvedPolygonCoords.length} vértices · celda ~{Math.round(computeAdaptiveCellSize(parseFloat(areaHa) || 0))} m
-                  </Text>
-                </View>
+                <Text style={[styles.consoleAreaMain, { marginLeft: 6 }]} numberOfLines={1}>
+                  {areaHa} ha{parseFloat(areaHa) > 50_000 ? '  ⚠️' : ''}
+                </Text>
+                <Text style={[styles.consoleAreaSub, { marginLeft: 10, flexShrink: 1 }]} numberOfLines={1}>
+                  Resolución ~{Math.round(computeAdaptiveCellSize(parseFloat(areaHa) || 0))} m/celda
+                </Text>
               </View>
-              <View style={styles.consoleBarActions}>
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
                 <TouchableOpacity style={styles.consoleBtnDanger} onPress={clearShapes}>
                   <Text style={styles.consoleBtnDangerText}>BORRAR</Text>
                 </TouchableOpacity>
