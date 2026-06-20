@@ -1480,13 +1480,15 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           ) : resolvedPolygonCoords.length >= 3 && !showResults ? (
             <View style={styles.consoleBar}>
               <View style={styles.consoleBarLeft}>
-                <MaterialCommunityIcons name="ruler-square" size={16} color="#FFD700" />
-                <Text style={styles.consoleBarText} numberOfLines={1}>
-                  {' '}{areaHa} ha · {resolvedPolygonCoords.length} vértices
-                </Text>
-                {parseFloat(areaHa) > 50_000 && (
-                  <Text style={{ color: '#FF9800', fontSize: 10, marginLeft: 4 }}>⚠️</Text>
-                )}
+                <MaterialCommunityIcons name="ruler-square" size={18} color="#FFD700" />
+                <View style={{ marginLeft: 6, flexShrink: 1 }}>
+                  <Text style={styles.consoleAreaMain} numberOfLines={1}>
+                    {areaHa} ha{parseFloat(areaHa) > 50_000 ? '  ⚠️' : ''}
+                  </Text>
+                  <Text style={styles.consoleAreaSub} numberOfLines={1}>
+                    {resolvedPolygonCoords.length} vértices · celda ~{Math.round(computeAdaptiveCellSize(parseFloat(areaHa) || 0))} m
+                  </Text>
+                </View>
               </View>
               <View style={styles.consoleBarActions}>
                 <TouchableOpacity style={styles.consoleBtnDanger} onPress={clearShapes}>
@@ -1503,7 +1505,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               <View style={styles.consoleBarLeft}>
                 <Text style={{ fontSize: 14 }}>✅</Text>
                 <Text style={styles.consoleBarText} numberOfLines={1}>
-                  {' '}{analysisPoints.length} zonas · {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
+                  {' '}{analysisPoints.length} zonas · celda {satelliteData?.cell_size_m ?? '—'} m · {selectedMineral.toUpperCase()}
                 </Text>
               </View>
               <TouchableOpacity style={styles.consoleBtnSecondary} onPress={clearShapes}>
@@ -2130,6 +2132,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     flexShrink: 1,
+  },
+  consoleAreaMain: {
+    color: '#FFD700',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  consoleAreaSub: {
+    color: '#AAA',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 1,
   },
   consoleBarHint: {
     flex: 1,
