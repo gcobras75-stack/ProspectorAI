@@ -30,6 +30,7 @@ import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBa
 import { useBadge } from '../core/BadgeContext';
 import { generateAndShareReport } from '../core/ReportGenerator';
 import { parseCoordinate } from '../core/coordParse';
+import { fetchKnownOccurrences, KnownOccurrencesResult } from '../core/mrdsService';
 
 type Coordinate = { latitude: number; longitude: number };
 type DrawingType = 'none' | 'polygon' | 'rectangle';
@@ -205,6 +206,7 @@ export default function ProspectorDashboard() {
 
   const [analysisPoints, setAnalysisPoints] = useState<any[]>([]);
   const [zoneProspectivity, setZoneProspectivity] = useState<ZoneProspectivity | null>(null);
+  const [knownOccurrences, setKnownOccurrences] = useState<KnownOccurrencesResult | null>(null);
   // #7 — Ingresar coordenada de partida (decimal / GMS / UTM)
   const [showCoordModal, setShowCoordModal] = useState(false);
   const [coordInput, setCoordInput] = useState('');
@@ -968,6 +970,21 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         });
 
         setAnalysisPoints(finalPoints);
+
+        // #13 — Validación con yacimientos conocidos (USGS MRDS, base GLOBAL). No bloquea el análisis.
+        setKnownOccurrences(null);
+        (async () => {
+          try {
+            const oLats = coordsToUse.map((c: any) => c.latitude ?? c.lat).filter((n: any) => Number.isFinite(n)) as number[];
+            const oLngs = coordsToUse.map((c: any) => c.longitude ?? c.lng).filter((n: any) => Number.isFinite(n)) as number[];
+            if (oLats.length && oLngs.length) {
+              setKnownOccurrences(await fetchKnownOccurrences({
+                latMin: Math.min(...oLats), latMax: Math.max(...oLats),
+                lngMin: Math.min(...oLngs), lngMax: Math.max(...oLngs),
+              }));
+            }
+          } catch { /* MRDS no debe romper el análisis */ }
+        })();
         // Scores por metal desde los índices S2 REALES de los puntos analizados (no centroide sintético)
         setMetalScores(computeAllMetalScores(data.all_points || data.top_points, terrainType));
         const zonas: any[] = [];
@@ -1154,6 +1171,22 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             <Marker key={wp.id} coordinate={{ latitude: wp.lat || wp.latitude || 0, longitude: wp.lng || wp.longitude || 0 }} title="MUESTRA" description={wp.note}>
               <View style={styles.waypointMarker}>
                 <MaterialCommunityIcons name="pickaxe" size={20} color="#000" />
+              </View>
+            </Marker>
+          ))}
+
+          {/* #13 — Yacimientos conocidos USGS MRDS (validación global) */}
+          {knownOccurrences?.occurrences?.map((occ, i) => (
+            <Marker
+              key={`mrds-${i}`}
+              coordinate={{ latitude: occ.lat, longitude: occ.lng }}
+              anchor={{ x: 0.5, y: 0.5 }}
+              zIndex={60}
+              title={occ.name}
+              description={[occ.commodity, occ.status].filter(Boolean).join(' · ') || 'USGS MRDS'}
+            >
+              <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#4FC3F7', borderWidth: 1.5, borderColor: '#0A0A0A', justifyContent: 'center', alignItems: 'center' }}>
+                <MaterialCommunityIcons name="diamond-stone" size={13} color="#0A0A0A" />
               </View>
             </Marker>
           ))}
@@ -1505,6 +1538,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           metalScores={metalScores}
           analysisPoints={analysisPoints}
           zoneProspectivity={zoneProspectivity}
+          knownOccurrences={knownOccurrences}
           selectedMineral={selectedMineral}
           terrainType={terrainType}
           areaHa={areaHa}

@@ -6,6 +6,7 @@ import ScoreCard, { METAL_COLORS } from './ScoreCard';
 import { MetalScore } from '../core/GeologicalEngine';
 import { computeAdaptiveCellSize, type MiningSpectralResult } from '../core/SatelliteEngine';
 import { type ZoneProspectivity } from '../core/ConsensusFusion';
+import { type KnownOccurrencesResult } from '../core/mrdsService';
 import { Colors, Typography, Spacing, Radii, anomalyFromPct } from '../core/theme';
 
 // Puntos de confianza: ●●●○ etc. — independientes del color (color = favorabilidad)
@@ -19,6 +20,7 @@ interface ResultsPanelProps {
   metalScores: MetalScore[];
   analysisPoints: any[];
   zoneProspectivity?: ZoneProspectivity | null;
+  knownOccurrences?: KnownOccurrencesResult | null;
   selectedMineral: string;
   terrainType: string;
   areaHa: string;
@@ -28,7 +30,7 @@ interface ResultsPanelProps {
 }
 
 export default function ResultsPanel({
-  satelliteData, metalScores, analysisPoints, zoneProspectivity, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo,
+  satelliteData, metalScores, analysisPoints, zoneProspectivity, knownOccurrences, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo,
 }: ResultsPanelProps) {
   const [legendOpen, setLegendOpen] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -118,6 +120,38 @@ export default function ResultsPanel({
 
             <Text style={styles.heroDisclaimer}>
               Indicador exploratorio — requiere verificación en campo. No indica probabilidad de yacimiento, ley ni tonelaje.
+            </Text>
+          </View>
+        )}
+
+        {/* ── #13 — Yacimientos conocidos (USGS MRDS, validación global) ── */}
+        {knownOccurrences && (
+          <View style={{ backgroundColor: 'rgba(79,195,247,0.08)', borderWidth: 1, borderColor: 'rgba(79,195,247,0.4)', borderRadius: 8, marginHorizontal: 8, marginBottom: 8, padding: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+              <MaterialCommunityIcons name="diamond-stone" size={16} color="#4FC3F7" />
+              <Text style={{ color: '#4FC3F7', fontWeight: '700', fontSize: 12, marginLeft: 6, letterSpacing: 0.5 }}>YACIMIENTOS CONOCIDOS</Text>
+            </View>
+            {knownOccurrences.error ? (
+              <Text style={{ color: Colors.textSub, fontSize: 11 }}>No se pudo consultar la base de yacimientos ({knownOccurrences.error}).</Text>
+            ) : knownOccurrences.count === 0 ? (
+              <Text style={{ color: Colors.textSub, fontSize: 11 }}>Sin ocurrencias documentadas en esta zona — no implica ausencia de mineral.</Text>
+            ) : (
+              <>
+                <Text style={{ color: '#EDEDED', fontSize: 13, fontWeight: '600', marginBottom: 4 }}>
+                  {knownOccurrences.count}{knownOccurrences.capped ? '+' : ''} ocurrencia{knownOccurrences.count === 1 ? '' : 's'} documentada{knownOccurrences.count === 1 ? '' : 's'} cerca
+                </Text>
+                {knownOccurrences.occurrences.slice(0, 5).map((o, i) => (
+                  <Text key={i} style={{ color: Colors.textSub, fontSize: 11, marginBottom: 1 }} numberOfLines={1}>
+                    • {o.name}{o.commodity ? ` · ${o.commodity}` : ''}{o.status ? ` · ${o.status}` : ''}
+                  </Text>
+                ))}
+                {knownOccurrences.count > 5 && (
+                  <Text style={{ color: Colors.textSub, fontSize: 11, fontStyle: 'italic' }}>…y {knownOccurrences.count - 5} más (marcadores azules en el mapa).</Text>
+                )}
+              </>
+            )}
+            <Text style={{ color: Colors.textSub, fontSize: 9.5, marginTop: 6, lineHeight: 13 }}>
+              Fuente: USGS MRDS — base global, datos hasta ~2011. Fuera de EE.UU. la cobertura es la mejor disponible pero más dispersa. La ausencia de registros no implica ausencia de mineral.
             </Text>
           </View>
         )}
