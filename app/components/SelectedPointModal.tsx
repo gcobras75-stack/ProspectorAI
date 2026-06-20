@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import MapView from 'react-native-maps';
 import { findNearestCell, type MiningSpectralResult } from '../core/SatelliteEngine';
 import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct } from '../core/spectralHelpers';
 import { METAL_COLORS } from './ScoreCard';
+import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from '../core/indexGlossary';
 
 interface SelectedPointModalProps {
   selectedPoint: any;
@@ -18,9 +19,15 @@ interface SelectedPointModalProps {
 export default function SelectedPointModal({
   selectedPoint, satelliteData, selectedMineral, terrainType, mapRef, onClose, onSaveSample,
 }: SelectedPointModalProps) {
+  const [openIdx, setOpenIdx] = useState<string | null>(null);
+
   if (!selectedPoint) return null;
 
   const realScore = Math.round(selectedPoint.base_score || selectedPoint.score || 0);
+  const idx = selectedPoint.indices ?? null;
+  const measuredKeys = idx
+    ? S2_REAL_INDEX_KEYS.filter(k => typeof idx[k] === 'number')
+    : [];
   const { level: primLevel, color: primColor } = anomalyFromPct(realScore);
   const nearestCell = satelliteData?.cells?.length
     ? findNearestCell(selectedPoint.lat, selectedPoint.lng, satelliteData.cells)
@@ -102,6 +109,37 @@ export default function SelectedPointModal({
                     );
                   })}
               </>
+            )}
+
+            {/* Índices espectrales del punto — valores reales S2 + glosario tocable */}
+            {measuredKeys.length > 0 && (
+              <View style={styles.idxBox}>
+                <Text style={styles.idxTitle}>ÍNDICES ESPECTRALES — Sentinel-2</Text>
+                <Text style={styles.idxHint}>Toca un índice para ver qué significa</Text>
+                {measuredKeys.map(k => {
+                  const info = INDEX_GLOSSARY[k];
+                  const v = Math.max(0, Math.min(1, Number(idx[k]) || 0));
+                  const open = openIdx === k;
+                  return (
+                    <View key={k} style={styles.idxRow}>
+                      <TouchableOpacity activeOpacity={0.7} onPress={() => setOpenIdx(open ? null : k)}>
+                        <View style={styles.idxLabelRow}>
+                          <Text style={styles.idxLabel}>{info?.label ?? k}  {open ? '▲' : 'ⓘ'}</Text>
+                          <Text style={styles.idxVal}>{v.toFixed(2)}</Text>
+                        </View>
+                        <View style={styles.idxTrack}>
+                          <View style={[styles.idxFill, { width: `${Math.round(v * 100)}%` }]} />
+                        </View>
+                      </TouchableOpacity>
+                      {open && <Text style={styles.idxDetail}>{info?.detail}</Text>}
+                    </View>
+                  );
+                })}
+                <Text style={styles.idxNote}>
+                  Sin dato directo de Sentinel-2 (requiere ASTER/EMIT):{' '}
+                  {NON_S2_INDEX_KEYS.map(k => INDEX_GLOSSARY[k]?.label).join(' · ')}
+                </Text>
+              </View>
             )}
 
             <Text style={{ color: '#333', fontSize: 9, marginTop: 8, marginBottom: 16, fontStyle: 'italic' }}>
@@ -196,4 +234,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  idxBox: {
+    backgroundColor: '#0A0A0A',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#222',
+    padding: 12,
+    marginBottom: 12,
+  },
+  idxTitle: { color: '#888', fontSize: 9, letterSpacing: 0.8, fontWeight: '700' },
+  idxHint: { color: '#555', fontSize: 9, fontStyle: 'italic', marginTop: 2, marginBottom: 8 },
+  idxRow: { marginBottom: 9 },
+  idxLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  idxLabel: { color: '#FFD700', fontSize: 12, fontWeight: '700' },
+  idxVal: { color: '#CCC', fontSize: 11, fontFamily: 'monospace' },
+  idxTrack: { height: 5, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' },
+  idxFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: '#FFD700', borderRadius: 3, opacity: 0.85 },
+  idxDetail: { color: '#AAA', fontSize: 10, lineHeight: 14, marginTop: 5, fontStyle: 'italic' },
+  idxNote: { color: '#666', fontSize: 9, marginTop: 6, lineHeight: 13 },
 });

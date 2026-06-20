@@ -195,7 +195,25 @@ export function anomalyFromPct(pct: number) {
   return AnomalyLevel.low;
 }
 
+// ─── PROSPECTIVITY (Favorabilidad exploratoria) ──────────────────────────────
+// IMPORTANTE: escala de color INVERTIDA respecto al heatmap. Aquí alto = VERDE
+// (buena favorabilidad). El heatmap del mapa conserva rojo = anomalía intensa
+// vía anomalyFromPct() — NO mezclar las dos escalas.
+
+export const ProspectivityBand = {
+  strong:   { band: 'FUERTE'   as const, color: Colors.confirmed,   label: 'FAVORABILIDAD FUERTE',   minSignal: 65 },
+  moderate: { band: 'MODERADA' as const, color: Colors.anomalyMed,  label: 'FAVORABILIDAD MODERADA', minSignal: 35 },
+  weak:     { band: 'DEBIL'    as const, color: Colors.anomalyHigh, label: 'FAVORABILIDAD DÉBIL',    minSignal:  0 },
+} as const;
+
+/** Mapea la SEÑAL (0-100) a su banda/color/etiqueta. Color invertido (alto=verde). */
+export function prospectivityFromSignal(signal: number) {
+  if (signal >= ProspectivityBand.strong.minSignal)   return ProspectivityBand.strong;
+  if (signal >= ProspectivityBand.moderate.minSignal) return ProspectivityBand.moderate;
+  return ProspectivityBand.weak;
+}
+
 // ─── CONVENIENCE RE-EXPORT ───────────────────────────────────────────────────
 
-const Theme = { Colors, Typography, Spacing, Radii, Touch, Shadows, Animation, ConsensusBadge, AnomalyLevel, anomalyFromPct };
+const Theme = { Colors, Typography, Spacing, Radii, Touch, Shadows, Animation, ConsensusBadge, AnomalyLevel, anomalyFromPct, ProspectivityBand, prospectivityFromSignal };
 export default Theme;

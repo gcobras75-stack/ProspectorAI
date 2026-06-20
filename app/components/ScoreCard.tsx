@@ -80,10 +80,16 @@ export default function ScoreCard({
 
       {/* ── Anomaly bar ──────────────────────────────────────────────────── */}
       <View style={styles.barSection}>
-        <Text style={styles.barLabel}>ANOMALÍA DE ALTERACIÓN</Text>
+        <View style={styles.barHeaderRow}>
+          <Text style={styles.barLabel}>SEÑAL ESPECTRAL DE ALTERACIÓN</Text>
+          <Text style={[styles.barScoreVal, { color: levelColor }]}>{pct}/100</Text>
+        </View>
         <View style={styles.track}>
           <View style={[styles.barFill, { width: barWidth, backgroundColor: levelColor }]} />
         </View>
+        <Text style={styles.scaleNote}>
+          {'Señal espectral 0–100 · alto ≥65 · medio 35–64 · bajo <35 · no es probabilidad de yacimiento ni ley/tonelaje'}
+        </Text>
         {regionalAvg !== undefined && (
           <Text style={styles.regionalNote}>
             {pointScore >= regionalAvg
@@ -166,7 +172,24 @@ const styles = StyleSheet.create({
     color: Colors.textDim,
     ...Typography.micro,
     letterSpacing: 0.8,
+    flex: 1,
+  },
+  barHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
     marginBottom: 5,
+  },
+  barScoreVal: {
+    fontWeight: '900',
+    ...Typography.body,
+    marginLeft: 8,
+  },
+  scaleNote: {
+    color: Colors.textDim,
+    ...Typography.micro,
+    marginTop: 5,
+    lineHeight: 14,
   },
   track: {
     width: '100%',

@@ -15,6 +15,9 @@ import {
   saveSampleResena,
 } from './Database';
 import { generateReportSection, generateSampleResena } from './ClaudeServices';
+import type { ZoneProspectivity } from './ConsensusFusion';
+import type { MetalScore } from './GeologicalEngine';
+import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from './indexGlossary';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,6 +46,10 @@ export interface ReportInput {
   lng_min: number;
   lng_max: number;
   geeServerUrl: string;
+  /** Favorabilidad de zona (SEÑAL + CONFIANZA). Opcional: si no se pasa, la sección se omite. */
+  zoneProspectivity?: ZoneProspectivity | null;
+  /** Scores por metal (con requires_deep). Opcional: si no se pasa, la sección se omite. */
+  metalScores?: MetalScore[];
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +184,47 @@ const CSS = `
   /* ── Disclaimer ── */
   .disclaimer p { color: #555; font-size: 13px; line-height: 1.9; }
   .disclaimer h2 { color: #999; }
+
+  /* ── Favorabilidad / medidores ── */
+  .fav-band { font-size: 26px; font-weight: 900; letter-spacing: 1px; margin: 4px 0 18px; }
+  .meter { margin: 0 0 16px; }
+  .meter-label { font-size: 13px; font-weight: 700; color: #333; margin-bottom: 5px; display: flex; justify-content: space-between; }
+  .meter-label span { color: #666; font-weight: 600; }
+  .meter-bar { width: 100%; height: 14px; background: #ECECEC; border-radius: 7px; overflow: hidden; }
+  .meter-fill { height: 100%; border-radius: 7px; }
+  .why-cols { display: flex; gap: 24px; margin-top: 18px; }
+  .why-col { flex: 1; }
+  .why-col h3 { font-size: 13px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .5px; }
+  .why-col ul { margin: 0; padding-left: 4px; list-style: none; }
+  .why-plus { color: #2e7d32; font-size: 12px; line-height: 1.7; }
+  .why-minus { color: #c62828; font-size: 12px; line-height: 1.7; }
+  .why-none { color: #aaa; font-size: 12px; }
+  .fav-rel { font-size: 12px; color: #555; font-style: italic; margin-top: 6px; }
+  .fav-note { font-size: 11px; color: #666; margin-top: 18px; line-height: 1.7; border-top: 1px solid #eee; padding-top: 10px; }
+
+  /* ── Índices interpretados ── */
+  .idx-row { margin: 0 0 12px; }
+  .idx-head { display: flex; justify-content: space-between; font-size: 13px; }
+  .idx-name { font-weight: 700; color: #222; }
+  .idx-val { color: #666; font-weight: 600; }
+  .idx-bar { width: 100%; height: 10px; background: #ECECEC; border-radius: 5px; overflow: hidden; margin: 4px 0; }
+  .idx-fill { height: 100%; background: #C49B0B; border-radius: 5px; }
+  .idx-fill-deep { background: #00838F; }
+  .idx-desc { font-size: 11px; color: #777; }
+  .idx-missing { font-size: 11px; color: #666; background: #FAFAFA; border-left: 3px solid #BBB; padding: 10px 12px; margin-top: 14px; line-height: 1.6; }
+  .pill { display: inline-block; font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 8px; vertical-align: middle; }
+  .pill-deep { background: #00838F; color: #fff; }
+
+  /* ── Metales ── */
+  .metal-grid { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; }
+  .metal-card { flex: 1 1 30%; min-width: 150px; border: 1px solid #E2E2E2; border-radius: 8px; padding: 14px; background: #FCFCFC; }
+  .metal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .metal-icon { font-size: 20px; }
+  .metal-label { font-weight: 700; font-size: 14px; color: #222; }
+  .metal-score { font-size: 26px; font-weight: 900; color: #1A1A1A; }
+  .metal-note { font-size: 10px; color: #999; margin-top: 6px; }
+  .metal-deep { font-size: 13px; font-weight: 700; color: #00838F; background: #E0F2F4; padding: 6px 8px; border-radius: 5px; }
+  .metal-warn { font-size: 10px; color: #e65100; margin-top: 6px; }
 </style>
 `;
 
@@ -294,6 +342,141 @@ function buildSamplePages(muestras: any[]): string {
     pages += `<div class="page"><h2>Evidencia de Campo</h2>${pairHtml}</div>`;
   }
   return pages;
+}
+
+// ---------------------------------------------------------------------------
+// Resumen ejecutivo — Favorabilidad (SEÑAL + CONFIANZA, nunca un % único)
+// ---------------------------------------------------------------------------
+
+function confidenceDots(label: string): string {
+  return label === 'ALTA' ? '●●●○' : label === 'MEDIA' ? '●●○○' : '●○○○';
+}
+
+function buildFavorabilidadSection(zp?: ZoneProspectivity | null): string {
+  if (!zp) return '';
+  const clamp = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
+  const plus  = (zp.reasons_plus  || []).map(r => `<li class="why-plus">+ ${r}</li>`).join('');
+  const minus = (zp.reasons_minus || []).map(r => `<li class="why-minus">− ${r}</li>`).join('');
+  const relLine = (typeof zp.relative_percentile === 'number')
+    ? `<p class="fav-rel">Entre tus zonas analizadas, esta queda en el percentil ${zp.relative_percentile}.</p>`
+    : '';
+  return `
+<!-- ══════ RESUMEN EJECUTIVO ══════ -->
+<div class="page">
+  <h2>Resumen Ejecutivo — Favorabilidad Exploratoria</h2>
+  <div class="fav-band" style="color:${zp.band_color}">${zp.band_label}</div>
+  <div class="meter">
+    <div class="meter-label"><span style="color:#333">SEÑAL espectral</span><span>${clamp(zp.signal)}/100</span></div>
+    <div class="meter-bar"><div class="meter-fill" style="width:${clamp(zp.signal)}%;background:${zp.band_color}"></div></div>
+  </div>
+  <div class="meter">
+    <div class="meter-label"><span style="color:#333">CONFIANZA</span><span>${zp.confidence_label} ${confidenceDots(zp.confidence_label)}</span></div>
+    <div class="meter-bar"><div class="meter-fill" style="width:${clamp(zp.confidence)}%;background:#888"></div></div>
+  </div>
+  ${relLine}
+  <div class="why-cols">
+    <div class="why-col"><h3 style="color:#2e7d32">Por qué suma</h3><ul>${plus || '<li class="why-none">—</li>'}</ul></div>
+    <div class="why-col"><h3 style="color:#c62828">Por qué resta</h3><ul>${minus || '<li class="why-none">—</li>'}</ul></div>
+  </div>
+  <p class="fav-note">La <strong>favorabilidad exploratoria</strong> expresa qué tan compatible es la firma espectral con rasgos de alteración del metal objetivo, y con cuánta confianza. <strong>No es una probabilidad de yacimiento</strong> ni indica ley, tonelaje o profundidad.</p>
+</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Índices espectrales interpretados (glosario; marca lo no medido)
+// ---------------------------------------------------------------------------
+
+function buildIndicesSection(points: any[]): string {
+  const pts = (points || []).filter(p => p && p.indices);
+  if (pts.length === 0) return '';
+
+  const avg = (key: string, onlyPositive = false): number | null => {
+    let sum = 0, n = 0;
+    for (const p of pts) {
+      const v = Number(p.indices?.[key]);
+      if (!Number.isFinite(v)) continue;
+      if (onlyPositive && v <= 0) continue;
+      sum += v; n++;
+    }
+    return n > 0 ? sum / n : null;
+  };
+  const anyEnriched = (key: string) =>
+    pts.some(p => Array.isArray(p.enriched_indices) && p.enriched_indices.includes(key));
+
+  const realRows = (S2_REAL_INDEX_KEYS as readonly string[]).map(key => {
+    const a = avg(key);
+    if (a == null) return '';
+    const info = INDEX_GLOSSARY[key];
+    const pct = Math.round(Math.max(0, Math.min(1, a)) * 100);
+    return `<div class="idx-row">
+      <div class="idx-head"><span class="idx-name">${info?.label || key}</span><span class="idx-val">${pct}%</span></div>
+      <div class="idx-bar"><div class="idx-fill" style="width:${pct}%"></div></div>
+      <div class="idx-desc">${info?.short || ''}</div>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  const enrichedRows: string[] = [];
+  const missing: string[] = [];
+  for (const key of (NON_S2_INDEX_KEYS as readonly string[])) {
+    const info = INDEX_GLOSSARY[key];
+    if (anyEnriched(key)) {
+      const a = avg(key, true);
+      const pct = a != null ? Math.round(Math.max(0, Math.min(1, a)) * 100) : 0;
+      enrichedRows.push(`<div class="idx-row">
+        <div class="idx-head"><span class="idx-name">${info?.label || key} <span class="pill pill-deep">ASTER/EMIT</span></span><span class="idx-val">${pct}%</span></div>
+        <div class="idx-bar"><div class="idx-fill idx-fill-deep" style="width:${pct}%"></div></div>
+        <div class="idx-desc">${info?.short || ''}</div>
+      </div>`);
+    } else {
+      missing.push(info?.label || key);
+    }
+  }
+
+  const missingHtml = missing.length
+    ? `<p class="idx-missing"><strong>Sin dato directo de Sentinel-2 (requiere ASTER/EMIT):</strong> ${missing.join(' · ')}. No se reportan como medición — la ausencia de valor no implica ausencia del mineral.</p>`
+    : '';
+
+  return `
+<!-- ══════ ÍNDICES ESPECTRALES ══════ -->
+<div class="page">
+  <h2>Índices Espectrales Interpretados</h2>
+  <p>Promedio de los índices de alteración sobre los puntos analizados. Solo se reportan como <strong>medidos</strong> los índices con respaldo satelital real (Sentinel-2, o ASTER/EMIT donde hubo cobertura).</p>
+  ${realRows}
+  ${enrichedRows.join('')}
+  ${missingHtml}
+</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Favorabilidad por metal (MetalScore; requires_deep → "Requiere ASTER/EMIT")
+// ---------------------------------------------------------------------------
+
+function buildMetalsSection(metalScores?: MetalScore[]): string {
+  const ms = metalScores || [];
+  if (ms.length === 0) return '';
+  const cards = ms.map(m => {
+    const valueHtml = m.requires_deep
+      ? `<div class="metal-deep">Requiere ASTER/EMIT</div>`
+      : `<div class="metal-score">${Math.round(m.score_percent)}%</div>`;
+    const synth = (m.synthetic_weight_pct && m.synthetic_weight_pct > 0 && !m.requires_deep)
+      ? `<div class="metal-note">${m.synthetic_weight_pct}% del modelo no es medible por Sentinel-2</div>`
+      : '';
+    const warn = m.warning ? `<div class="metal-warn">${m.warning}</div>` : '';
+    return `<div class="metal-card">
+      <div class="metal-head"><span class="metal-icon">${m.icon || '⛏️'}</span><span class="metal-label">${m.label || m.metal}</span></div>
+      ${valueHtml}
+      ${synth}
+      ${warn}
+    </div>`;
+  }).join('');
+  return `
+<!-- ══════ FAVORABILIDAD POR METAL ══════ -->
+<div class="page">
+  <h2>Favorabilidad por Metal</h2>
+  <p>Calculada desde los mismos índices espectrales reales, con la ponderación de cada metal. Los metales sin firma óptica directa (sulfuros) se marcan <strong>"Requiere ASTER/EMIT"</strong> en vez de un número engañoso.</p>
+  <div class="metal-grid">${cards}</div>
+  <p class="idx-missing">Valores de <strong>favorabilidad exploratoria</strong> (compatibilidad espectral), no probabilidad de yacimiento, ley ni tonelaje.</p>
+</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -461,6 +644,8 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
   <p class="logo-line">Generado por ProspectorAI · Dr. Marco Ruiz · ${fechaGeneracion}</p>
 </div>
 
+${buildFavorabilidadSection(input.zoneProspectivity)}
+
 <!-- ══════ MAPA DE ANOMALÍAS ══════ -->
 <div class="page">
   <h2>Mapa de Anomalías</h2>
@@ -502,10 +687,13 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
   </table>
 </div>
 
+${buildIndicesSection(input.analysisPoints)}
+${buildMetalsSection(input.metalScores)}
+
 <!-- ══════ DR. MARCO RUIZ ══════ -->
 <div class="page">
   <h2>Interpretación del Geólogo</h2>
-  <div class="section-label">Dr. Marco Ruiz · Geólogo Explorador · ProspectorAI · ${fechaGeneracion}</div>
+  <div class="section-label">Dr. Marco Ruiz · Geólogo Explorador · Interpretación asistida por IA · ${fechaGeneracion}</div>
   <h3>Resumen Ejecutivo</h3>
   <p>${resumenEjec.replace(/\n/g, '<br />')}</p>
   <h3>Interpretación Geológica</h3>
@@ -529,6 +717,10 @@ ${buildSamplePages(muestras)}
   presencia de minerales económicamente explotables. Los patrones espectrales identificados
   son compatibles con ciertos tipos de alteración hidrotermal o mineralización, pero
   su presencia económica debe confirmarse mediante métodos directos.</p>
+  <p>Los valores de favorabilidad (SEÑAL y CONFIANZA) <strong>no representan una probabilidad
+  de yacimiento</strong> ni indican ley, tonelaje o profundidad. La interpretación del
+  "Dr. Marco Ruiz" es generada con asistencia de inteligencia artificial y debe ser revisada
+  por un geólogo profesional colegiado antes de cualquier decisión de inversión.</p>
   <p style="color:#999;font-size:11px;margin-top:30px">ProspectorAI · Análisis satelital con Sentinel-2, ASTER y EMIT · ${fechaGeneracion}</p>
 </div>
 

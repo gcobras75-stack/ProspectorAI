@@ -1,5 +1,7 @@
 import { MiningSpectralResult, AsterSpectralResult, AsterSpectralCell, StructuralResult, StructuralCell, EmitSpectralResult, EmitSpectralCell, findNearestCell } from './SatelliteEngine';
 import { cellAnomalyScore } from './spectralHelpers';
+import { METAL_WEIGHTS, SYNTHETIC_INDEX_KEYS } from './GeologicalEngine';
+import { prospectivityFromSignal } from './theme';
 
 export type ConsensusLevel = 'PRIORITY_TARGET' | 'TRIPLE_SPECTRAL' | 'CONFIRMED' | 'SINGLE' | 'VEGETATION' | 'NO_DATA';
 
@@ -156,4 +158,193 @@ export function fuseAnalysisPoints(
   fused.forEach((p, i) => { p.rank = i + 1; });
 
   return fused;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ÍNDICE DE FAVORABILIDAD EXPLORATORIA (Zone Prospectivity)
+// ─────────────────────────────────────────────────────────────────────────────
+// Diseño "council": separa SEÑAL (qué tan fuerte/extensa es la firma de
+// alteración) de CONFIANZA (qué tan fiable es esa lectura). NUNCA se combinan en
+// un solo porcentaje, NUNCA se usa la palabra "probabilidad".
+//   • SEÑAL  → usa base_score CRUDO (sin boost de consenso, para no contar el
+//              consenso dos veces; el boost 1.15/1.20/1.25 ya vive en boostedScore).
+//   • CONFIANZA → única sede del consenso multi-sensor + cobertura + vegetación +
+//              proxies sintéticos + nubes + antigüedad de la imagen.
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface ZoneProspectivity {
+  // Salidas separadas (NUNCA un solo % combinado)
+  signal: number;            // 0-100 SEÑAL espectral (sin boost de consenso)
+  confidence: number;        // 0-100 CONFIANZA (fiabilidad de la lectura)
+  confidence_label: 'ALTA' | 'MEDIA' | 'BAJA';
+  band: 'FUERTE' | 'MODERADA' | 'DEBIL';
+  band_label: string;        // p.ej. "FAVORABILIDAD FUERTE"
+  band_color: string;        // color invertido (alto = verde)
+  relative_percentile?: number; // rango ordinal vs zonas previas (solo si ≥3)
+  // Trazabilidad / "por qué"
+  n_points: number;
+  top_score: number;
+  consensus_breakdown: Partial<Record<ConsensusLevel, number>>;
+  n_sensors: number;
+  vegetation_pct: number;        // % puntos enmascarados por vegetación (NDVI>0.55)
+  simulated_pct: number;         // % puntos sin celda satelital (fuera de cobertura)
+  synthetic_weight_pct: number;  // % del peso del metal que recae en proxies sintéticos
+  coverage_pct: number;
+  cloud_cover: number;
+  data_source: string;
+  cache_age_days?: number;
+  reasons_plus: string[];
+  reasons_minus: string[];
+}
+
+// ─── Constantes tuneables (heurísticas, SIN calibración de campo) ────────────
+// Aprobadas por el dueño como ajustables/documentadas. No son tasas de éxito.
+export const PROSPECTIVITY_SIGNAL_THRESHOLDS = { strong: 65, moderate: 35 } as const;
+export const CONFIDENCE_LABEL_THRESHOLDS = { alta: 66, media: 40 } as const;
+export const CONFIDENCE_WEIGHTS = { coverage: 0.30, sensors: 0.25, consensus: 0.20, cleanliness: 0.15, clouds: 0.10 } as const;
+export const SENSOR_CONFIDENCE_SCORE: Record<number, number> = { 0: 0, 1: 40, 2: 70, 3: 90, 4: 100 };
+export const CACHED_STALE_DAYS = 90;
+export const CACHED_STALE_PENALTY = 10;
+export const SIGNAL_STRONG_REASON_MIN = 50;
+
+export interface ZoneProspectivityOpts {
+  metal?: string;
+  /** Señales de zonas previas del usuario, para el rango relativo ordinal. */
+  previousSignals?: number[];
+}
+
+export function computeZoneProspectivity(
+  points: Array<{
+    lat: number; lng: number; rank?: number; base_score?: number;
+    consensus?: ConsensusLevel; asterScore?: number | null; emitScore?: number | null;
+    structuralScore?: number | null; near_lineament?: boolean; [k: string]: any;
+  }>,
+  satData: MiningSpectralResult,
+  opts: ZoneProspectivityOpts = {}
+): ZoneProspectivity {
+  const clampPct = (v: number) => Math.max(0, Math.min(100, v));
+  const metal = (opts.metal || 'oro').toLowerCase();
+
+  // Fracción del peso del metal que recae en índices sintéticos (no medición real)
+  const w = METAL_WEIGHTS[metal] || {};
+  let syntheticWeight = 0;
+  for (const k of SYNTHETIC_INDEX_KEYS) syntheticWeight += (w as any)[k] || 0;
+  const synthetic_weight_pct = Math.round(syntheticWeight * 100);
+
+  const coverage_pct = clampPct(satData?.coverage_pct ?? 0);
+  const cloud_cover  = clampPct(satData?.cloud_cover ?? 0);
+  const data_source  = satData?.data_source ?? '';
+  const cache_age_days = satData?.cache_age_days;
+
+  const valid = points.filter(p => Number.isFinite(p.base_score));
+  const n_points = valid.length;
+
+  if (n_points === 0) {
+    const b0 = prospectivityFromSignal(0);
+    return {
+      signal: 0, confidence: 0, confidence_label: 'BAJA',
+      band: b0.band, band_label: b0.label, band_color: b0.color,
+      n_points: 0, top_score: 0, consensus_breakdown: {}, n_sensors: 1,
+      vegetation_pct: 0, simulated_pct: 0, synthetic_weight_pct,
+      coverage_pct, cloud_cover, data_source, cache_age_days,
+      reasons_plus: [], reasons_minus: ['Sin puntos analizables en la zona'],
+    };
+  }
+
+  // ── SEÑAL: media ponderada por rango de base_score CRUDO (premia los picos) ──
+  let num = 0, den = 0, top_score = 0;
+  valid.forEach((p, i) => {
+    const rank = (p.rank && p.rank > 0) ? p.rank : (i + 1);
+    const sc = Math.max(0, Math.min(100, p.base_score as number));
+    const wi = 1 / rank;
+    num += sc * wi; den += wi;
+    if (sc > top_score) top_score = sc;
+  });
+  const signal = clampPct(Math.round(den > 0 ? num / den : 0));
+
+  // ── Vegetación / sin cobertura (ambos = punto totalmente simulado en el motor) ──
+  const cells = satData?.cells ?? [];
+  let masked = 0, noCell = 0;
+  for (const p of valid) {
+    const cell = cells.length ? findNearestCell(p.lat, p.lng, cells) : null;
+    if (!cell) noCell++;
+    else if (cell.masked_by_vegetation) masked++;
+  }
+  const vegetation_pct = Math.round((masked / n_points) * 100);
+  const simulated_pct  = Math.round((noCell / n_points) * 100);
+
+  // ── Consenso (solo informativo / alimenta CONFIANZA, no la SEÑAL) ──
+  const consensus_breakdown: Partial<Record<ConsensusLevel, number>> = {};
+  let strongConsensus = 0, hasConsensusField = false;
+  for (const p of valid) {
+    if (p.consensus) {
+      hasConsensusField = true;
+      consensus_breakdown[p.consensus] = (consensus_breakdown[p.consensus] || 0) + 1;
+      if (p.consensus === 'CONFIRMED' || p.consensus === 'TRIPLE_SPECTRAL' || p.consensus === 'PRIORITY_TARGET') strongConsensus++;
+    }
+  }
+
+  // ── Nº de sensores con señal REAL (S2 siempre; +ASTER +EMIT +Estructura) ──
+  let n_sensors = 1;
+  if (valid.some(p => p.asterScore != null)) n_sensors++;
+  if (valid.some(p => p.emitScore != null)) n_sensors++;
+  if (valid.some(p => p.near_lineament || p.structuralScore != null)) n_sensors++;
+
+  // ── CONFIANZA (única sede del consenso) ──
+  const coberturaScore = coverage_pct;
+  const sensoresScore  = SENSOR_CONFIDENCE_SCORE[Math.min(4, n_sensors)] ?? 40;
+  const consensoScore  = hasConsensusField ? clampPct(100 * (strongConsensus / n_points)) : 0;
+  const limpiezaScore  = clampPct(100 - vegetation_pct - simulated_pct - synthetic_weight_pct);
+  const nubesScore     = clampPct(100 - cloud_cover);
+  let confidence = Math.round(
+    CONFIDENCE_WEIGHTS.coverage    * coberturaScore +
+    CONFIDENCE_WEIGHTS.sensors     * sensoresScore +
+    CONFIDENCE_WEIGHTS.consensus   * consensoScore +
+    CONFIDENCE_WEIGHTS.cleanliness * limpiezaScore +
+    CONFIDENCE_WEIGHTS.clouds      * nubesScore
+  );
+  if (data_source === 'SENTINEL2_CACHED' && (cache_age_days ?? 0) > CACHED_STALE_DAYS) {
+    confidence -= CACHED_STALE_PENALTY;
+  }
+  confidence = clampPct(confidence);
+  const confidence_label: 'ALTA' | 'MEDIA' | 'BAJA' =
+    confidence >= CONFIDENCE_LABEL_THRESHOLDS.alta  ? 'ALTA' :
+    confidence >= CONFIDENCE_LABEL_THRESHOLDS.media ? 'MEDIA' : 'BAJA';
+
+  const bandInfo = prospectivityFromSignal(signal);
+
+  // ── Rango relativo ordinal (solo si ≥3 zonas previas; nunca "promedio regional" inventado) ──
+  let relative_percentile: number | undefined;
+  const prev = (opts.previousSignals ?? []).filter(s => Number.isFinite(s));
+  if (prev.length >= 3) {
+    const below = prev.filter(s => s <= signal).length;
+    relative_percentile = Math.round((below / prev.length) * 100);
+  }
+
+  // ── "Por qué" — solo desde datos reales ──
+  const reasons_plus: string[] = [];
+  const reasons_minus: string[] = [];
+  if (signal >= SIGNAL_STRONG_REASON_MIN)               reasons_plus.push('Firma de óxido de hierro / arcillas clara');
+  if (valid.some(p => p.near_lineament))                reasons_plus.push('Coincide con falla / lineamiento');
+  if (n_sensors >= 2)                                   reasons_plus.push(`${n_sensors} satélites coinciden`);
+  if (hasConsensusField && strongConsensus / n_points >= 0.3) reasons_plus.push('Anomalía extensa y consistente');
+
+  if (vegetation_pct > 20)        reasons_minus.push(`Parte cubierta de vegetación (${vegetation_pct}%)`);
+  if (simulated_pct > 0)          reasons_minus.push(`${simulated_pct}% sin dato satelital directo (estimado)`);
+  if (synthetic_weight_pct > 0)   reasons_minus.push(`Parte del cálculo de ${metal} usa proxies sintéticos (${synthetic_weight_pct}%)`);
+  if (n_sensors === 1)            reasons_minus.push('Una sola fuente satelital');
+  if (cloud_cover > 20)           reasons_minus.push(`Nubosidad ${Math.round(cloud_cover)}%`);
+  if (data_source === 'SENTINEL2_CACHED' && (cache_age_days ?? 0) > CACHED_STALE_DAYS) reasons_minus.push(`Imagen de hace ${cache_age_days} días`);
+  reasons_minus.push('Sin verificación de campo aún');
+
+  return {
+    signal, confidence, confidence_label,
+    band: bandInfo.band, band_label: bandInfo.label, band_color: bandInfo.color,
+    relative_percentile,
+    n_points, top_score: Math.round(top_score),
+    consensus_breakdown, n_sensors,
+    vegetation_pct, simulated_pct, synthetic_weight_pct,
+    coverage_pct, cloud_cover, data_source, cache_age_days,
+    reasons_plus, reasons_minus,
+  };
 }

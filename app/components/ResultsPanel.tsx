@@ -5,12 +5,20 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ScoreCard, { METAL_COLORS } from './ScoreCard';
 import { MetalScore } from '../core/GeologicalEngine';
 import { computeAdaptiveCellSize, type MiningSpectralResult } from '../core/SatelliteEngine';
+import { type ZoneProspectivity } from '../core/ConsensusFusion';
 import { Colors, Typography, Spacing, Radii, anomalyFromPct } from '../core/theme';
+
+// Puntos de confianza: ●●●○ etc. — independientes del color (color = favorabilidad)
+const confidenceDots = (label: 'ALTA' | 'MEDIA' | 'BAJA') => {
+  const filled = label === 'ALTA' ? 3 : label === 'MEDIA' ? 2 : 1;
+  return '●'.repeat(filled) + '○'.repeat(4 - filled);
+};
 
 interface ResultsPanelProps {
   satelliteData: MiningSpectralResult | null;
   metalScores: MetalScore[];
   analysisPoints: any[];
+  zoneProspectivity?: ZoneProspectivity | null;
   selectedMineral: string;
   terrainType: string;
   areaHa: string;
@@ -20,7 +28,7 @@ interface ResultsPanelProps {
 }
 
 export default function ResultsPanel({
-  satelliteData, metalScores, analysisPoints, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo,
+  satelliteData, metalScores, analysisPoints, zoneProspectivity, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo,
 }: ResultsPanelProps) {
   const [legendOpen, setLegendOpen] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -55,6 +63,64 @@ export default function ResultsPanel({
       </View>
 
       <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
+
+        {/* ── TARJETA HÉROE — Favorabilidad exploratoria (SEÑAL + CONFIANZA) ── */}
+        {zoneProspectivity && (
+          <View style={[styles.heroCard, { borderColor: zoneProspectivity.band_color }]}>
+            <View style={styles.heroTop}>
+              <View style={[styles.heroRing, { borderColor: zoneProspectivity.band_color }]}>
+                <Text style={[styles.heroNum, { color: zoneProspectivity.band_color }]}>{zoneProspectivity.signal}</Text>
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={[styles.heroBand, { color: zoneProspectivity.band_color }]}>{zoneProspectivity.band_label}</Text>
+                <Text style={styles.heroSub}>solo {selectedMineral} · no es probabilidad de yacimiento</Text>
+              </View>
+            </View>
+
+            {/* SEÑAL */}
+            <View style={styles.meterRow}>
+              <Text style={styles.meterLabel}>SEÑAL</Text>
+              <View style={styles.meterTrack}>
+                <View style={[styles.meterFill, { width: `${zoneProspectivity.signal}%`, backgroundColor: zoneProspectivity.band_color }]} />
+              </View>
+              <Text style={[styles.meterVal, { color: zoneProspectivity.band_color }]}>{zoneProspectivity.signal}</Text>
+            </View>
+            {/* CONFIANZA — puntos, color neutro (color = favorabilidad, no confianza) */}
+            <View style={styles.meterRow}>
+              <Text style={styles.meterLabel}>CONFIANZA</Text>
+              <View style={styles.meterTrack}>
+                <View style={[styles.meterFill, { width: `${zoneProspectivity.confidence}%`, backgroundColor: Colors.textSub }]} />
+              </View>
+              <Text style={styles.meterDots}>{confidenceDots(zoneProspectivity.confidence_label)}</Text>
+            </View>
+
+            {typeof zoneProspectivity.relative_percentile === 'number' && (
+              <Text style={styles.heroRel}>
+                Entre tus zonas analizadas, esta queda en el percentil {zoneProspectivity.relative_percentile}
+              </Text>
+            )}
+
+            {/* POR QUÉ */}
+            {(zoneProspectivity.reasons_plus.length > 0 || zoneProspectivity.reasons_minus.length > 0) && (
+              <View style={styles.whyRow}>
+                <View style={styles.whyCol}>
+                  <Text style={styles.whyHeadPlus}>SUMA +</Text>
+                  {zoneProspectivity.reasons_plus.length > 0
+                    ? zoneProspectivity.reasons_plus.map((r, i) => (<Text key={i} style={styles.whyPlus}>+ {r}</Text>))
+                    : <Text style={styles.whyDim}>—</Text>}
+                </View>
+                <View style={styles.whyCol}>
+                  <Text style={styles.whyHeadMinus}>RESTA −</Text>
+                  {zoneProspectivity.reasons_minus.map((r, i) => (<Text key={i} style={styles.whyMinus}>− {r}</Text>))}
+                </View>
+              </View>
+            )}
+
+            <Text style={styles.heroDisclaimer}>
+              Indicador exploratorio — requiere verificación en campo. No indica probabilidad de yacimiento, ley ni tonelaje.
+            </Text>
+          </View>
+        )}
 
         {/* Satellite source label */}
         {satelliteData && (
@@ -110,6 +176,7 @@ export default function ResultsPanel({
               { label: '🌈 3×', desc: 'Tres satélites (S2 + ASTER + EMIT) de acuerdo — alta confianza espectral' },
               { label: '✅ CONF.', desc: 'Dos satélites (S2 + ASTER) coinciden — buena señal, merece visita' },
               { label: 'INDIVIDUAL', desc: 'Solo una fuente detectó anomalía — explorar con precaución' },
+              { label: 'Señal 0–100', desc: 'Intensidad de alteración espectral — NO es probabilidad de yacimiento, ley ni tonelaje' },
               { label: 'ALTA ≥65%', desc: 'Alteración espectral significativa' },
               { label: 'MEDIA 35–64%', desc: 'Señal moderada' },
               { label: `Malla ${csmLabel || '60 m'}`, desc: 'Tamaño de cada cuadro del análisis espectral' },
@@ -148,6 +215,16 @@ export default function ResultsPanel({
             <Text style={styles.assocTitle}>ASOCIACIONES DEL MISMO PATRÓN ESPECTRAL</Text>
             <View style={styles.assocChips}>
               {metalScores.filter(ms => ms.metal !== selectedMineral).map(ms => {
+                // Metal sin proxy óptico real en S2 → no mostramos número engañoso
+                if (ms.requires_deep) {
+                  return (
+                    <View key={ms.metal} style={[styles.assocChip, { borderColor: Colors.textSub, backgroundColor: `${Colors.textSub}14` }]}>
+                      <Text style={{ fontSize: 12 }}>{ms.icon}</Text>
+                      <Text style={{ color: Colors.text, ...Typography.caption, fontWeight: '700', marginLeft: 4 }}>{ms.label}</Text>
+                      <Text style={{ color: Colors.textSub, ...Typography.caption, fontWeight: '800', marginLeft: 4 }}>Requiere ASTER/EMIT</Text>
+                    </View>
+                  );
+                }
                 const pct   = Math.round((ms.score_poligono / (ms.score_maximo ?? 100)) * 100);
                 const anomaly = anomalyFromPct(pct);
                 const col   = anomaly.color;
@@ -174,6 +251,9 @@ export default function ResultsPanel({
                 ZONAS PRIORITARIAS — {selectedMineral.toUpperCase()} {terrainType.toUpperCase()}
               </Text>
             </View>
+            <Text style={{ color: Colors.textDim, fontSize: 11, paddingHorizontal: 2, marginBottom: 8, lineHeight: 15 }}>
+              Señal espectral 0–100 — no es probabilidad de yacimiento. Toca un punto para ver sus índices.
+            </Text>
             {analysisPoints.slice(0, 20).map((p, i) => {
               const score = Math.round(p.score || p.base_score || 0);
               const pct = Math.round((score / selGlobalMax) * 100);
@@ -241,6 +321,38 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: 10, borderBottomWidth: 1, borderBottomColor: Colors.primary, paddingBottom: 8,
   },
+  // ── Tarjeta héroe — Favorabilidad exploratoria ──
+  heroCard: {
+    backgroundColor: Colors.surface2,
+    borderWidth: 1.5,
+    borderRadius: Radii.lg,
+    padding: 12,
+    marginHorizontal: 8,
+    marginBottom: 10,
+  },
+  heroTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  heroRing: {
+    width: 64, height: 64, borderRadius: 32, borderWidth: 3,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.bg,
+  },
+  heroNum: { fontSize: 24, fontWeight: '900' },
+  heroBand: { ...Typography.title, fontWeight: '900' },
+  heroSub: { color: Colors.textSub, ...Typography.caption, marginTop: 2 },
+  meterRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+  meterLabel: { color: Colors.textSub, ...Typography.caption, fontWeight: '700', width: 78 },
+  meterTrack: { flex: 1, height: 8, backgroundColor: Colors.surface, borderRadius: 4, overflow: 'hidden', marginHorizontal: 8 },
+  meterFill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 4 },
+  meterVal: { ...Typography.bodyBold, fontWeight: '900', minWidth: 28, textAlign: 'right' },
+  meterDots: { color: Colors.text, fontSize: 14, letterSpacing: 2, minWidth: 52, textAlign: 'right' },
+  heroRel: { color: Colors.textSub, ...Typography.caption, marginTop: 10, fontStyle: 'italic' },
+  whyRow: { flexDirection: 'row', marginTop: 12, borderTopWidth: 1, borderTopColor: Colors.surface3, paddingTop: 10 },
+  whyCol: { flex: 1, paddingRight: 6 },
+  whyHeadPlus: { color: Colors.confirmed, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginBottom: 4 },
+  whyHeadMinus: { color: Colors.warning, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginBottom: 4 },
+  whyPlus: { color: Colors.text, fontSize: 11, lineHeight: 16, marginBottom: 3 },
+  whyMinus: { color: Colors.textSub, fontSize: 11, lineHeight: 16, marginBottom: 3 },
+  whyDim: { color: Colors.textDim, fontSize: 11 },
+  heroDisclaimer: { color: Colors.textDim, fontSize: 10, lineHeight: 14, marginTop: 12, fontStyle: 'italic' },
   rankingSection: { marginTop: 4, borderTopWidth: 1, borderTopColor: Colors.surface3, paddingTop: 12 },
   rankingHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   rankingTitle: { color: Colors.primary, fontWeight: '900', ...Typography.caption, letterSpacing: 0.8, flex: 1 },

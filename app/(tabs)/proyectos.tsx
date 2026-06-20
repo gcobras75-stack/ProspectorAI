@@ -33,6 +33,7 @@ import {
 } from '../core/Database';
 import { Colors, Radii, Shadows, Spacing, Touch, Typography } from '../core/theme';
 import ValidationView from '../components/ValidationView';
+import { exportProjectToExcel } from '../core/excelExport';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -176,6 +177,14 @@ function ProjectDetail({ project, onBack, onDeleted, onRenamed }: DetailProps) {
     );
   }, [project.id, onDeleted]);
 
+  const handleExportExcel = useCallback(async () => {
+    try {
+      await exportProjectToExcel(project.id, project.nombre);
+    } catch (e: any) {
+      Alert.alert('Excel', 'No se pudo exportar: ' + (e?.message || 'error desconocido'));
+    }
+  }, [project.id, project.nombre]);
+
   const anomalyColors = [Colors.anomalyHigh, Colors.anomalyMed, Colors.anomalyLow];
 
   return (
@@ -268,6 +277,12 @@ function ProjectDetail({ project, onBack, onDeleted, onRenamed }: DetailProps) {
             color={Colors.primary}
             textColor={Colors.bg}
             onPress={handleOpenInMap}
+          />
+          <ActionButton
+            label="📊  Exportar a Excel"
+            color={Colors.anomalyMed}
+            textColor={Colors.bg}
+            onPress={handleExportExcel}
           />
           <ActionButton
             label="🗑  Eliminar proyecto"

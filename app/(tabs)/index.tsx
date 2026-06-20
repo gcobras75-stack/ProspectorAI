@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { router } from 'expo-router';
-import { StyleSheet, View, Text, ActivityIndicator, Platform, TouchableOpacity, Alert, Pressable, ScrollView, Dimensions } from 'react-native';
-import MapView, { Marker, Polygon, Region, MapPressEvent, PanDragEvent } from 'react-native-maps';
+import { StyleSheet, View, Text, ActivityIndicator, Platform, TouchableOpacity, Alert, Pressable, ScrollView, Dimensions, TextInput, Modal } from 'react-native';
+import MapView, { Marker, Polygon, Region, MapPressEvent, PanDragEvent, UrlTile } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,10 +10,10 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
-import { analyzeZoneLocal, computeAllMetalScores, MetalScore } from '../core/GeologicalEngine';
+import { analyzeZoneLocal, computeAllMetalScores, enrichPointsWithDeepData, MetalScore } from '../core/GeologicalEngine';
 import { Colors, Typography, Spacing, Radii, Touch } from '../core/theme';
 import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult } from '../core/SatelliteEngine';
-import { fuseAnalysisPoints } from '../core/ConsensusFusion';
+import { fuseAnalysisPoints, computeZoneProspectivity, type ZoneProspectivity } from '../core/ConsensusFusion';
 import FieldModeButton, { FieldModeButtonHandle } from '../components/FieldModeButton';
 import HistoryModal from '../components/HistoryModal';
 import ConfigModal from '../components/ConfigModal';
@@ -29,6 +29,7 @@ import SampleLabelModal from '../components/SampleLabelModal';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
 import { useBadge } from '../core/BadgeContext';
 import { generateAndShareReport } from '../core/ReportGenerator';
+import { parseCoordinate } from '../core/coordParse';
 
 type Coordinate = { latitude: number; longitude: number };
 type DrawingType = 'none' | 'polygon' | 'rectangle';
@@ -203,6 +204,12 @@ export default function ProspectorDashboard() {
   const [rectPointB, setRectPointB] = useState<Coordinate | null>(null);
 
   const [analysisPoints, setAnalysisPoints] = useState<any[]>([]);
+  const [zoneProspectivity, setZoneProspectivity] = useState<ZoneProspectivity | null>(null);
+  // #7 — Ingresar coordenada de partida (decimal / GMS / UTM)
+  const [showCoordModal, setShowCoordModal] = useState(false);
+  const [coordInput, setCoordInput] = useState('');
+  const [coordError, setCoordError] = useState<string | null>(null);
+  const [startMarker, setStartMarker] = useState<Coordinate | null>(null);
   const [asterData, setAsterData]         = useState<AsterSpectralResult | null>(null);
   const [emitData, setEmitData]           = useState<EmitSpectralResult | null>(null);
   const [structuralData, setStructuralData] = useState<StructuralResult | null>(null);
@@ -219,6 +226,10 @@ export default function ProspectorDashboard() {
   const [analysisStep, setAnalysisStep] = useState('');
   const [mapRotation, setMapRotation] = useState(0);
   const [showHeatmap, setShowHeatmap] = useState(false);
+  // Capas del mapa (#6): tipo base (satélite/híbrido) + overlay OSM (ríos/caminos finos)
+  const [mapLayer, setMapLayer] = useState<'satellite' | 'hybrid'>('satellite');
+  const [osmOverlay, setOsmOverlay] = useState(false);
+  const [showLayerMenu, setShowLayerMenu] = useState(false);
   const [zoneColors, setZoneColors] = useState<any[]>([]);
 
   // Waypoints & Field Mode
@@ -337,6 +348,8 @@ export default function ProspectorDashboard() {
         terrainType,
         areaHa,
         analysisPoints,
+        zoneProspectivity,
+        metalScores,
         satelitesSources,
         acquisitionDates,
         sourceDates,
@@ -500,6 +513,10 @@ export default function ProspectorDashboard() {
         const pid = (await AsyncStorage.getItem('currentProjectId')) || 'default';
         setCurrentProjectId(pid);
         const proj = await loadProjectState(pid);
+        // Fix #8: el análisis y el Índice de zona se guardaban pero no se re-mostraban
+        // al reabrir. Restaurarlos aquí (datos reales persistidos por proyecto).
+        if (proj?.analisis_resultado && proj.analisis_resultado.length > 0) setAnalysisPoints(proj.analisis_resultado);
+        if (proj?.prospectivity) setZoneProspectivity(proj.prospectivity);
         if (proj?.chat_history && proj.chat_history.length > 0) {
           // Use the last assistant message as the resumen
           const lastAssistant = [...proj.chat_history]
@@ -684,6 +701,7 @@ export default function ProspectorDashboard() {
     setRectPointA(null);
     setRectPointB(null);
     setAnalysisPoints([]);
+    setZoneProspectivity(null);
     setZoneColors([]);
     setShowHeatmap(false);
     setShowResults(false);
@@ -697,6 +715,7 @@ export default function ProspectorDashboard() {
     setRectPointB(null);
     setDrawingType('none');
     setAnalysisPoints([]);
+    setZoneProspectivity(null);
     setZoneColors([]);
     setShowHeatmap(false);
     setShowResults(false);
@@ -919,17 +938,38 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               finalPoints, satData, asterResult, emitResult, structuralResult, selectedMineral
             ) as any[];
           }
+
+          // ── Etapa B: enriquecer índices con dato REAL medido de ASTER/EMIT ──
+          // Sube la señal de Cu/Zn/Pb donde hay cobertura (carbonato, propilítica,
+          // argílica, ferric). Sin cobertura de celda → sin cambios (no se fabrica).
+          const deepWeights = data.weights_used;
+          if (deepWeights && (((asterResult?.cells?.length ?? 0) > 0) || ((emitResult?.cells?.length ?? 0) > 0))) {
+            enrichPointsWithDeepData(finalPoints as any, asterResult?.cells, emitResult?.cells, deepWeights);
+            if (data.all_points) enrichPointsWithDeepData(data.all_points as any, asterResult?.cells, emitResult?.cells, deepWeights);
+            if (data.top_points) enrichPointsWithDeepData(data.top_points as any, asterResult?.cells, emitResult?.cells, deepWeights);
+            // Re-ordenar por base_score enriquecido solo si no hubo ranking por IA.
+            if (!wasAnalyzed) {
+              finalPoints.sort((a: any, b: any) => (b.base_score || 0) - (a.base_score || 0));
+              finalPoints.forEach((p: any, idx: number) => { p.rank = idx + 1; });
+            }
+          }
         }
+
+        // Índice de Favorabilidad Exploratoria (SEÑAL + CONFIANZA) de la zona
+        const zp = computeZoneProspectivity(finalPoints, satData, { metal: selectedMineral });
+        setZoneProspectivity(zp);
 
         await savePoligonoCache({
            id: 'poly_' + Date.now(), mineral: selectedMineral, terrain: terrainType, rock_type: rockType,
            coordenadas: coordsToUse, analisis_resultado: finalPoints, estado: wasAnalyzed ? 'SYNCED' : 'OFFLINE',
            satdata_source: satData.data_source,
            acquisition_date: satData.acquisition_date,
+           prospectivity: zp,
         });
 
         setAnalysisPoints(finalPoints);
-        setMetalScores(computeAllMetalScores(coordsToUse, terrainType));
+        // Scores por metal desde los índices S2 REALES de los puntos analizados (no centroide sintético)
+        setMetalScores(computeAllMetalScores(data.all_points || data.top_points, terrainType));
         const zonas: any[] = [];
         const sourcePoints = data.all_points || data.top_points;
         const latStep = data.grid_size ? data.grid_size.latStep / 2 : 0.0005;
@@ -1030,7 +1070,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         <MapView
           ref={mapRef}
           style={styles.map}
-          mapType="satellite"
+          mapType={mapLayer}
           showsUserLocation={false}
           followsUserLocation={false}
           showsCompass={false}
@@ -1041,6 +1081,16 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           onPress={handleMapPress}
           onPanDrag={handlePanDrag}
         >
+          {/* Overlay OSM (ríos/arroyos/caminos finos). Va primero → queda detrás de
+              polígonos, heatmap y marcadores. Cobertura/atribución © OpenStreetMap. */}
+          {osmOverlay && (
+            <UrlTile
+              urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+              maximumZ={19}
+              tileSize={256}
+              zIndex={-1}
+            />
+          )}
           {location && (
             <Marker coordinate={{latitude: location.coords.latitude, longitude: location.coords.longitude}} anchor={{x: 0.5, y: 0.5}} zIndex={100} flat>
               <View style={{alignItems: 'center'}}>
@@ -1108,6 +1158,13 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             </Marker>
           ))}
 
+          {/* #7 — Marcador temporal del punto de partida ingresado por coordenada */}
+          {startMarker && (
+            <Marker coordinate={startMarker} anchor={{ x: 0.5, y: 1 }} zIndex={90} title="Punto de partida">
+              <MaterialCommunityIcons name="map-marker" size={36} color="#FFD700" />
+            </Marker>
+          )}
+
         </MapView>
 
         {/* OVERLAYS DENTRO DEL MAPA */}
@@ -1158,6 +1215,30 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             <TouchableOpacity style={styles.zoomBtn} onPress={zoomOut}>
               <MaterialCommunityIcons name="minus" size={24} color="#000" />
             </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Selector de CAPAS (#6) */}
+        <TouchableOpacity style={styles.layerButton} onPress={() => setShowLayerMenu(v => !v)}>
+          <MaterialCommunityIcons name="layers" size={22} color="#FFD700" />
+        </TouchableOpacity>
+        {showLayerMenu && (
+          <View style={styles.layerMenu}>
+            <Text style={styles.layerMenuTitle}>CAPAS DEL MAPA</Text>
+            <TouchableOpacity style={styles.layerMenuItem} onPress={() => { setMapLayer('satellite'); setShowLayerMenu(false); }}>
+              <MaterialCommunityIcons name={mapLayer === 'satellite' ? 'radiobox-marked' : 'radiobox-blank'} size={16} color="#FFD700" />
+              <Text style={styles.layerMenuText}>Satélite</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.layerMenuItem} onPress={() => { setMapLayer('hybrid'); setShowLayerMenu(false); }}>
+              <MaterialCommunityIcons name={mapLayer === 'hybrid' ? 'radiobox-marked' : 'radiobox-blank'} size={16} color="#FFD700" />
+              <Text style={styles.layerMenuText}>Híbrido — calles · poblados · límites</Text>
+            </TouchableOpacity>
+            <View style={styles.layerMenuDivider} />
+            <TouchableOpacity style={styles.layerMenuItem} onPress={() => setOsmOverlay(v => !v)}>
+              <MaterialCommunityIcons name={osmOverlay ? 'checkbox-marked' : 'checkbox-blank-outline'} size={16} color="#FFD700" />
+              <Text style={styles.layerMenuText}>Detalle OSM — ríos · arroyos · caminos</Text>
+            </TouchableOpacity>
+            <Text style={styles.layerMenuNote}>Ríos/arroyos finos vienen de OpenStreetMap; la cobertura varía por zona. © OpenStreetMap</Text>
           </View>
         )}
 
@@ -1276,6 +1357,10 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               <MaterialCommunityIcons name="cog" size={22} color="#FFD700" />
               <Text style={styles.toolbarBtnLabel} numberOfLines={1}>Ajustes</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={styles.toolbarBtn} onPress={() => { setCoordError(null); setShowCoordModal(true); }}>
+              <MaterialCommunityIcons name="map-marker-plus" size={22} color="#FFD700" />
+              <Text style={styles.toolbarBtnLabel} numberOfLines={1}>Ir a</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={[styles.toolbarBtn, drawingType === 'polygon' && styles.toolbarBtnActive]}
               onPress={() => {
@@ -1328,7 +1413,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                   </View>
                 ) : (
                   <Text style={styles.consoleBarText} numberOfLines={1}>
-                    {' '}Polígono — {polygonCoords.length} vértices
+                    {' '}{areaHa} ha · {polygonCoords.length} vértices
                   </Text>
                 )}
               </View>
@@ -1337,12 +1422,16 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                   <MaterialCommunityIcons name="target" size={14} color="#FFD700" />
                   <Text style={styles.consoleBtnSecondaryText}> MARCAR</Text>
                 </TouchableOpacity>
-                {polygonCoords.length >= 3 && (
-                  <TouchableOpacity style={styles.consoleBtnPrimary} onPress={() => finishDrawing()}>
-                    <MaterialCommunityIcons name="radar" size={14} color="#000" />
-                    <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
-                  </TouchableOpacity>
-                )}
+                {/* ANALIZAR reserva su lugar siempre: invisible/deshabilitado hasta el 3er punto
+                    para que el botón MARCAR no se desplace al aparecer. */}
+                <TouchableOpacity
+                  style={[styles.consoleBtnPrimary, polygonCoords.length < 3 && { opacity: 0 }]}
+                  onPress={() => finishDrawing()}
+                  disabled={polygonCoords.length < 3}
+                >
+                  <MaterialCommunityIcons name="radar" size={14} color="#000" />
+                  <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.consoleBtnDanger} onPress={() => setPolygonCoords([])}>
                   <Text style={styles.consoleBtnDangerText}>LIMPIAR</Text>
                 </TouchableOpacity>
@@ -1415,6 +1504,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           satelliteData={satelliteData}
           metalScores={metalScores}
           analysisPoints={analysisPoints}
+          zoneProspectivity={zoneProspectivity}
           selectedMineral={selectedMineral}
           terrainType={terrainType}
           areaHa={areaHa}
@@ -1519,6 +1609,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               coordenadas: polygonCoords,
               analisis_resultado: analysisPoints,
               area_ha: parseFloat(areaHa) || 0,
+              prospectivity: zoneProspectivity,
             });
             Alert.alert('Guardado', 'Proyecto actualizado correctamente.');
           } catch (e: any) {
@@ -1593,6 +1684,49 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         setDeepAnalysis={handleSetDeepAnalysis}
       />
 
+      {/* #7 — Modal: ingresar coordenada de partida (decimal / GMS / UTM) */}
+      <Modal visible={showCoordModal} transparent animationType="fade" onRequestClose={() => setShowCoordModal(false)}>
+        <View style={styles.coordOverlay}>
+          <View style={styles.coordCard}>
+            <View style={styles.coordHeader}>
+              <MaterialCommunityIcons name="map-marker-plus" size={20} color="#FFD700" />
+              <Text style={styles.coordTitle}>Ir a coordenada</Text>
+              <TouchableOpacity onPress={() => setShowCoordModal(false)} hitSlop={10}>
+                <MaterialCommunityIcons name="close" size={22} color="#888" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.coordHint}>Decimal, GMS o UTM. Ejemplos:</Text>
+            <Text style={styles.coordExample}>{'19.4326, -99.1332\n19°25\'57"N 99°07\'59"W\n14Q 478000 2148000'}</Text>
+            <TextInput
+              style={styles.coordInput}
+              value={coordInput}
+              onChangeText={(t) => { setCoordInput(t); if (coordError) setCoordError(null); }}
+              placeholder="Pega o escribe la coordenada"
+              placeholderTextColor="#666"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              multiline
+            />
+            {coordError && <Text style={styles.coordError}>{coordError}</Text>}
+            <TouchableOpacity
+              style={styles.coordGoBtn}
+              onPress={() => {
+                const r = parseCoordinate(coordInput);
+                if ('error' in r) { setCoordError(r.error); return; }
+                const c = { latitude: r.lat, longitude: r.lng };
+                setStartMarker(c);
+                setShowCoordModal(false);
+                triggerHaptic('success');
+                mapRef.current?.animateToRegion({ latitude: r.lat, longitude: r.lng, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 800);
+              }}
+            >
+              <MaterialCommunityIcons name="crosshairs-gps" size={18} color="#000" />
+              <Text style={styles.coordGoText}>IR Y CENTRAR</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -1600,6 +1734,18 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
 const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' },
   container: { flex: 1, backgroundColor: '#000' },
+
+  // #7 — Modal "Ir a coordenada"
+  coordOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  coordCard: { width: '100%', maxWidth: 420, backgroundColor: '#111', borderWidth: 1, borderColor: '#FFD700', borderRadius: 14, padding: 16 },
+  coordHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  coordTitle: { flex: 1, color: '#FFD700', fontSize: 16, fontWeight: '800', marginLeft: 8 },
+  coordHint: { color: '#AAA', fontSize: 12, marginBottom: 4 },
+  coordExample: { color: '#87CEFA', fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', marginBottom: 12, lineHeight: 18 },
+  coordInput: { backgroundColor: '#1c1c1c', borderWidth: 1, borderColor: '#444', borderRadius: 10, color: '#fff', padding: 12, fontSize: 15, minHeight: 48 },
+  coordError: { color: '#FF6B6B', fontSize: 13, marginTop: 8 },
+  coordGoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFD700', borderRadius: 10, paddingVertical: 12, marginTop: 14, gap: 8 },
+  coordGoText: { color: '#000', fontWeight: '900', fontSize: 15, letterSpacing: 1 },
   
   mapContainer: { flex: 1, position: 'relative' },
   consoleContainer: { backgroundColor: '#111', borderTopWidth: 2, borderTopColor: '#FFD700' },
@@ -1789,6 +1935,13 @@ const styles = StyleSheet.create({
   legendColor: { width: 20, height: 20, borderRadius: 4, marginRight: 8 },
   legendText: { color: '#FFF', fontSize: 10 },
   locationButton: { position: 'absolute', bottom: 100, right: 10, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 30, padding: 10, borderWidth: 1, borderColor: '#FFD700', zIndex: 20 },
+  layerButton: { position: 'absolute', bottom: 152, right: 10, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 30, padding: 10, borderWidth: 1, borderColor: '#FFD700', zIndex: 20 },
+  layerMenu: { position: 'absolute', bottom: 152, right: 56, width: 232, backgroundColor: 'rgba(10,10,10,0.96)', borderRadius: 10, borderWidth: 1, borderColor: '#FFD700', padding: 10, zIndex: 30 },
+  layerMenuTitle: { color: '#FFD700', fontSize: 11, fontWeight: '900', marginBottom: 6, letterSpacing: 1 },
+  layerMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 8 },
+  layerMenuText: { color: '#FFF', fontSize: 12, flex: 1 },
+  layerMenuDivider: { height: 1, backgroundColor: 'rgba(255,215,0,0.3)', marginVertical: 4 },
+  layerMenuNote: { color: '#AAA', fontSize: 9, marginTop: 6, lineHeight: 12 },
   
   waypointMarker: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#00FFFF', borderWidth: 2, borderColor: '#000', justifyContent: 'center', alignItems: 'center' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 },

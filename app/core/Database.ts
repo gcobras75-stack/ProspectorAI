@@ -2,6 +2,13 @@ import * as SQLite from 'expo-sqlite';
 
 let dbCache: SQLite.SQLiteDatabase | null = null;
 
+/** Parse JSON de forma segura: nunca lanza; devuelve fallback si está vacío o corrupto.
+ *  Evita que una fila con JSON malformado rompa toda la carga del proyecto. */
+function safeJsonParse<T>(raw: any, fallback: T): T {
+  if (raw === null || raw === undefined || raw === '') return fallback;
+  try { return JSON.parse(raw) as T; } catch { return fallback; }
+}
+
 export const initDB = async () => {
   if (dbCache) return dbCache;
   dbCache = await SQLite.openDatabaseAsync('prospectorai_v2.db');
@@ -84,8 +91,10 @@ export const initDB = async () => {
     `ALTER TABLE proyectos ADD COLUMN area_ha      REAL    DEFAULT 0`,
     `ALTER TABLE proyectos ADD COLUMN chat_history TEXT    DEFAULT '[]'`,
     `ALTER TABLE proyectos ADD COLUMN notas        TEXT    DEFAULT ''`,
+    `ALTER TABLE proyectos ADD COLUMN prospectivity TEXT   DEFAULT '{}'`,
     `ALTER TABLE poligonos_cache ADD COLUMN satdata_source   TEXT DEFAULT ''`,
     `ALTER TABLE poligonos_cache ADD COLUMN acquisition_date TEXT DEFAULT ''`,
+    `ALTER TABLE poligonos_cache ADD COLUMN prospectivity    TEXT DEFAULT '{}'`,
     `ALTER TABLE proyectos ADD COLUMN campo_preparado_at   TEXT    DEFAULT ''`,
     `ALTER TABLE proyectos ADD COLUMN campo_resumen_geologo TEXT   DEFAULT ''`,
     `ALTER TABLE proyectos ADD COLUMN campo_analisis_json   TEXT   DEFAULT ''`,
@@ -163,6 +172,8 @@ export const getMuestras = async (proyectoId?: string) => {
 
 export const clearMuestras = async () => {
    const db = await initDB();
+   // También limpia validation_pairs para no dejar pares colgados sin su muestra.
+   await db.runAsync('DELETE FROM validation_pairs');
    await db.runAsync('DELETE FROM muestras');
 };
 
@@ -170,8 +181,8 @@ export const savePoligonoCache = async (data: any) => {
   const db = await initDB();
   await db.runAsync(
     `INSERT OR REPLACE INTO poligonos_cache
-       (id, mineral, terrain, rock_type, coordenadas, fecha, analisis_resultado, estado, satdata_source, acquisition_date)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, mineral, terrain, rock_type, coordenadas, fecha, analisis_resultado, estado, satdata_source, acquisition_date, prospectivity)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       data.id, data.mineral, data.terrain, data.rock_type,
       typeof data.coordenadas === 'string' ? data.coordenadas : JSON.stringify(data.coordenadas),
@@ -180,6 +191,7 @@ export const savePoligonoCache = async (data: any) => {
       data.estado || 'OFFLINE',
       data.satdata_source || '',
       data.acquisition_date || '',
+      data.prospectivity ? (typeof data.prospectivity === 'string' ? data.prospectivity : JSON.stringify(data.prospectivity)) : '{}',
     ]
   );
 };
@@ -280,6 +292,7 @@ export const saveProjectState = async (
     acquisition_date?: string;
     area_ha?: number;
     notas?: string;
+    prospectivity?: any;
   }
 ): Promise<void> => {
   const db = await initDB();
@@ -288,7 +301,8 @@ export const saveProjectState = async (
   const setClause = fields.map(f => `${f} = ?`).join(', ');
   const values = fields.map(f => {
     const v = data[f as keyof typeof data];
-    return Array.isArray(v) ? JSON.stringify(v) : v;
+    // Serializa arrays Y objetos (antes solo arrays → un objeto rompía el bind de SQLite)
+    return (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
   });
   values.push(new Date().toISOString()); // ultimo_acceso
   values.push(projectId);
@@ -305,6 +319,7 @@ export const loadProjectState = async (projectId: string): Promise<{
   satdata_source: string; acquisition_date: string; area_ha: number;
   chat_history: { role: string; content: any }[];
   notas: string;
+  prospectivity: any;
 } | null> => {
   const db = await initDB();
   const row = await db.getFirstAsync('SELECT * FROM proyectos WHERE id = ?', [projectId]) as any;
@@ -316,13 +331,14 @@ export const loadProjectState = async (projectId: string): Promise<{
     terrain: row.terrain || 'sierra',
     depth: row.depth || '0-5m',
     rock_type: row.rock_type || 'ignea',
-    coordenadas: row.coordenadas ? JSON.parse(row.coordenadas) : [],
-    analisis_resultado: row.analisis_resultado ? JSON.parse(row.analisis_resultado) : [],
+    coordenadas: safeJsonParse(row.coordenadas, [] as any[]),
+    analisis_resultado: safeJsonParse(row.analisis_resultado, [] as any[]),
     satdata_source: row.satdata_source || '',
     acquisition_date: row.acquisition_date || '',
     area_ha: row.area_ha || 0,
-    chat_history: row.chat_history ? JSON.parse(row.chat_history) : [],
+    chat_history: safeJsonParse(row.chat_history, [] as { role: string; content: any }[]),
     notas: row.notas || '',
+    prospectivity: safeJsonParse(row.prospectivity, null),
   };
 };
 
@@ -341,6 +357,7 @@ export const loadLastAnalysis = async (): Promise<{
   mineral: string; terrain: string; rock_type: string;
   coordenadas: any[]; analisis_resultado: any[];
   satdata_source: string; acquisition_date: string; fecha: string;
+  prospectivity: any;
 } | null> => {
   const db = await initDB();
   const row = await db.getFirstAsync(
@@ -351,11 +368,12 @@ export const loadLastAnalysis = async (): Promise<{
     mineral: row.mineral || 'oro',
     terrain: row.terrain || 'sierra',
     rock_type: row.rock_type || 'ignea',
-    coordenadas: row.coordenadas ? JSON.parse(row.coordenadas) : [],
-    analisis_resultado: row.analisis_resultado ? JSON.parse(row.analisis_resultado) : [],
+    coordenadas: safeJsonParse(row.coordenadas, [] as any[]),
+    analisis_resultado: safeJsonParse(row.analisis_resultado, [] as any[]),
     satdata_source: row.satdata_source || '',
     acquisition_date: row.acquisition_date || '',
     fecha: row.fecha || '',
+    prospectivity: safeJsonParse(row.prospectivity, null),
   };
 };
 
@@ -417,6 +435,9 @@ export const loadReportContent = async (projectId: string): Promise<{ geologoTex
 
 export const deleteProject = async (projectId: string): Promise<void> => {
   const db = await initDB();
+  // Borra primero las dependencias para no dejar filas huérfanas (validation_pairs
+  // referencia muestra_id/proyecto_id; antes quedaban colgadas al eliminar el proyecto).
+  await db.runAsync('DELETE FROM validation_pairs WHERE proyecto_id = ?', [projectId]);
   await db.runAsync('DELETE FROM muestras WHERE proyecto_id = ?', [projectId]);
   await db.runAsync('DELETE FROM proyectos WHERE id = ?', [projectId]);
   // spectral_cache and poligonos_cache don't have proyecto_id columns — skip

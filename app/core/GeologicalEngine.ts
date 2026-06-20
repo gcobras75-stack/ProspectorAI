@@ -1,5 +1,26 @@
-import type { MiningSpectralResult } from './SatelliteEngine';
+import type { MiningSpectralResult, AsterSpectralCell, EmitSpectralCell } from './SatelliteEngine';
 import { findNearestCell, computeAdaptiveCellSize } from './SatelliteEngine';
+
+/**
+ * Pesos espectrales por metal (fuente única, exportada para que otros módulos
+ * — p.ej. el cálculo de confianza en ConsensusFusion — los reutilicen).
+ */
+export const METAL_WEIGHTS: Record<string, Record<string, number>> = {
+  oro:    { gossan: 0.35, iron_oxide: 0.30, clay: 0.20, silica: 0.15 },
+  plata:  { clay: 0.40, argillic: 0.30, propylitic: 0.30 },
+  cobre:  { ferric_iron: 0.40, malachite: 0.35, propylitic: 0.25 },
+  zinc:   { sphalerite: 0.45, carbonate: 0.35, clay: 0.20 },
+  plomo:  { galena: 0.40, gossan: 0.35, iron_oxide: 0.25 },
+  hierro: { iron_oxide: 0.45, ferric_iron: 0.35, gossan: 0.20 },
+  litio:  { clay: 0.45, carbonate: 0.35, argillic: 0.20 },
+};
+
+/**
+ * Índices SIN proxy directo de Sentinel-2. Hoy se generan sintéticamente
+ * (generateIndices, semilla por coordenada) — NO son medición real y no deben
+ * presentarse como tal. Se usan para penalizar la CONFIANZA del metal afectado.
+ */
+export const SYNTHETIC_INDEX_KEYS = ['silica', 'malachite', 'sphalerite', 'carbonate', 'galena'] as const;
 
 export interface SpectralIndices {
   iron_oxide: number;
@@ -32,6 +53,8 @@ export interface AnalysisPoint {
   data_source?: 'SENTINEL2_REAL' | 'SENTINEL2_CACHED' | 'SIMULATED';
   utm_zone?: string;
   epsg?: string;
+  /** Claves de índice que recibieron dato REAL medido de ASTER/EMIT (Etapa B). */
+  enriched_indices?: string[];
 }
 
 // Generador pseudo-aleatorio basado en una semilla determinista
@@ -112,7 +135,7 @@ export function analyzeZoneLocal(
   rockType: string,
   waypoints: any[],
   satelliteData: MiningSpectralResult
-): { success: boolean; top_points: AnalysisPoint[]; area_ha: number; all_points?: AnalysisPoint[]; grid_size?: { latStep: number; lngStep: number }; error?: string } {
+): { success: boolean; top_points: AnalysisPoint[]; area_ha: number; all_points?: AnalysisPoint[]; grid_size?: { latStep: number; lngStep: number }; weights_used?: Record<string, number>; error?: string } {
 
   if (!polygonCoords || polygonCoords.length < 3) return { success: false, top_points: [], area_ha: 0 };
 
@@ -132,18 +155,8 @@ export function analyzeZoneLocal(
   else if (areaHa >= 50) targetCount = 15;
   else if (areaHa >= 10) targetCount = 10;
 
-  // 1. Base Weights
-  const baseWeights: Record<string, Record<string, number>> = {
-    oro:    { gossan: 0.35, iron_oxide: 0.30, clay: 0.20, silica: 0.15 },
-    plata:  { clay: 0.40, argillic: 0.30, propylitic: 0.30 },
-    cobre:  { ferric_iron: 0.40, malachite: 0.35, propylitic: 0.25 },
-    zinc:   { sphalerite: 0.45, carbonate: 0.35, clay: 0.20 },
-    plomo:  { galena: 0.40, gossan: 0.35, iron_oxide: 0.25 },
-    hierro: { iron_oxide: 0.45, ferric_iron: 0.35, gossan: 0.20 },
-    litio:  { clay: 0.45, carbonate: 0.35, argillic: 0.20 },
-  };
-
-  let weights = { ...(baseWeights[mineral.toLowerCase()] || baseWeights['oro']) };
+  // 1. Base Weights (fuente única: METAL_WEIGHTS exportado arriba)
+  let weights = { ...(METAL_WEIGHTS[mineral.toLowerCase()] || METAL_WEIGHTS['oro']) };
 
   // 2. Field Sample Auto-calibration
   // Find successful samples for this mineral nearby
@@ -156,12 +169,18 @@ export function analyzeZoneLocal(
     let dominantIndex = '';
     let maxVal = 0;
     for (const wp of successfulSamples) {
-       const wLat = wp.lat || wp.latitude;
-       const wLng = wp.lng || wp.longitude;
-       if (!wLat || !wLng) continue;
-       const simIndices = generateIndices(wLat, wLng, terrain, rockType);
+       // Usar el snapshot espectral REAL congelado al tomar la muestra (indices del
+       // punto S2 más cercano). NO fabricar con generateIndices: si la muestra no
+       // tiene snapshot real, se omite (no se calibra con datos inventados).
+       const snap = wp.spectral_snapshot ?? wp.spectralSnapshot;
+       let realIndices: any = null;
+       if (snap) {
+          try { const parsed = typeof snap === 'string' ? JSON.parse(snap) : snap; realIndices = parsed?.indices ?? null; }
+          catch { realIndices = null; }
+       }
+       if (!realIndices) continue;
        for (const key of Object.keys(weights)) {
-          const val = (simIndices as any)[key];
+          const val = Number((realIndices as any)[key]) || 0;
           if (val > maxVal) {
              maxVal = val;
              dominantIndex = key;
@@ -225,8 +244,12 @@ export function analyzeZoneLocal(
         let epsg: string | undefined;
 
         if (nearestCell && !nearestCell.masked_by_vegetation) {
-          // Map real S2 ratios → normalized 0-1 for weight compatibility
-          const simBase = generateIndices(lat, lng, terrain, rockType);
+          // Map real S2 ratios → normalized 0-1 for weight compatibility.
+          // Los índices SIN proxy directo de Sentinel-2 (silica/malachite/sphalerite/
+          // carbonate/galena = SYNTHETIC_INDEX_KEYS) NO se fabrican: se dejan en 0
+          // (evidencia ausente) hasta que el análisis profundo (ASTER/EMIT) aporte el
+          // dato real. Antes se rellenaban con generateIndices (pseudo-aleatorio por
+          // coordenada), lo que inventaba señal y elevaba scores sin medición real.
           indices = {
             iron_oxide:  clamp((nearestCell.iron_oxide - 0.5) / 2.5, 0, 1),
             clay:        clamp((nearestCell.clay       - 0.5) / 2.0, 0, 1),
@@ -234,18 +257,23 @@ export function analyzeZoneLocal(
             ferric_iron: clamp((nearestCell.iron_oxide - 0.5) / 2.5, 0, 1),
             propylitic:  clamp((nearestCell.clay       - 0.5) / 2.0, 0, 1),
             argillic:    clamp((nearestCell.clay       - 0.5) / 2.0, 0, 1),
-            // No direct S2 proxy for these — keep simulated (minor influence on scoring)
-            silica:      simBase.silica,
-            malachite:   simBase.malachite,
-            sphalerite:  simBase.sphalerite,
-            carbonate:   simBase.carbonate,
-            galena:      simBase.galena,
+            silica:      0,
+            malachite:   0,
+            sphalerite:  0,
+            carbonate:   0,
+            galena:      0,
           };
           utm_zone = nearestCell.utm_zone;
           epsg     = nearestCell.epsg;
         } else {
-          // Cell masked by vegetation or outside coverage — use simBase for this point
-          indices = generateIndices(lat, lng, terrain, rockType);
+          // Celda enmascarada por vegetación (NDVI alto) o sin cobertura S2: no hay
+          // evidencia óptica real. Antes se fabricaba con generateIndices; ahora se
+          // marca SIN SEÑAL (0) para no inventar. La baja confianza del punto se refleja
+          // en el indicador (vegetation_pct / simulated_pct).
+          indices = {
+            iron_oxide: 0, clay: 0, gossan: 0, ferric_iron: 0, propylitic: 0,
+            argillic: 0, silica: 0, malachite: 0, sphalerite: 0, carbonate: 0, galena: 0,
+          };
         }
 
         let rawScore = 0;
@@ -273,13 +301,109 @@ export function analyzeZoneLocal(
   const topPoints = candidates.slice(0, targetCount);
   topPoints.forEach((p, idx) => p.rank = idx + 1);
 
-  return { success: true, top_points: topPoints, area_ha: areaHa, all_points: candidates, grid_size: {latStep, lngStep} };
+  return { success: true, top_points: topPoints, area_ha: areaHa, all_points: candidates, grid_size: {latStep, lngStep}, weights_used: weights };
+}
+
+// =============================================================================
+// ETAPA B — Enriquecimiento con datos REALES medidos de ASTER/EMIT
+// =============================================================================
+// Cuando el análisis profundo aporta celdas ASTER/EMIT con cobertura, llenamos
+// los índices de alteración OBSERVABLES con la medición real (donde antes había 0
+// por falta de proxy Sentinel-2). Los sulfuros puros (malachite/sphalerite/galena)
+// y la sílice NO tienen medición mineral-específica en estos productos → quedan en 0.
+// Normalización idéntica a la de ConsensusFusion (mismas constantes) para consistencia.
+
+/** Índice destino → proxy real medible por ASTER/EMIT. */
+const DEEP_ENRICHABLE_KEYS = ['carbonate', 'propylitic', 'argillic', 'ferric_iron'] as const;
+
+/**
+ * Enriquece los SpectralIndices de un punto con ASTER/EMIT reales. Devuelve los
+ * índices resultantes y las claves que recibieron dato real (solo si SUBEN la señal,
+ * nunca reducen un valor S2 real existente). Si no hay celda, devuelve sin cambios.
+ */
+export function enrichIndicesWithDeepData(
+  indices: SpectralIndices,
+  asterCell: AsterSpectralCell | null | undefined,
+  emitCell: EmitSpectralCell | null | undefined
+): { indices: SpectralIndices; enriched: string[] } {
+  if (!asterCell && !emitCell) return { indices, enriched: [] };
+  const c01 = (v: number) => Math.max(0, Math.min(1, v));
+  const out: SpectralIndices = { ...indices };
+  const enriched: string[] = [];
+  // Reúne valores reales normalizados (0-1) por índice destino.
+  const real: Record<string, number[]> = {};
+  const add = (key: string, v: number | null | undefined) => {
+    if (v == null || !Number.isFinite(v)) return;
+    (real[key] ||= []).push(c01(v));
+  };
+  if (emitCell) {
+    add('ferric_iron', (emitCell.ferric_emit    - 1.0) / 2.0); // ratio ~1-3
+    add('argillic',     emitCell.al_clay_emit    / 0.3);        // band depth
+    add('propylitic',   emitCell.mg_clay_emit    / 0.3);        // band depth
+    add('carbonate',   (emitCell.carbonate_emit  - 1.0) / 1.5); // ratio
+  }
+  if (asterCell) {
+    if (asterCell.iron_oxide_aster != null) add('ferric_iron', (asterCell.iron_oxide_aster - 1.0) / 2.0);
+    if (asterCell.ferroso_aster    != null) add('ferric_iron', (asterCell.ferroso_aster    - 1.0) / 1.5);
+    if (asterCell.alunite_bd       != null) add('argillic',     asterCell.alunite_bd / 0.3);
+    if (asterCell.chlorite_bd      != null) add('propylitic',   asterCell.chlorite_bd / 0.3);
+  }
+  for (const key of DEEP_ENRICHABLE_KEYS) {
+    const vals = real[key];
+    if (!vals || !vals.length) continue;
+    // Promedio de proxies reales disponibles (conservador, no exagera).
+    const measured = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const current = (out as any)[key] ?? 0;
+    // Mejor evidencia real: solo sube, nunca reduce una señal S2 real.
+    if (measured > current) {
+      (out as any)[key] = measured;
+      enriched.push(key);
+    }
+  }
+  return { indices: out, enriched };
+}
+
+/** Score 0-100 a partir de índices y pesos por metal (suma ponderada). */
+export function scoreFromIndices(indices: SpectralIndices, weights: Record<string, number>): number {
+  let s = 0;
+  for (const k in weights) s += ((indices as any)[k] || 0) * (weights as any)[k];
+  return Math.max(0, Math.min(100, s * 100));
+}
+
+/**
+ * Enriquece en sitio una lista de puntos con ASTER/EMIT reales y recomputa su
+ * base_score con los pesos del metal. Solo afecta a los puntos cuya celda más
+ * cercana aporta dato real. Idempotente (usa el máximo). Devuelve la misma lista.
+ */
+export function enrichPointsWithDeepData<T extends { lat: number; lng: number; indices: SpectralIndices; base_score: number; enriched_indices?: string[] }>(
+  points: T[],
+  asterCells: AsterSpectralCell[] | null | undefined,
+  emitCells: EmitSpectralCell[] | null | undefined,
+  weights: Record<string, number>
+): T[] {
+  const aCells = asterCells && asterCells.length ? asterCells : null;
+  const eCells = emitCells && emitCells.length ? emitCells : null;
+  if (!aCells && !eCells) return points;
+  for (const p of points) {
+    if (!p || !p.indices) continue;
+    const aCell = aCells ? (findNearestCell(p.lat, p.lng, aCells as any) as any) : null;
+    const eCell = eCells ? (findNearestCell(p.lat, p.lng, eCells as any) as any) : null;
+    const { indices, enriched } = enrichIndicesWithDeepData(p.indices, aCell, eCell);
+    if (enriched.length) {
+      p.indices = indices;
+      p.enriched_indices = Array.from(new Set([...(p.enriched_indices || []), ...enriched]));
+      p.base_score = scoreFromIndices(indices, weights);
+    }
+  }
+  return points;
 }
 
 // =============================================================================
 // TWO-DIMENSION SCORING SYSTEM
 // =============================================================================
 
+// Normalización HEURÍSTICA (no es un techo físico calibrado): convierte el score
+// crudo 0–1 a porcentaje relativo. Metales sin entrada (zinc, plomo) usan un neutral 50.
 export const SCORE_MAXIMO_GLOBAL: Record<string, Record<string, number>> = {
   oro:    { sierra: 92, playa: 78 },
   plata:  { sierra: 71, playa: 45 },
@@ -300,25 +424,16 @@ export interface MetalScore {
   satellite: string;
   bands: string[];
   warning?: string;
+  /** % del modelo del metal que depende de índices SIN proxy real en Sentinel-2 */
+  synthetic_weight_pct?: number;
+  /** true si el metal no es medible con Sentinel-2 (requiere ASTER/EMIT). El score
+   *  mostrado sería engañoso, así que la UI debe mostrar "Requiere ASTER/EMIT". */
+  requires_deep?: boolean;
 }
 
-// Spectral proxy weights for the polygon score formula
-const POLIGONO_WEIGHTS = {
-  iron_oxide:  0.30, // iron oxide alteration
-  argillic:    0.25, // argillic alteration
-  ferric_iron: 0.20, // thermal anomaly proxy
-  gossan:      0.15, // regional geology proxy
-  carbonate:   0.10, // historical findings proxy
-};
-
-// Per-metal spectral affinity functions (same formulas as baseWeights)
-const METAL_AFFINITY: Record<string, (idx: SpectralIndices) => number> = {
-  oro:    idx => idx.gossan * 0.35 + idx.iron_oxide * 0.30 + idx.clay * 0.20 + idx.silica * 0.15,
-  plata:  idx => idx.clay * 0.40 + idx.argillic * 0.30 + idx.propylitic * 0.30,
-  cobre:  idx => idx.ferric_iron * 0.40 + idx.malachite * 0.35 + idx.propylitic * 0.25,
-  litio:  idx => idx.clay * 0.45 + idx.carbonate * 0.35 + idx.argillic * 0.20,
-  hierro: idx => idx.iron_oxide * 0.45 + idx.ferric_iron * 0.35 + idx.gossan * 0.20,
-};
+/** Umbral de dependencia sintética por encima del cual un metal se marca como
+ *  requires_deep (no medible honestamente con Sentinel-2). Constante tuneable. */
+export const SYNTHETIC_REQUIRES_DEEP_THRESHOLD = 0.5;
 
 interface MetalConfigEntry {
   label: string;
@@ -350,6 +465,14 @@ const METAL_CONFIG: Record<string, Record<string, MetalConfigEntry>> = {
     sierra: { label: 'Hierro', icon: '⚙️', satellite: 'SENTINEL2', bands: ['IRON_OXIDE', 'FERROUS_IRON', 'FALSE_COLOR'],       guideMineral: ['Magnetita', 'Hematita', 'Limonita'] },
     playa:  { label: 'Hierro', icon: '⚙️', satellite: 'LANDSAT8',  bands: ['IRON_OXIDE', 'FALSE_COLOR'],                       guideMineral: ['Arena ferrosa', 'Magnetita placer'] },
   },
+  zinc: {
+    sierra: { label: 'Zinc',   icon: '🔩', satellite: 'ASTER',     bands: ['ASTER_CALCITE', 'EMIT_CARBONATE'],                 guideMineral: ['Esfalerita', 'Smithsonita', 'Calcita'], warning: 'Sulfuro sin firma óptica directa — requiere ASTER/EMIT' },
+    playa:  { label: 'Zinc',   icon: '🔩', satellite: 'ASTER',     bands: ['ASTER_CALCITE'],                                   guideMineral: ['Esfalerita', 'Smithsonita'],            warning: 'Sulfuro sin firma óptica directa — requiere ASTER/EMIT' },
+  },
+  plomo: {
+    sierra: { label: 'Plomo',  icon: '🪨', satellite: 'ASTER',     bands: ['IRON_OXIDE', 'ASTER_CALCITE'],                     guideMineral: ['Galena', 'Cerusita', 'Anglesita'] },
+    playa:  { label: 'Plomo',  icon: '🪨', satellite: 'SENTINEL2', bands: ['IRON_OXIDE'],                                       guideMineral: ['Galena detrítica'],                    warning: 'Baja probabilidad en costas planas' },
+  },
 };
 
 // ── Point Score (map tap) ─────────────────────────────────────────────────────
@@ -370,6 +493,11 @@ export interface GeologicalIndicator {
   status: 'confirmed' | 'partial' | 'absent';
 }
 
+/**
+ * @deprecated LEGACY — SIN USO. Genera scores con seededRandom (pseudo-aleatorio),
+ * NO son medición real. No conectar a la UI: usa computeAllMetalScores (datos S2
+ * reales). Se conserva solo como referencia histórica.
+ */
 export function computePointScore(
   lat: number,
   lng: number,
@@ -425,37 +553,59 @@ export function computePointScore(
   return { scores, indicators };
 }
 
-export function computeAllMetalScores(polygonCoords: any[], terrain: string): MetalScore[] {
-  if (!polygonCoords || polygonCoords.length < 3) return [];
+/**
+ * Score por metal a partir de los ÍNDICES ESPECTRALES REALES de los puntos
+ * analizados (las mismas celdas Sentinel-2 que alimentan el ranking), aplicando
+ * METAL_WEIGHTS. "Otros metales" = mismo patrón espectral REAL, distinta ponderación.
+ * Ya NO usa generateIndices (pseudo-aleatorio): los índices sin proxy directo de S2
+ * (SYNTHETIC_INDEX_KEYS) valen 0, así que los metales que dependen de ellos salen
+ * bajos y se marcan `requires_deep` para que la UI muestre "Requiere ASTER/EMIT".
+ */
+export function computeAllMetalScores(points: AnalysisPoint[], terrain: string): MetalScore[] {
+  if (!points || points.length === 0) return [];
 
-  // Compute centroid (deterministic seed)
-  let sumLat = 0, sumLng = 0;
-  for (const c of polygonCoords) { sumLat += c.latitude; sumLng += c.longitude; }
-  const centLat = sumLat / polygonCoords.length;
-  const centLng = sumLng / polygonCoords.length;
+  // Promedio de los índices REALES sobre los puntos analizados (0–1).
+  const keys = Object.keys(points[0].indices) as (keyof SpectralIndices)[];
+  const avg: Record<string, number> = {};
+  for (const k of keys) avg[k as string] = 0;
+  for (const p of points) for (const k of keys) avg[k as string] += (p.indices as any)[k] || 0;
+  for (const k of keys) avg[k as string] /= points.length;
 
-  const idx = generateIndices(centLat, centLng, terrain, 'ignea');
-
-  // Global formula score (0–1)
-  const globalRaw =
-    idx.iron_oxide  * POLIGONO_WEIGHTS.iron_oxide +
-    idx.argillic    * POLIGONO_WEIGHTS.argillic   +
-    idx.ferric_iron * POLIGONO_WEIGHTS.ferric_iron +
-    idx.gossan      * POLIGONO_WEIGHTS.gossan      +
-    idx.carbonate   * POLIGONO_WEIGHTS.carbonate;
+  // Índices sintéticos que recibieron dato REAL de ASTER/EMIT (Etapa B) en algún
+  // punto: dejan de contar como "sintético/faltante" para la etiqueta requires_deep.
+  const enrichedKeys = new Set<string>();
+  for (const p of points) for (const k of (p.enriched_indices || [])) enrichedKeys.add(k);
 
   const terrainKey = terrain === 'playa' ? 'playa' : 'sierra';
-  const metals = ['oro', 'plata', 'cobre', 'litio', 'hierro'];
+  const metals = ['oro', 'plata', 'cobre', 'zinc', 'plomo', 'hierro', 'litio'];
 
   return metals.map(metal => {
+    const weights = METAL_WEIGHTS[metal] || {};
+    const cfg     = METAL_CONFIG[metal]?.[terrainKey];
     const scoreMax = SCORE_MAXIMO_GLOBAL[metal]?.[terrainKey] ?? 50;
-    const cfg = METAL_CONFIG[metal]?.[terrainKey];
-    const affinityFn = METAL_AFFINITY[metal];
 
-    // Blend global formula with metal-specific spectral affinity
-    const metalRaw = globalRaw * 0.5 + (affinityFn ? affinityFn(idx) : globalRaw) * 0.5;
-    const score_poligono = Math.round(Math.min(scoreMax, metalRaw * scoreMax));
-    const score_percent = Math.round((score_poligono / scoreMax) * 100);
+    // Score crudo 0–1 = Σ(índice_real · peso). Los índices sintéticos valen 0.
+    let raw = 0;
+    for (const k in weights) raw += (avg[k] ?? 0) * weights[k];
+
+    // Fracción del modelo del metal en índices SIN proxy real de S2, EXCLUYENDO los
+    // que ASTER/EMIT ya enriqueció (Etapa B): p.ej. el carbonato del zinc medido por
+    // EMIT deja de contar como sintético, y el metal puede dejar de exigir profundo.
+    let synthW = 0;
+    for (const k of SYNTHETIC_INDEX_KEYS) {
+      if (enrichedKeys.has(k)) continue; // ya tiene dato real medido → no es sintético
+      synthW += (weights as any)[k] || 0;
+    }
+    const synthetic_weight_pct = Math.round(synthW * 100);
+    const requires_deep = synthW > SYNTHETIC_REQUIRES_DEEP_THRESHOLD;
+    const warning = requires_deep
+      ? 'No medible con Sentinel-2 — requiere ASTER/EMIT'
+      : synthetic_weight_pct > 0
+        ? `${synthetic_weight_pct}% del modelo sin proxy óptico directo`
+        : cfg?.warning;
+
+    const score_poligono = Math.round(Math.min(scoreMax, raw * scoreMax));
+    const score_percent  = Math.round((score_poligono / scoreMax) * 100);
     const detected: 'high' | 'medium' | 'low' =
       score_percent >= 70 ? 'high' : score_percent >= 40 ? 'medium' : 'low';
 
@@ -470,7 +620,9 @@ export function computeAllMetalScores(polygonCoords: any[], terrain: string): Me
       guideMineral: cfg?.guideMineral ?? [],
       satellite: cfg?.satellite ?? 'SENTINEL2',
       bands: cfg?.bands ?? [],
-      warning: cfg?.warning,
+      warning,
+      synthetic_weight_pct,
+      requires_deep,
     };
   }).sort((a, b) => b.score_percent - a.score_percent);
 }

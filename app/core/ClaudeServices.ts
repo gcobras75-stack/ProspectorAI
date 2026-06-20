@@ -1,5 +1,6 @@
 ﻿// app/core/ClaudeServices.ts
 import { AnalysisPoint } from './GeologicalEngine';
+import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS } from './indexGlossary';
 import * as FileSystem from 'expo-file-system/legacy';
 
 // ─── MODELOS ───────────────────────────────────────────
@@ -284,6 +285,14 @@ NIVELES DE ANOMALÍA:
 • MEDIA (35–64%): señal moderada, considerar en itinerario.
 • BAJA (<35%): señal débil, baja prioridad.
 
+GEOLOGÍA ESTRUCTURAL — VETAS, FALLAS Y OBRAS MINERAS (tu especialidad):
+ProspectorAI deriva información estructural REAL de Sentinel-1 (SAR) y del DEM Copernicus GLO30: lineamientos y posibles fallas/fracturas (campos "near_lineament", "structuralScore", evidencia "Estructura ✓").
+• CONTROL ESTRUCTURAL: la mayoría de los depósitos epitermales Au-Ag y muchas vetas se emplazan a lo largo de fallas y fracturas. Un objetivo espectral que COINCIDE con un lineamiento/falla tiene mayor interés exploratorio: la estructura es el conducto por donde circularon los fluidos mineralizantes.
+• VETAS: interpreta la orientación y continuidad probable de vetas a lo largo de los lineamientos detectados; señala que los clavos mineralizados (ore shoots) suelen concentrarse en intersecciones y flexiones de falla. Habla de geometría probable, no de leyes ni tonelaje.
+• FALLAS: distingue SIEMPRE "lineamiento" (rasgo lineal observado por SAR/DEM) de "falla confirmada" (requiere campo). Di "lineamiento compatible con control estructural", nunca afirmes la falla.
+• OBRAS MINERAS: si hay rasgos lineales o labores antiguas sugeridas, coméntalo con cautela y recomienda verificar catastro minero y reconocimiento de obras; el satélite no confirma una obra.
+• HONESTIDAD ESTRUCTURAL: si NO hay señal estructural real en el análisis (sin lineamientos / sin "Estructura ✓"), dilo explícitamente — "no hay evidencia estructural suficiente en estos datos" — y recomienda mapeo estructural de campo (rumbo/echado de vetas y fallas). NUNCA inventes vetas ni fallas sin dato real.
+
 CÓMO RESPONDER DUDAS DE USO:
 - Responde en lenguaje simple, paso a paso, como si guiaras a alguien por primera vez.
 - Si preguntan "¿cómo trazo?": explica los pasos concretos del botón Trazar.
@@ -334,18 +343,24 @@ export async function generateReportSection(
 
   // Build top-5 using ONLY real spectral data — no simulation scores or hallucinated minerals
   const top5 = analysisPoints.slice(0, 5).map((p, i) => {
-    // Raw spectral indices from GEE (S2/ASTER/EMIT values)
-    const rawIndices = Object.entries(p.indices || {}).slice(0, 6).map(([name, value]) => ({
-      name,
-      value: typeof value === 'number' ? parseFloat((value as number).toFixed(4)) : 0,
-    }));
+    // Índices con proxy REAL de Sentinel-2 (con etiqueta legible). Los índices sin dato
+    // directo (silica/malachite/sphalerite/carbonate/galena) NO se incluyen: valen 0 por
+    // falta de medición, no por ausencia real — incluirlos engañaría al modelo.
+    const rawIndices = S2_REAL_INDEX_KEYS
+      .filter(k => typeof (p.indices || {})[k] === 'number')
+      .map(k => ({
+        name: k,
+        label: INDEX_GLOSSARY[k]?.label ?? k,
+        value: parseFloat((Number((p.indices || {})[k]) || 0).toFixed(4)),
+      }));
     return {
       rank: i + 1,
       lat: parseFloat(p.lat.toFixed(5)),
       lng: parseFloat(p.lng.toFixed(5)),
       base_score: parseFloat((p.base_score || 0).toFixed(1)),  // spectral score only
       consensus_level: p.consensus_level || '',                // e.g. CONFIRMED, TRIPLE_SPECTRAL
-      evidence: p.evidence || '',                              // e.g. "S2 ✓ · ASTER ✓"
+      evidence: p.evidence || '',                              // e.g. "S2 ✓ · ASTER ✓ · Estructura ✓"
+      near_lineament: !!p.near_lineament,                      // cruza lineamiento / posible falla (SAR + DEM)
       raw_indices: rawIndices,
     };
   });
@@ -373,7 +388,7 @@ Genera EXACTAMENTE 3 secciones separadas por la cadena: \\n\\n--- SECCIÓN ---\\
 
 SECCIÓN 1 — RESUMEN EJECUTIVO (3-5 líneas): qué tipo de anomalía espectral se detectó, nivel de consenso, en qué tipo de terreno, coordenadas del centro de zona.
 
-SECCIÓN 2 — INTERPRETACIÓN GEOLÓGICA (4-6 líneas): qué patrón espectral y estructural sugiere, qué alteraciones hidrotermales son compatibles con los índices detectados, contexto tectónico esperado en la región.
+SECCIÓN 2 — INTERPRETACIÓN GEOLÓGICA Y ESTRUCTURAL (5-7 líneas): qué patrón espectral sugiere y qué alteraciones hidrotermales son compatibles con los índices detectados; y el CONTROL ESTRUCTURAL: si hay puntos con near_lineament=true o "Estructura ✓" en evidence, interprétalos como lineamientos compatibles con fallas/fracturas que pudieron controlar el emplazamiento de vetas (di "lineamiento compatible con control estructural", NUNCA afirmes la falla ni la veta). Si NINGÚN punto tiene señal estructural, dilo explícitamente ("sin evidencia estructural suficiente en estos datos") y recomienda mapeo estructural de campo. Contexto tectónico esperado en la región. No inventes vetas, fallas, leyes ni tonelaje.
 
 SECCIÓN 3 — PLAN DE CAMPO RECOMENDADO: lista numerada con el orden de visita de los top-5 puntos (usa sus coordenadas reales) y qué verificar en cada uno.
 
