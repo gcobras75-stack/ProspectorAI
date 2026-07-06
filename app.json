@@ -16,7 +16,7 @@
       },
       "infoPlist": {
         "NSCameraUsageDescription": "Permite escanear rocas con la IA usando los lentes macro y filtros UV.",
-        "NSPhotoLibraryUsageDescription": "Permite analizar muestras guardadas en la galería.",
+        "NSPhotoLibraryUsageDescription": "Para enviar fotos de rocas y minerales al geólogo.",
         "NSLocationWhenInUseUsageDescription": "Permite registrar las coordenadas geológicas exactas de la muestra recolectada.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Permite monitorear tu ubicación en el terreno para el mapa de calor mineral."
       }
@@ -34,7 +34,8 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
-      ]
+      ],
+      "package": "com.duendexx.prospectorai"
     },
     "web": {
       "output": "static",
@@ -59,7 +60,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Permite cargar evidencias.",
+          "photosPermission": "Para enviar fotos de rocas y minerales al geólogo.",
           "cameraPermission": "Permite realizar capturas crudas en campo para pasar por el filtro IA."
         }
       ],

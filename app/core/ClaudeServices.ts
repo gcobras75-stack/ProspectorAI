@@ -2,6 +2,7 @@
 import { AnalysisPoint } from './GeologicalEngine';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS } from './indexGlossary';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 // ─── MODELOS ───────────────────────────────────────────
 const MODEL_FAST   = 'claude-haiku-4-5-20251001';   // Cámara y chat
@@ -549,8 +550,23 @@ Devuelve EXCLUSIVAMENTE JSON válido (sin markdown):
 // 5. UTILIDAD: convertir URI local a base64
 // ═══════════════════════════════════════════════════════
 export async function photoUriToBase64(uri: string): Promise<string | null> {
+  const normalizedUri = uri.includes('://') ? uri : `file://${uri}`;
+
+  // Preferido: reescalar a máx 1500px de ancho + recompresión JPEG y devolver base64
+  // directo. Baja el peso (y los tokens de visión) de una foto de galería a tamaño completo.
   try {
-    const normalizedUri = uri.startsWith('file://') ? uri : `file://${uri}`;
+    const manipulated = await ImageManipulator.manipulateAsync(
+      normalizedUri,
+      [{ resize: { width: 1500 } }],
+      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+    );
+    if (manipulated.base64) return manipulated.base64;
+  } catch {
+    // Si el manipulador no está disponible, caemos al lectura cruda (demo a salvo).
+  }
+
+  // Fallback: lectura base64 sin reescalar.
+  try {
     const base64 = await FileSystem.readAsStringAsync(normalizedUri, {
       encoding: FileSystem.EncodingType.Base64,
     });

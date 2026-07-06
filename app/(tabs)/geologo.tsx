@@ -259,20 +259,9 @@ export default function GeologoScreen() {
     }));
     setWaypointList(wpsWithLabel);
 
-    const options = ['Mis waypoints', 'Tomar foto', 'Galeria', 'Cancelar'];
     Alert.alert('Adjuntar foto', 'Selecciona el origen de la imagen:', [
       {
-        text: 'Mis waypoints',
-        onPress: () => {
-          if (wpsWithLabel.length === 0) {
-            Alert.alert('Sin fotos', 'No hay waypoints con fotos en este proyecto.');
-            return;
-          }
-          setShowWaypointPicker(true);
-        },
-      },
-      {
-        text: 'Tomar foto',
+        text: '📷 Tomar foto',
         onPress: async () => {
           const { status } = await ImagePicker.requestCameraPermissionsAsync();
           if (status !== 'granted') {
@@ -290,11 +279,11 @@ export default function GeologoScreen() {
         },
       },
       {
-        text: 'Galeria',
+        text: '🖼️ Elegir de galería',
         onPress: async () => {
           const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (status !== 'granted') {
-            Alert.alert('Permiso denegado', 'Se necesita acceso a la galeria.');
+            Alert.alert('Permiso denegado', 'Se necesita acceso a la galería para elegir una foto ya tomada.');
             return;
           }
           const result = await ImagePicker.launchImageLibraryAsync({
@@ -305,6 +294,16 @@ export default function GeologoScreen() {
           if (!result.canceled && result.assets[0]) {
             setPendingPhoto({ uri: result.assets[0].uri });
           }
+        },
+      },
+      {
+        text: '📍 Mis waypoints',
+        onPress: () => {
+          if (wpsWithLabel.length === 0) {
+            Alert.alert('Sin fotos', 'No hay waypoints con fotos en este proyecto.');
+            return;
+          }
+          setShowWaypointPicker(true);
         },
       },
       { text: 'Cancelar', style: 'cancel' },
