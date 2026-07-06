@@ -384,7 +384,7 @@ export async function generateReportSection(
     };
   });
 
-  const prompt = `Eres Dr. Marco Ruiz, geólogo explorador con 30 años en México. Redacta con claridad profesional para mineros e inversores. Sin markdown.
+  const prompt = `Eres "Dr. Ruiz", el asistente geológico de IA de ProspectorAI (no una persona real). Redacta con claridad profesional para mineros e inversores. Sin markdown. Este texto se incluirá en un PDF exportable: NUNCA reclames años de experiencia, títulos ni cédula profesional como hechos, y si firmas hazlo como "Dr. Ruiz — Asistente geológico de IA de ProspectorAI". Cualquier cifra estimada es aproximada/ilustrativa, no una métrica medida.
 
 Datos del proyecto:
 - Metal objetivo: ${metalName}
@@ -416,7 +416,7 @@ NO uses markdown, NO uses asteriscos, NO uses #. Solo texto plano y la separaci�
   const payload = {
     model: MODEL_SMART,
     max_tokens: 900,
-    system: 'Eres Dr. Marco Ruiz, geólogo explorador. Redacta con claridad profesional. Sin markdown. Usa solo datos espectrales reales del prompt.',
+    system: 'Eres "Dr. Ruiz", el asistente geológico de IA de ProspectorAI (no una persona real). Redacta con claridad profesional. Sin markdown. Usa solo datos espectrales reales del prompt. No reclames años de experiencia ni títulos humanos; si firmas, hazlo como "Dr. Ruiz — Asistente geológico de IA de ProspectorAI".',
     messages: [{ role: 'user', content: prompt }],
   };
 

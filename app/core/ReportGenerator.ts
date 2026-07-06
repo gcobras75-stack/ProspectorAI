@@ -2,7 +2,7 @@
  * ReportGenerator.ts
  *
  * Generates a professional PDF exploration report using expo-print and expo-sharing.
- * Integrates Dr. Marco Ruiz AI section, satellite map image, and field sample photos.
+ * Integrates the Dr. Ruiz (AI assistant) section, satellite map image, and field sample photos.
  */
 
 import * as Print from 'expo-print';
@@ -641,7 +641,7 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
     <tr><td>Malla de análisis</td><td>${input.cellSizeM} m</td></tr>
     <tr><td>Fuentes satelitales</td><td>${input.satelitesSources}</td></tr>
   </table>
-  <p class="logo-line">Generado por ProspectorAI · Dr. Marco Ruiz · ${fechaGeneracion}</p>
+  <p class="logo-line">Generado por ProspectorAI · Dr. Ruiz — Asistente geológico de IA · ${fechaGeneracion}</p>
 </div>
 
 ${buildFavorabilidadSection(input.zoneProspectivity)}
@@ -690,10 +690,10 @@ ${buildFavorabilidadSection(input.zoneProspectivity)}
 ${buildIndicesSection(input.analysisPoints)}
 ${buildMetalsSection(input.metalScores)}
 
-<!-- ══════ DR. MARCO RUIZ ══════ -->
+<!-- ══════ DR. RUIZ (IA) ══════ -->
 <div class="page">
   <h2>Interpretación del Geólogo</h2>
-  <div class="section-label">Dr. Marco Ruiz · Geólogo Explorador · Interpretación asistida por IA · ${fechaGeneracion}</div>
+  <div class="section-label">Dr. Ruiz — Asistente geológico de IA de ProspectorAI · Interpretación asistida por IA · ${fechaGeneracion}</div>
   <h3>Resumen Ejecutivo</h3>
   <p>${resumenEjec.replace(/\n/g, '<br />')}</p>
   <h3>Interpretación Geológica</h3>
@@ -718,9 +718,10 @@ ${buildSamplePages(muestras)}
   son compatibles con ciertos tipos de alteración hidrotermal o mineralización, pero
   su presencia económica debe confirmarse mediante métodos directos.</p>
   <p>Los valores de favorabilidad (SEÑAL y CONFIANZA) <strong>no representan una probabilidad
-  de yacimiento</strong> ni indican ley, tonelaje o profundidad. La interpretación del
-  "Dr. Marco Ruiz" es generada con asistencia de inteligencia artificial y debe ser revisada
-  por un geólogo profesional colegiado antes de cualquier decisión de inversión.</p>
+  de yacimiento</strong> ni indican ley, tonelaje o profundidad. La interpretación de
+  "Dr. Ruiz" es generada por un asistente de inteligencia artificial de ProspectorAI —no por
+  un geólogo humano— y debe ser revisada por un geólogo profesional colegiado antes de
+  cualquier decisión de inversión.</p>
   <p style="color:#999;font-size:11px;margin-top:30px">ProspectorAI · Análisis satelital con Sentinel-2, ASTER y EMIT · ${fechaGeneracion}</p>
 </div>
 
