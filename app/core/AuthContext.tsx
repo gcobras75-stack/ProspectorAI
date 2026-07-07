@@ -5,6 +5,7 @@
  * La sesión se restaura automáticamente al abrir la app (persistSession).
  */
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { Alert } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
@@ -13,6 +14,8 @@ export type Profile = {
   nombre: string | null;
   role: 'user' | 'admin';
   codigo_usado: string | null;
+  active: boolean;
+  deleted: boolean;
 };
 
 type AuthState = {
@@ -38,10 +41,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!s) { setProfile(null); return; }
     const { data } = await supabase
       .from('profiles')
-      .select('id, nombre, role, codigo_usado')
+      .select('id, nombre, role, codigo_usado, active, deleted')
       .eq('id', s.user.id)
       .single();
-    setProfile((data as Profile) ?? null);
+    const p = (data as Profile) ?? null;
+    // Cuenta suspendida o eliminada → cerrar sesión y avisar.
+    if (p && (p.deleted || p.active === false)) {
+      setProfile(null);
+      await supabase.auth.signOut();
+      Alert.alert('Cuenta suspendida', 'Tu cuenta fue suspendida. Contacta al administrador.');
+      return;
+    }
+    setProfile(p);
   }, []);
 
   useEffect(() => {
