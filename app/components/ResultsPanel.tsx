@@ -8,6 +8,7 @@ import { computeAdaptiveCellSize, type MiningSpectralResult } from '../core/Sate
 import { type ZoneProspectivity } from '../core/ConsensusFusion';
 import { type KnownOccurrencesResult } from '../core/mrdsService';
 import { Colors, Typography, Spacing, Radii, anomalyFromPct } from '../core/theme';
+import { buildPointInterpretationContext } from '../core/pointInterpretation';
 
 // Puntos de confianza: ●●●○ etc. — independientes del color (color = favorabilidad)
 const confidenceDots = (label: 'ALTA' | 'MEDIA' | 'BAJA') => {
@@ -27,12 +28,14 @@ interface ResultsPanelProps {
   mapRef: React.RefObject<MapView | null>;
   onClose: () => void;
   onNavigateTo?: (lat: number, lng: number) => void;
+  onInterpret?: (context: string) => void;
 }
 
 export default function ResultsPanel({
-  satelliteData, metalScores, analysisPoints, zoneProspectivity, knownOccurrences, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo,
+  satelliteData, metalScores, analysisPoints, zoneProspectivity, knownOccurrences, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo, onInterpret,
 }: ResultsPanelProps) {
   const [legendOpen, setLegendOpen] = useState(false);
+  const [techOpen, setTechOpen] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -51,6 +54,52 @@ export default function ResultsPanel({
     : 0;
   const csmLabel = csm >= 1000 ? `${csm / 1000} km` : `${csm} m`;
 
+  // ── NIVEL 1 — resumen en lenguaje llano (minero no técnico, 5 segundos) ──────
+  const pointScore = (p: any): number => Math.round(p.score || p.base_score || 0);
+  const signalWord = (p: any): string => {
+    const s = pointScore(p);
+    return s >= 65 ? 'FUERTE' : s >= 35 ? 'MEDIA' : 'DÉBIL';
+  };
+  const nSats = (p: any): number =>
+    Array.isArray(p.supportedBy) && p.supportedBy.length > 0
+      ? p.supportedBy.length
+      : p.consensus === 'TRIPLE_SPECTRAL' ? 3
+      : (p.consensus === 'CONFIRMED' || p.consensus === 'PRIORITY_TARGET') ? 2
+      : 1;
+  // "¿bueno o malo?" — una línea de evidencia en palabras llanas, sin sensores crudos
+  const evidenceLine = (p: any): string => {
+    let base: string;
+    if (p.consensus === 'PRIORITY_TARGET') {
+      base = '🎯 Objetivo prioritario · 2 satélites + falla coinciden';
+    } else {
+      const n = nSats(p);
+      base = n >= 3 ? '✓✓✓ 3 satélites coinciden'
+        : n === 2 ? '✓✓ 2 satélites coinciden'
+        : '1 satélite detectó señal';
+      if (p.near_lineament) base += ' · sobre una posible falla';
+    }
+    return base;
+  };
+  const strongCount = analysisPoints.filter(
+    p => ['PRIORITY_TARGET', 'TRIPLE_SPECTRAL', 'CONFIRMED'].includes(p.consensus) || pointScore(p) >= 65
+  ).length;
+  const vegPct = zoneProspectivity?.vegetation_pct ?? 0;
+  const nPts = analysisPoints.length;
+  const verdict = strongCount >= 1
+    ? `🎯 Zona prometedora: ${strongCount} punto${strongCount > 1 ? 's' : ''} de alta prioridad para revisar`
+    : vegPct > 50
+    ? `🌿 Zona mayormente cubierta de vegetación · ${nPts} punto${nPts !== 1 ? 's' : ''} a revisar con cautela`
+    : `📊 Señal moderada · empieza por los ${Math.min(3, nPts)} mejores puntos`;
+  const top3 = analysisPoints.slice(0, 3);
+
+  const goToPoint = (p: any) => {
+    mapRef.current?.animateToRegion({ latitude: p.lat, longitude: p.lng, latitudeDelta: 0.005, longitudeDelta: 0.005 }, 500);
+    onNavigateTo?.(p.lat, p.lng);
+  };
+  const interpretPoint = (p: any) => {
+    onInterpret?.(buildPointInterpretationContext(p, { selectedMineral, terrainType, allPoints: analysisPoints, satelliteData }));
+  };
+
   return (
     <Animated.View style={[styles.panel, { opacity: fadeAnim }]}>
       {/* Header — subtitle only */}
@@ -65,6 +114,54 @@ export default function ResultsPanel({
       </View>
 
       <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
+
+        {/* ═══════════ NIVEL 1 — Resumen en lenguaje llano ═══════════ */}
+        {nPts > 0 && (
+          <View style={styles.n1}>
+            {/* (1) ¿Qué encontré? — veredicto en una frase */}
+            <Text style={styles.verdict}>{verdict}</Text>
+
+            {/* (2) ¿Bueno o malo? — los 3 mejores puntos, un semáforo cada uno */}
+            {top3.map((p, i) => {
+              const word = signalWord(p);
+              const dotColor = word === 'FUERTE' ? Colors.anomalyHigh : word === 'MEDIA' ? Colors.anomalyMed : Colors.anomalyLow;
+              return (
+                <View key={i} style={styles.simpleCard}>
+                  <View style={styles.simpleTop}>
+                    <Text style={[styles.simpleDot, { color: dotColor }]}>●</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.simpleTitle}>
+                        #{p.rank ?? i + 1} — Señal <Text style={{ color: dotColor, fontWeight: '900' }}>{word}</Text> de minerales alterados
+                      </Text>
+                      <Text style={styles.simpleSub}>{evidenceLine(p)}</Text>
+                    </View>
+                  </View>
+                  {/* (3) ¿A dónde voy? — acciones directas, máx. 1 tap */}
+                  <View style={styles.simpleActions}>
+                    <TouchableOpacity style={styles.n1BtnMap} onPress={() => goToPoint(p)} activeOpacity={0.85}>
+                      <Text style={styles.n1BtnMapText}>📍 Ver en el mapa</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.n1BtnInterp} onPress={() => interpretPoint(p)} activeOpacity={0.85}>
+                      <Text style={styles.n1BtnInterpText}>🎓 Interpretación</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })}
+
+            <Text style={styles.n1Disclaimer}>
+              Señal espectral exploratoria — requiere verificación en campo. No indica ley ni tonelaje.
+            </Text>
+          </View>
+        )}
+
+        {/* Toggle NIVEL 2 — datos técnicos plegados */}
+        <TouchableOpacity style={styles.techToggle} onPress={() => setTechOpen(v => !v)} activeOpacity={0.7}>
+          <MaterialCommunityIcons name={techOpen ? 'chevron-down' : 'chevron-right'} size={18} color={Colors.primary} />
+          <Text style={styles.techToggleText}>Ver datos técnicos {techOpen ? '▴' : '▾'}</Text>
+        </TouchableOpacity>
+
+        {techOpen && (<>
 
         {/* ── TARJETA HÉROE — Favorabilidad exploratoria (SEÑAL + CONFIANZA) ── */}
         {zoneProspectivity && (
@@ -255,7 +352,7 @@ export default function ResultsPanel({
                     <View key={ms.metal} style={[styles.assocChip, { borderColor: Colors.textSub, backgroundColor: `${Colors.textSub}14` }]}>
                       <Text style={{ fontSize: 12 }}>{ms.icon}</Text>
                       <Text style={{ color: Colors.text, ...Typography.caption, fontWeight: '700', marginLeft: 4 }}>{ms.label}</Text>
-                      <Text style={{ color: Colors.textSub, ...Typography.caption, fontWeight: '800', marginLeft: 4 }}>Requiere ASTER/EMIT</Text>
+                      <Text style={{ color: Colors.textSub, ...Typography.caption, fontWeight: '800', marginLeft: 4 }}>Necesita análisis profundo</Text>
                     </View>
                   );
                 }
@@ -298,7 +395,7 @@ export default function ResultsPanel({
               const isConfirmed     = p.consensus === 'CONFIRMED';
               const badgeColor  = isPriority ? Colors.priorityTarget : isTripleSpectral ? Colors.tripleSpectral : isConfirmed ? Colors.confirmed : anomalyColor;
               const badgeLabel  = isPriority ? 'OBJ.' : isTripleSpectral ? '\uD83C\uDF08 3\u00D7' : isConfirmed ? 'CONF.' : anomaly.label;
-              const badgeSub    = isPriority ? 'S2+ASTER+Estr.' : isTripleSpectral ? 'S2+ASTER+EMIT' : isConfirmed ? 'S2+ASTER' : 'alteracion';
+              const badgeSub    = isPriority ? '2 satélites + falla' : isTripleSpectral ? '3 satélites ✓✓✓' : isConfirmed ? '2 satélites ✓✓' : 'alteración';
               return (
                 <TouchableOpacity
                   key={i}
@@ -330,6 +427,8 @@ export default function ResultsPanel({
           </View>
         )}
 
+        </>)}
+
         <View style={{ height: 14 }} />
       </ScrollView>
       {csm > 0 && (
@@ -355,6 +454,42 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: 10, borderBottomWidth: 1, borderBottomColor: Colors.primary, paddingBottom: 8,
   },
+  // ── NIVEL 1 — resumen llano ──
+  n1: { marginHorizontal: 4, marginBottom: 6 },
+  verdict: { color: Colors.text, fontSize: 16, fontWeight: '900', lineHeight: 22, marginBottom: 12 },
+  simpleCard: {
+    backgroundColor: Colors.surface2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.surface4,
+    padding: 12,
+    marginBottom: 10,
+  },
+  simpleTop: { flexDirection: 'row', alignItems: 'center' },
+  simpleDot: { fontSize: 22, marginRight: 10 },
+  simpleTitle: { color: Colors.text, fontSize: 14, fontWeight: '700', lineHeight: 19 },
+  simpleSub: { color: Colors.textSub, fontSize: 12.5, marginTop: 3, lineHeight: 17 },
+  simpleActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  n1BtnMap: {
+    flex: 1, height: 42, borderRadius: 8,
+    backgroundColor: Colors.surface3, borderWidth: 1, borderColor: Colors.surface4,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  n1BtnMapText: { color: Colors.text, fontWeight: '700', fontSize: 13.5 },
+  n1BtnInterp: {
+    flex: 1, height: 42, borderRadius: 8,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  n1BtnInterpText: { color: '#000', fontWeight: '900', fontSize: 13.5 },
+  n1Disclaimer: { color: Colors.textDim, fontSize: 10.5, lineHeight: 14, marginTop: 2, marginBottom: 4, fontStyle: 'italic' },
+  techToggle: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 4, paddingVertical: 10,
+    borderTopWidth: 1, borderTopColor: Colors.surface3,
+    marginTop: 2,
+  },
+  techToggleText: { color: Colors.primary, fontSize: 13, fontWeight: '700', marginLeft: 4, letterSpacing: 0.3 },
   // ── Tarjeta héroe — Favorabilidad exploratoria ──
   heroCard: {
     backgroundColor: Colors.surface2,

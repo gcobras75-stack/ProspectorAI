@@ -87,13 +87,13 @@ export default function TapPanel({ tapPoint, satelliteData, onClose }: TapPanelP
             </TouchableOpacity>
             {showIndices && <View style={styles.indicesBox}>
               <Text style={{ color: Colors.textDisabled, fontSize: 9, letterSpacing: 0.8, marginBottom: 6 }}>
-                ÍNDICES SENTINEL-2 (celda {nearestCell!.lat.toFixed(4)}, {nearestCell!.lng.toFixed(4)})
+                DETALLE MINERALÓGICO (celda {nearestCell!.lat.toFixed(4)}, {nearestCell!.lng.toFixed(4)})
               </Text>
               {[
-                { label: 'Óxido de Fe (B4/B2)', value: nearestCell!.iron_oxide.toFixed(3) },
-                { label: 'Arcilla (B11/B12)',   value: nearestCell!.clay.toFixed(3)       },
-                { label: 'Ferroso (B11/B8)',    value: nearestCell!.ferroso.toFixed(3)    },
-                { label: 'NDVI',                value: nearestCell!.ndvi.toFixed(3)       },
+                { label: 'Óxido de hierro',       value: nearestCell!.iron_oxide.toFixed(3) },
+                { label: 'Arcillas de alteración', value: nearestCell!.clay.toFixed(3)       },
+                { label: 'Minerales ferrosos',    value: nearestCell!.ferroso.toFixed(3)    },
+                { label: 'Vegetación (NDVI)',     value: nearestCell!.ndvi.toFixed(3)       },
               ].map(({ label, value }) => (
                 <View key={label} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
                   <Text style={{ color: Colors.textDim, fontSize: 10 }}>{label}</Text>
@@ -102,7 +102,7 @@ export default function TapPanel({ tapPoint, satelliteData, onClose }: TapPanelP
               ))}
               {nearestCell!.masked_by_vegetation && (
                 <Text style={{ color: Colors.warning, fontSize: 9, marginTop: 4 }}>
-                  ⚠️ NDVI alto — señal mineral puede estar atenuada por vegetación
+                  ⚠️ Mucha vegetación — la señal mineral puede estar atenuada
                 </Text>
               )}
             </View>}
