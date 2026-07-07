@@ -474,7 +474,7 @@ export const loadMuestrasForReport = async (projectId: string): Promise<Array<{
   }));
 };
 
-// ─── WAYPOINTS FOR DR. RUIZ / REPORT ──────────────────────────────────────────
+// ─── WAYPOINTS FOR ING. VILLEGAS / REPORT ─────────────────────────────────────
 
 export async function loadProjectWaypoints(projectId: string): Promise<Array<{
   id: string; lat: number; lng: number; foto_uri: string; analisis_texto: string; fecha: string;

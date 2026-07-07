@@ -8,11 +8,12 @@ import NetInfo from '@react-native-community/netinfo';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { askClaudeGeologoExperto, photoUriToBase64 } from '../core/ClaudeServices';
+import { askClaudeGeologoExperto, askClaudeInterpretacionPunto, photoUriToBase64 } from '../core/ClaudeServices';
 import { loadLastAnalysis, getMuestras, saveProjectChatHistory, loadProjectState, loadFieldPackage, loadProjectWaypoints } from '../core/Database';
 import { useBadge } from '../core/BadgeContext';
 
 const PROJ_KEY = 'currentProjectId';
+const PENDING_INTERP_KEY = 'pendingGeologoInterpretation';
 
 // Multimodal content mirrors ClaudeServices type
 type ContentBlock =
@@ -162,11 +163,49 @@ export default function GeologoScreen() {
   const [showWaypointPicker, setShowWaypointPicker] = useState(false);
   const analysisPointsRef = useRef<any[]>([]);
   const scrollRef = useRef<ScrollView>(null);
+  const pendingHandledRef = useRef(false);
 
   const { setGeologoBadge } = useBadge();
+
+  // Process an interpretation request queued from the point card (SelectedPointModal).
+  // Uses ONLY the real point context; the strict anti-hallucination system prompt lives
+  // in askClaudeInterpretacionPunto. Guarded so it runs exactly once per request.
+  const processPendingInterpretation = useCallback(async () => {
+    if (pendingHandledRef.current) return;
+    const pending = await AsyncStorage.getItem(PENDING_INTERP_KEY);
+    if (!pending) return;
+    pendingHandledRef.current = true;
+    await AsyncStorage.removeItem(PENDING_INTERP_KEY);
+
+    const pid = (await AsyncStorage.getItem(PROJ_KEY)) || 'default';
+    setProjectId(pid);
+    setHasAnalysis(true);
+
+    const proj = await loadProjectState(pid);
+    const history: Message[] = (proj?.chat_history as Message[]) || [];
+    const userMsg: Message = { role: 'user', content: pending };
+    const withUser = [...history, userMsg];
+    setMessages(withUser);
+    setIsTyping(true);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    try {
+      const reply = await askClaudeInterpretacionPunto(pending);
+      const final = [...withUser, { role: 'assistant' as const, content: reply }];
+      setMessages(final);
+      await saveProjectChatHistory(pid, final);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    } catch (e: any) {
+      setMessages([...withUser, { role: 'assistant', content: `Error al generar la interpretación: ${e.message}` }]);
+    } finally {
+      setIsTyping(false);
+      pendingHandledRef.current = false;
+    }
+  }, []);
+
   useFocusEffect(useCallback(() => {
     setGeologoBadge(false);
-  }, [setGeologoBadge]));
+    processPendingInterpretation();
+  }, [setGeologoBadge, processPendingInterpretation]));
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
@@ -187,6 +226,14 @@ export default function GeologoScreen() {
     const history: Message[] = (proj?.chat_history as Message[]) || [];
     if (history.length > 0) {
       setMessages(history);
+      setHasAnalysis(true);
+      return;
+    }
+
+    // If an interpretation was queued from the point card, let the focus effect
+    // handle it instead of auto-generating a full-analysis summary here.
+    const pending = await AsyncStorage.getItem(PENDING_INTERP_KEY);
+    if (pending || pendingHandledRef.current) {
       setHasAnalysis(true);
       return;
     }
@@ -391,7 +438,7 @@ export default function GeologoScreen() {
         {messages.map((m, i) => (
           <View key={i} style={[styles.bubble, m.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant]}>
             {m.role === 'assistant' && (
-              <Text style={styles.bubbleSender}>Dr. Ruiz</Text>
+              <Text style={styles.bubbleSender}>Ing. Villegas</Text>
             )}
             {hasImage(m.content) && (
               <View style={styles.photoIndicator}>

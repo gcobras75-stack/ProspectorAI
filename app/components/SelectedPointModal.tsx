@@ -5,6 +5,7 @@ import { findNearestCell, type MiningSpectralResult } from '../core/SatelliteEng
 import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct } from '../core/spectralHelpers';
 import { METAL_COLORS } from './ScoreCard';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from '../core/indexGlossary';
+import { buildPointInterpretationContext } from '../core/pointInterpretation';
 
 interface SelectedPointModalProps {
   selectedPoint: any;
@@ -12,12 +13,14 @@ interface SelectedPointModalProps {
   selectedMineral: string;
   terrainType: string;
   mapRef: React.RefObject<MapView | null>;
+  allPoints?: any[];
   onClose: () => void;
   onSaveSample: () => void;
+  onInterpret: (context: string) => void;
 }
 
 export default function SelectedPointModal({
-  selectedPoint, satelliteData, selectedMineral, terrainType, mapRef, onClose, onSaveSample,
+  selectedPoint, satelliteData, selectedMineral, terrainType, mapRef, allPoints, onClose, onSaveSample, onInterpret,
 }: SelectedPointModalProps) {
   const [openIdx, setOpenIdx] = useState<string | null>(null);
 
@@ -33,10 +36,25 @@ export default function SelectedPointModal({
     ? findNearestCell(selectedPoint.lat, selectedPoint.lng, satelliteData.cells)
     : null;
 
+  // Full point context for the "Interpretación de datos" flow — shared builder that
+  // carries ONLY real, measured values so the AI cannot hallucinate (see
+  // INTERPRETACION_SYSTEM in ClaudeServices). Missing data is stated as missing.
+  const buildInterpretationContext = (): string =>
+    buildPointInterpretationContext(selectedPoint, { selectedMineral, terrainType, allPoints, satelliteData });
+
   return (
     <Modal visible={!!selectedPoint} transparent animationType="slide">
       <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.85)' }]}>
         <View style={styles.container}>
+
+          {/* Close X (top-right) — replaces the old full-width CERRAR button */}
+          <TouchableOpacity
+            style={styles.closeX}
+            onPress={onClose}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Text style={styles.closeXText}>✕</Text>
+          </TouchableOpacity>
 
           {/* Header */}
           <View style={styles.header}>
@@ -120,15 +138,19 @@ export default function SelectedPointModal({
                   const info = INDEX_GLOSSARY[k];
                   const v = Math.max(0, Math.min(1, Number(idx[k]) || 0));
                   const open = openIdx === k;
+                  const { level: vLevel, color: vColor } = anomalyFromPct(Math.round(v * 100));
                   return (
                     <View key={k} style={styles.idxRow}>
                       <TouchableOpacity activeOpacity={0.7} onPress={() => setOpenIdx(open ? null : k)}>
                         <View style={styles.idxLabelRow}>
                           <Text style={styles.idxLabel}>{info?.label ?? k}  {open ? '▲' : 'ⓘ'}</Text>
-                          <Text style={styles.idxVal}>{v.toFixed(2)}</Text>
+                          <Text style={styles.idxVal}>
+                            <Text style={{ color: vColor, fontWeight: '900' }}>{vLevel}</Text>
+                            <Text style={{ color: '#888' }}>  ({v.toFixed(2)})</Text>
+                          </Text>
                         </View>
                         <View style={styles.idxTrack}>
-                          <View style={[styles.idxFill, { width: `${Math.round(v * 100)}%` }]} />
+                          <View style={[styles.idxFill, { width: `${Math.round(v * 100)}%`, backgroundColor: vColor }]} />
                         </View>
                       </TouchableOpacity>
                       {open && <Text style={styles.idxDetail}>{info?.detail}</Text>}
@@ -136,7 +158,7 @@ export default function SelectedPointModal({
                   );
                 })}
                 <Text style={styles.idxNote}>
-                  Sin dato directo de Sentinel-2 (requiere ASTER/EMIT):{' '}
+                  Estos minerales necesitan análisis profundo (actívalo en Ajustes):{' '}
                   {NON_S2_INDEX_KEYS.map(k => INDEX_GLOSSARY[k]?.label).join(' · ')}
                 </Text>
               </View>
@@ -146,26 +168,32 @@ export default function SelectedPointModal({
               Indicador exploratorio — requiere verificación en campo
             </Text>
 
-            {/* Actions */}
+            {/* Actions — primary: interpretación experta con el Ing. Villegas */}
             <TouchableOpacity
-              style={styles.btnGold}
-              onPress={() => {
-                mapRef.current?.animateToRegion({ latitude: selectedPoint.lat, longitude: selectedPoint.lng, latitudeDelta: 0.002, longitudeDelta: 0.002 }, 800);
-                onClose();
-              }}
+              style={styles.btnInterpret}
+              activeOpacity={0.85}
+              onPress={() => onInterpret(buildInterpretationContext())}
             >
-              <Text style={styles.btnBlackText}>NAVEGAR A COORDENADAS</Text>
+              <Text style={styles.btnInterpretText}>🎓  INTERPRETACIÓN DE DATOS</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.btnGold, { marginBottom: 12 }]} onPress={onSaveSample}>
-              <Text style={styles.btnBlackText}>GUARDAR COMO MUESTRA</Text>
-            </TouchableOpacity>
+            {/* Secondary compact actions, side by side */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.btnCompact}
+                onPress={() => {
+                  mapRef.current?.animateToRegion({ latitude: selectedPoint.lat, longitude: selectedPoint.lng, latitudeDelta: 0.002, longitudeDelta: 0.002 }, 800);
+                  onClose();
+                }}
+              >
+                <Text style={styles.btnCompactText}>NAVEGAR</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.btnCompactOutline} onPress={onSaveSample}>
+                <Text style={styles.btnCompactOutlineText}>GUARDAR MUESTRA</Text>
+              </TouchableOpacity>
+            </View>
 
-            <TouchableOpacity style={styles.btnOutline} onPress={onClose}>
-              <Text style={{ color: '#FFD700', fontWeight: 'bold', fontSize: 14 }}>CERRAR</Text>
-            </TouchableOpacity>
-
-            <View style={{ height: 20 }} />
+            <View style={{ height: 16 }} />
           </ScrollView>
         </View>
       </View>
@@ -189,11 +217,20 @@ const styles = StyleSheet.create({
     width: '92%',
     maxHeight: '85%',
   },
+  closeX: {
+    position: 'absolute',
+    top: 12,
+    right: 14,
+    zIndex: 10,
+    padding: 4,
+  },
+  closeXText: { color: '#888', fontSize: 20, fontWeight: '700', lineHeight: 20 },
   header: {
     borderBottomWidth: 1,
     borderBottomColor: '#333',
     paddingBottom: 10,
     marginBottom: 14,
+    paddingRight: 28,
   },
   rank: { color: '#FFD700', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
   coords: { color: '#FFF', fontSize: 11, marginTop: 4, fontFamily: 'monospace' },
@@ -214,26 +251,40 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#151515',
   },
-  btnGold: {
+  // Primary action — interpretación experta
+  btnInterpret: {
     backgroundColor: '#FFD700',
-    minWidth: 140,
-    padding: 12,
-    borderRadius: 8,
+    height: 48,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
-  btnBlackText: { color: '#000', fontWeight: 'bold', fontSize: 14 },
-  btnOutline: {
-    backgroundColor: 'transparent',
+  btnInterpretText: { color: '#000', fontWeight: '900', fontSize: 15, letterSpacing: 0.3 },
+  // Secondary compact actions
+  actionRow: { flexDirection: 'row', gap: 10 },
+  btnCompact: {
+    flex: 1,
+    backgroundColor: '#1A1A00',
+    borderWidth: 1,
     borderColor: '#FFD700',
-    borderWidth: 2,
-    minWidth: 140,
-    padding: 12,
+    height: 44,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  btnCompactText: { color: '#FFD700', fontWeight: '700', fontSize: 14 },
+  btnCompactOutline: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    borderColor: '#555',
+    borderWidth: 1,
+    height: 44,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  btnCompactOutlineText: { color: '#CCC', fontWeight: '700', fontSize: 14 },
   idxBox: {
     backgroundColor: '#0A0A0A',
     borderRadius: 8,
@@ -244,11 +295,11 @@ const styles = StyleSheet.create({
   },
   idxTitle: { color: '#888', fontSize: 9, letterSpacing: 0.8, fontWeight: '700' },
   idxHint: { color: '#555', fontSize: 9, fontStyle: 'italic', marginTop: 2, marginBottom: 8 },
-  idxRow: { marginBottom: 9 },
-  idxLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-  idxLabel: { color: '#FFD700', fontSize: 12, fontWeight: '700' },
-  idxVal: { color: '#CCC', fontSize: 11, fontFamily: 'monospace' },
-  idxTrack: { height: 5, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' },
+  idxRow: { marginBottom: 6 },
+  idxLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 },
+  idxLabel: { color: '#FFD700', fontSize: 13, fontWeight: '700' },
+  idxVal: { color: '#CCC', fontSize: 13, fontFamily: 'monospace' },
+  idxTrack: { height: 4, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' },
   idxFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: '#FFD700', borderRadius: 3, opacity: 0.85 },
   idxDetail: { color: '#AAA', fontSize: 10, lineHeight: 14, marginTop: 5, fontStyle: 'italic' },
   idxNote: { color: '#666', fontSize: 9, marginTop: 6, lineHeight: 13 },

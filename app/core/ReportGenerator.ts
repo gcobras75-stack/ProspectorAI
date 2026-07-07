@@ -2,7 +2,7 @@
  * ReportGenerator.ts
  *
  * Generates a professional PDF exploration report using expo-print and expo-sharing.
- * Integrates the Dr. Ruiz (AI assistant) section, satellite map image, and field sample photos.
+ * Integrates the Ing. Villegas (AI assistant) section, satellite map image, and field sample photos.
  */
 
 import * as Print from 'expo-print';
@@ -159,7 +159,7 @@ const CSS = `
   .data-table td, .points-table td { padding: 9px 14px; border-bottom: 1px solid #EEEEEE; vertical-align: top; font-size: 12px; }
   .data-table tr:nth-child(even) td, .points-table tr:nth-child(even) td { background: #FAFAFA; }
 
-  /* ── Dr. Ruiz ── */
+  /* ── Ing. Villegas ── */
   .section-label { color: #888; font-size: 12px; margin-bottom: 20px; font-style: italic; }
 
   /* ── Nivel badges ── */
@@ -484,7 +484,7 @@ function buildMetalsSection(metalScores?: MetalScore[]): string {
 // ---------------------------------------------------------------------------
 
 export async function generateAndShareReport(input: ReportInput): Promise<void> {
-  // ── A. Obtain/generate Dr. Ruiz section (cached) ─────────────────────────
+  // ── A. Obtain/generate Ing. Villegas section (cached) ─────────────────────────
   // Compute hash from current analysis (top-5 coords + base_scores + metal + area)
   const analisisHash =
     input.analysisPoints.slice(0, 5).map(p => `${p.lat?.toFixed(4)},${p.lng?.toFixed(4)},${(p.base_score || 0).toFixed(3)}`).join('|')
@@ -495,7 +495,7 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
   const cachedHashMatches = saved?.analisisHash === analisisHash;
 
   if (!geologoTexto || !cachedHashMatches) {
-    console.log('[Report] Generating Dr. Ruiz section. Reason:', !geologoTexto ? 'no cache' : 'analysis changed');
+    console.log('[Report] Generating Ing. Villegas section. Reason:', !geologoTexto ? 'no cache' : 'analysis changed');
     geologoTexto = await generateReportSection(
       input.analysisPoints,
       input.metalName,
@@ -506,7 +506,7 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
     );
     await saveReportContent(input.projectId, geologoTexto, analisisHash);
   } else {
-    console.log('[Report] Using cached Dr. Ruiz section (hash match).');
+    console.log('[Report] Using cached Ing. Villegas section (hash match).');
   }
 
   const parts = geologoTexto.split('\n\n--- SECCIÓN ---\n\n');
@@ -641,7 +641,7 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
     <tr><td>Malla de análisis</td><td>${input.cellSizeM} m</td></tr>
     <tr><td>Fuentes satelitales</td><td>${input.satelitesSources}</td></tr>
   </table>
-  <p class="logo-line">Generado por ProspectorAI · Dr. Ruiz — Asistente geológico de IA · ${fechaGeneracion}</p>
+  <p class="logo-line">Generado por ProspectorAI · Ing. Villegas — Asistente geológico de IA · ${fechaGeneracion}</p>
 </div>
 
 ${buildFavorabilidadSection(input.zoneProspectivity)}
@@ -690,10 +690,10 @@ ${buildFavorabilidadSection(input.zoneProspectivity)}
 ${buildIndicesSection(input.analysisPoints)}
 ${buildMetalsSection(input.metalScores)}
 
-<!-- ══════ DR. RUIZ (IA) ══════ -->
+<!-- ══════ ING. VILLEGAS (IA) ══════ -->
 <div class="page">
   <h2>Interpretación del Geólogo</h2>
-  <div class="section-label">Dr. Ruiz — Asistente geológico de IA de ProspectorAI · Interpretación asistida por IA · ${fechaGeneracion}</div>
+  <div class="section-label">Ing. Villegas — Asistente geológico de IA de ProspectorAI · Interpretación asistida por IA · ${fechaGeneracion}</div>
   <h3>Resumen Ejecutivo</h3>
   <p>${resumenEjec.replace(/\n/g, '<br />')}</p>
   <h3>Interpretación Geológica</h3>
@@ -719,7 +719,7 @@ ${buildSamplePages(muestras)}
   su presencia económica debe confirmarse mediante métodos directos.</p>
   <p>Los valores de favorabilidad (SEÑAL y CONFIANZA) <strong>no representan una probabilidad
   de yacimiento</strong> ni indican ley, tonelaje o profundidad. La interpretación de
-  "Dr. Ruiz" es generada por un asistente de inteligencia artificial de ProspectorAI —no por
+  "Ing. Villegas" es generada por un asistente de inteligencia artificial de ProspectorAI —no por
   un geólogo humano— y debe ser revisada por un geólogo profesional colegiado antes de
   cualquier decisión de inversión.</p>
   <p style="color:#999;font-size:11px;margin-top:30px">ProspectorAI · Análisis satelital con Sentinel-2, ASTER y EMIT · ${fechaGeneracion}</p>

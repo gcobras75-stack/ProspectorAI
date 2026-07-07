@@ -260,7 +260,7 @@ function ProjectDetail({ project, onBack, onDeleted, onRenamed }: DetailProps) {
         )}
 
         {/* Chat */}
-        <SectionHeader title="Dr. Ruiz" />
+        <SectionHeader title="Ing. Villegas" />
         <View style={styles.infoBlock}>
           <InfoRow label="Mensajes" value={String(project.chat_count)} />
         </View>

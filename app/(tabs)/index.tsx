@@ -1381,7 +1381,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               <Text style={{ flex: 1, fontSize: 13, color: '#FFD700', lineHeight: 18 }}>
                 {activeTip === 1 && '1️⃣  Revisa el chip oro·sierra arriba — define qué mineral buscas en Ajustes'}
                 {activeTip === 2 && '✏️  Marca mínimo 3 puntos y presiona ANALIZAR para ver resultados'}
-                {activeTip === 3 && '🧑‍🔬  Siguiente: pregunta al Dr. Ruiz en Geólogo y prepara el paquete en Más → Campo'}
+                {activeTip === 3 && '🧑‍🔬  Siguiente: pregunta al Ing. Villegas en Geólogo y prepara el paquete en Más → Campo'}
               </Text>
               <Text style={{ color: '#888', fontSize: 12, marginLeft: 8 }}>✕</Text>
             </TouchableOpacity>
@@ -1551,6 +1551,10 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             AsyncStorage.getItem('hasSeenTip_3').then(seen => { if (!seen) setActiveTip(3); });
           }}
           onNavigateTo={(lat, lng) => setNavTarget({ lat, lng })}
+          onInterpret={async (context: string) => {
+            await AsyncStorage.setItem('pendingGeologoInterpretation', context);
+            router.push('/(tabs)/geologo');
+          }}
         />
       )}
 
@@ -1569,6 +1573,12 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         selectedMineral={selectedMineral}
         terrainType={terrainType}
         mapRef={mapRef}
+        allPoints={analysisPoints}
+        onInterpret={async (context: string) => {
+          await AsyncStorage.setItem('pendingGeologoInterpretation', context);
+          setSelectedPoint(null);
+          router.push('/(tabs)/geologo');
+        }}
         onClose={() => setSelectedPoint(null)}
         onSaveSample={() => {
           mapRef.current?.animateToRegion({ latitude: selectedPoint?.lat, longitude: selectedPoint?.lng, latitudeDelta: 0.002, longitudeDelta: 0.002 }, 0);

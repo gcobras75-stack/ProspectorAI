@@ -73,7 +73,7 @@ const FieldModeButton = forwardRef<FieldModeButtonHandle, FieldModeButtonProps>(
     Alert.alert(
       'Preparar para campo',
       `Se guardarán ~${totalKb} KB localmente.\n\n` +
-      `Incluye:\n• ${analysisPoints.length} puntos de análisis\n• Imagen de mapa (si está disponible)\n• Resumen del Dr. Ruiz\n\n` +
+      `Incluye:\n• ${analysisPoints.length} puntos de análisis\n• Imagen de mapa (si está disponible)\n• Resumen del Ing. Villegas\n\n` +
       'Disponible sin conexión en campo.',
       [
         { text: 'Cancelar', style: 'cancel' },
