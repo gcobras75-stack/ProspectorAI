@@ -12,7 +12,7 @@ import { supabase } from './core/supabase';
 import { useAuth } from './core/AuthContext';
 
 type Tab = 'codigos' | 'usuarios' | 'metricas';
-type Code = { code: string; created_at: string; uses: number; max_uses: number; active: boolean; expires_at: string | null; estado: string; usado_por: string[] };
+type Code = { code: string; created_at: string; uses: number; max_uses: number; active: boolean; expires_at: string | null; estado: string; usado_por: string[]; nombre_destinatario: string | null; correo_destinatario: string | null; nota: string | null };
 type User = { id: string; email: string; nombre: string | null; role: string; active: boolean; deleted: boolean; codigo_usado: string | null; created_at: string; last_seen: string | null };
 
 export default function AdminScreen() {
@@ -59,6 +59,9 @@ function CodesTab() {
   const [codes, setCodes] = useState<Code[]>([]);
   const [fetching, setFetching] = useState(false);
   const [maxUses, setMaxUses] = useState('1');
+  const [destNombre, setDestNombre] = useState('');
+  const [destCorreo, setDestCorreo] = useState('');
+  const [destNota, setDestNota] = useState('');
   const [busy, setBusy] = useState(false);
   const [filtro, setFiltro] = useState<'activos' | 'revocados' | 'todos'>('activos');
 
@@ -73,10 +76,17 @@ function CodesTab() {
   const generate = async () => {
     if (busy) return; setBusy(true);
     const n = Math.max(1, parseInt(maxUses, 10) || 1);
-    const { data, error } = await supabase.rpc('generate_invite_code', { p_max_uses: n, p_expires_at: null });
+    const { data, error } = await supabase.rpc('generate_invite_code', {
+      p_max_uses: n, p_expires_at: null,
+      p_nombre: destNombre.trim() || null,
+      p_correo: destCorreo.trim() || null,
+      p_nota: destNota.trim() || null,
+    });
     setBusy(false);
     if (error) { Alert.alert('No se pudo generar', error.message); return; }
-    Alert.alert('Código creado', `${data}\n\nCompártelo (${n} uso${n > 1 ? 's' : ''}).`); load();
+    const para = destNombre.trim() ? ` para ${destNombre.trim()}` : '';
+    setDestNombre(''); setDestCorreo(''); setDestNota('');
+    Alert.alert('Código creado', `${data}${para}\n\nCompártelo (${n} uso${n > 1 ? 's' : ''}).`); load();
   };
 
   const upd = async (code: string, patch: any, okMsg?: string) => {
@@ -103,14 +113,20 @@ function CodesTab() {
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={s.genRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={s.lbl}>Usos permitidos</Text>
-          <TextInput style={s.inp} value={maxUses} onChangeText={setMaxUses} keyboardType="number-pad" placeholder="1" placeholderTextColor="#555" />
+      <View style={s.genForm}>
+        <View style={s.genRow}>
+          <View style={{ width: 110 }}>
+            <Text style={s.lbl}>Usos permitidos</Text>
+            <TextInput style={s.inp} value={maxUses} onChangeText={setMaxUses} keyboardType="number-pad" placeholder="1" placeholderTextColor="#555" />
+          </View>
+          <TouchableOpacity style={[s.gold, { flex: 1 }, busy && { opacity: 0.6 }]} onPress={generate} disabled={busy}>
+            {busy ? <ActivityIndicator color="#000" /> : <Text style={s.goldT}>+ Generar código</Text>}
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={[s.gold, busy && { opacity: 0.6 }]} onPress={generate} disabled={busy}>
-          {busy ? <ActivityIndicator color="#000" /> : <Text style={s.goldT}>+ Generar</Text>}
-        </TouchableOpacity>
+        <Text style={s.optLbl}>Destinatario (opcional — para llevar control de a quién le das cada código)</Text>
+        <TextInput style={s.inp} value={destNombre} onChangeText={setDestNombre} placeholder="Nombre" placeholderTextColor="#555" />
+        <TextInput style={[s.inp, { marginTop: 6 }]} value={destCorreo} onChangeText={setDestCorreo} placeholder="Correo" placeholderTextColor="#555" autoCapitalize="none" keyboardType="email-address" />
+        <TextInput style={[s.inp, { marginTop: 6 }]} value={destNota} onChangeText={setDestNota} placeholder="Nota (ej. socio potencial, zona…)" placeholderTextColor="#555" />
       </View>
       <View style={s.filterRow}>
         {(['activos', 'revocados', 'todos'] as const).map(f => (
@@ -130,6 +146,13 @@ function CodesTab() {
               <Text style={[s.estado, { color: item.estado === 'activo' ? '#4CAF50' : '#FF7043' }]}>{item.estado}</Text>
             </View>
             <Text style={s.meta}>{item.uses}/{item.max_uses} usos{item.expires_at ? ` · expira ${item.expires_at.slice(0, 10)}` : ''}</Text>
+            {(item.nombre_destinatario || item.correo_destinatario || item.nota) && (
+              <View style={s.dest}>
+                {item.nombre_destinatario ? <Text style={s.destT}>👤 {item.nombre_destinatario}</Text> : null}
+                {item.correo_destinatario ? <Text style={s.destT}>✉️ {item.correo_destinatario}</Text> : null}
+                {item.nota ? <Text style={s.destNota}>📝 {item.nota}</Text> : null}
+              </View>
+            )}
             {item.usado_por.length > 0 && <Text style={s.meta2}>Usado por: {item.usado_por.join(', ')}</Text>}
             <View style={s.actions}>
               <TouchableOpacity style={s.act} onPress={() => editTope(item)}><Text style={s.actT}>Editar tope</Text></TouchableOpacity>
@@ -264,7 +287,9 @@ const s = StyleSheet.create({
   tab: { flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
   tabActive: { borderBottomColor: '#FFD700' },
   tabText: { color: '#777', fontWeight: '700', fontSize: 13 }, tabTextActive: { color: '#FFD700' },
-  genRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, padding: 14, borderBottomWidth: 1, borderBottomColor: '#151515' },
+  genForm: { padding: 14, borderBottomWidth: 1, borderBottomColor: '#151515' },
+  genRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  optLbl: { color: '#777', fontSize: 10.5, marginTop: 12, marginBottom: 6, fontStyle: 'italic' },
   lbl: { color: '#AAA', fontSize: 11, fontWeight: '700', marginBottom: 6 },
   inp: { backgroundColor: '#111', color: '#FFF', borderRadius: 8, borderWidth: 1, borderColor: '#333', paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
   gold: { backgroundColor: '#FFD700', borderRadius: 8, height: 44, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center' },
@@ -279,6 +304,9 @@ const s = StyleSheet.create({
   estado: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
   meta: { color: '#AAA', fontSize: 12, marginTop: 4 }, meta2: { color: '#777', fontSize: 11, marginTop: 3 },
   tapHint: { color: '#555', fontSize: 11, marginTop: 6, fontStyle: 'italic' },
+  dest: { marginTop: 6, backgroundColor: '#111', borderRadius: 7, padding: 8, borderLeftWidth: 2, borderLeftColor: '#FFD700' },
+  destT: { color: '#DDD', fontSize: 12, marginBottom: 1 },
+  destNota: { color: '#AAA', fontSize: 12, fontStyle: 'italic', marginTop: 1 },
   uName: { color: '#EEE', fontSize: 15, fontWeight: '700' },
   actions: { flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' },
   act: { borderWidth: 1, borderColor: '#444', borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
