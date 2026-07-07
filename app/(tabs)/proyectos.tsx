@@ -34,6 +34,7 @@ import {
 import { Colors, Radii, Shadows, Spacing, Touch, Typography } from '../core/theme';
 import ValidationView from '../components/ValidationView';
 import { exportProjectToExcel } from '../core/excelExport';
+import { useAuth } from '../core/AuthContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -384,6 +385,15 @@ export default function ProyectosScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedProject, setSelectedProject] = useState<ProjectMeta | null>(null);
   const [renameTarget, setRenameTarget] = useState<ProjectMeta | null>(null);
+  const { profile, isAdmin, signOut } = useAuth();
+
+  const openAccount = useCallback(() => {
+    const opts: any[] = [];
+    if (isAdmin) opts.push({ text: '🎟️  Códigos de invitación', onPress: () => router.push('/admin' as any) });
+    opts.push({ text: 'Cerrar sesión', style: 'destructive', onPress: () => { signOut(); } });
+    opts.push({ text: 'Cancelar', style: 'cancel' });
+    Alert.alert(profile?.nombre || 'Tu cuenta', isAdmin ? 'Administrador' : 'Cuenta', opts);
+  }, [isAdmin, profile, signOut]);
 
   const loadAll = useCallback(async () => {
     try {
@@ -548,11 +558,16 @@ export default function ProyectosScreen() {
       <StatusBar barStyle="light-content" backgroundColor={Colors.surface} />
 
       {/* Screen header */}
-      <View style={styles.screenHeader}>
-        <Text style={styles.screenTitle}>Proyectos</Text>
-        <Text style={styles.screenSubtitle}>
-          {projects.length > 0 ? `${projects.length} proyecto${projects.length > 1 ? 's' : ''}` : ''}
-        </Text>
+      <View style={[styles.screenHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.screenTitle}>Proyectos</Text>
+          <Text style={styles.screenSubtitle}>
+            {projects.length > 0 ? `${projects.length} proyecto${projects.length > 1 ? 's' : ''}` : ''}
+          </Text>
+        </View>
+        <Pressable onPress={openAccount} style={styles.accountBtn} hitSlop={8}>
+          <Text style={styles.accountBtnText}>{isAdmin ? '👤 Admin' : '👤 Cuenta'}</Text>
+        </Pressable>
       </View>
 
       <FlatList
@@ -615,6 +630,19 @@ const styles = StyleSheet.create({
     ...Typography.body,
     color: Colors.textSub,
     marginTop: Spacing.xxs,
+  },
+  accountBtn: {
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: `${Colors.primary}18`,
+  },
+  accountBtnText: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
   },
 
   // List
