@@ -20,16 +20,40 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
-// Traduce los códigos de error del trigger de registro a mensajes claros.
+// Traduce los errores de auth a mensajes claros. NUNCA devuelve JSON/HTML crudo.
 export function friendlyAuthError(message: string | undefined): string {
-  const m = (message ?? '').toUpperCase();
+  const raw = message ?? '';
+  const m = raw.toUpperCase();
   if (m.includes('INVITE_CODE_REQUIRED')) return 'Necesitas un código de invitación para registrarte.';
-  if (m.includes('INVITE_CODE_INVALID'))  return 'Ese código de invitación no existe.';
+  if (m.includes('INVITE_CODE_INVALID'))  return 'Ese código de invitación no existe. Revisa que esté bien escrito.';
   if (m.includes('INVITE_CODE_REVOKED'))  return 'Ese código fue revocado.';
   if (m.includes('INVITE_CODE_EXPIRED'))  return 'Ese código ya expiró.';
   if (m.includes('INVITE_CODE_EXHAUSTED')) return 'Ese código ya alcanzó su límite de usos.';
+  // GoTrue envuelve las excepciones del trigger como un 500 genérico:
+  if (m.includes('DATABASE ERROR SAVING NEW USER'))
+    return 'No se pudo crear la cuenta. Revisa tu código de invitación e intenta de nuevo.';
+  if (m.includes('ALREADY REGISTERED') || m.includes('ALREADY EXISTS'))
+    return 'Ese correo ya está registrado. Inicia sesión.';
   if (m.includes('INVALID LOGIN CREDENTIALS')) return 'Correo o contraseña incorrectos.';
   if (m.includes('EMAIL NOT CONFIRMED')) return 'Debes confirmar tu correo antes de entrar.';
-  if (m.includes('USER ALREADY REGISTERED')) return 'Ya existe una cuenta con ese correo.';
-  return message ?? 'Ocurrió un error. Intenta de nuevo.';
+  if (m.includes('EMAIL') && m.includes('INVALID')) return 'Ese correo no es válido.';
+  if (m.includes('PASSWORD')) return 'La contraseña debe tener al menos 6 caracteres.';
+  if (m.includes('NETWORK') || m.includes('FETCH') || m.includes('TIMEOUT') || m.includes('CONNECTION'))
+    return 'Error de conexión — intenta de nuevo.';
+  // Blindaje: nunca mostrar objetos/JSON/HTML crudos ni mensajes larguísimos.
+  const t = raw.trim();
+  if (!t || t.length > 120 || t.startsWith('{') || t.startsWith('[') || t.startsWith('<') || m.includes('CLOUDFLARE')) {
+    return 'Error de conexión — intenta de nuevo.';
+  }
+  return t;
+}
+
+// Mensaje del pre-chequeo de código (RPC check_invite_code).
+export function inviteStatusMessage(status: string | null | undefined): string {
+  switch (status) {
+    case 'REVOKED':   return 'Ese código fue revocado.';
+    case 'EXPIRED':   return 'Ese código ya expiró.';
+    case 'EXHAUSTED': return 'Ese código ya alcanzó su límite de usos.';
+    default:          return 'Ese código de invitación no existe. Revísalo (ojo con el guion “-”).';
+  }
 }

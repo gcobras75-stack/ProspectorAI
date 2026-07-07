@@ -10,7 +10,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator,
   KeyboardAvoidingView, Platform, ScrollView, Alert,
 } from 'react-native';
-import { supabase, friendlyAuthError } from './core/supabase';
+import { supabase, friendlyAuthError, inviteStatusMessage } from './core/supabase';
 
 export default function LoginScreen() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -35,10 +35,15 @@ export default function LoginScreen() {
     setBusy(true);
     try {
       if (isRegister) {
+        // Pre-chequeo del código: mensaje exacto sin depender de parsear un 500.
+        const { data: status, error: chkErr } = await supabase.rpc('check_invite_code', { p_code: code.trim() });
+        if (chkErr) { Alert.alert('Error de conexión', 'No pudimos validar el código. Revisa tu conexión e intenta de nuevo.'); return; }
+        if (status !== 'OK') { Alert.alert('Código de invitación', inviteStatusMessage(status)); return; }
+
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { data: { invite_code: code.trim().toUpperCase(), nombre: nombre.trim() } },
+          options: { data: { invite_code: code.trim(), nombre: nombre.trim() } },
         });
         if (error) { Alert.alert('No se pudo crear la cuenta', friendlyAuthError(error.message)); return; }
         if (!data.session) {
