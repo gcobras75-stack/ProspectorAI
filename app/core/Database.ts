@@ -57,6 +57,13 @@ export const initDB = async () => {
       satellite      TEXT DEFAULT 'SENTINEL2_REAL',
       fecha_guardado TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS sync_queue (
+      entity TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      op TEXT NOT NULL DEFAULT 'upsert',
+      queued_at TEXT NOT NULL,
+      PRIMARY KEY (entity, entity_id)
+    );
     CREATE TABLE IF NOT EXISTS validation_pairs (
       id TEXT PRIMARY KEY,
       muestra_id TEXT NOT NULL,
@@ -138,6 +145,68 @@ export const initDB = async () => {
   return dbCache;
 };
 
+// ─── SYNC OUTBOX ──────────────────────────────────────────────────────────────
+// Cada escritura local encola (entity, id) aquí. SyncEngine lee el estado ACTUAL
+// de la fila local y lo empuja a Supabase; al confirmarse, borra la entrada.
+// Así el modo campo offline nunca se degrada: si no hay señal, queda en cola.
+
+export type SyncEntity = 'project' | 'sample' | 'validation';
+
+export const enqueueSync = async (
+  entity: SyncEntity,
+  entityId: string,
+  op: 'upsert' | 'delete' = 'upsert'
+): Promise<void> => {
+  if (!entityId) return;
+  try {
+    const db = await initDB();
+    await db.runAsync(
+      `INSERT OR REPLACE INTO sync_queue (entity, entity_id, op, queued_at) VALUES (?, ?, ?, ?)`,
+      [entity, entityId, op, new Date().toISOString()]
+    );
+  } catch (_) { /* la sincronización nunca debe romper una escritura local */ }
+};
+
+export const getSyncQueue = async (): Promise<Array<{ entity: SyncEntity; entity_id: string; op: string }>> => {
+  const db = await initDB();
+  return await db.getAllAsync(
+    'SELECT entity, entity_id, op FROM sync_queue ORDER BY queued_at ASC'
+  ) as any[];
+};
+
+export const dequeueSync = async (entity: string, entityId: string): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync('DELETE FROM sync_queue WHERE entity = ? AND entity_id = ?', [entity, entityId]);
+};
+
+export const getProjectRowRaw = async (id: string): Promise<any | null> => {
+  const db = await initDB();
+  return await db.getFirstAsync('SELECT * FROM proyectos WHERE id = ?', [id]);
+};
+
+export const getAllProjectIds = async (): Promise<string[]> => {
+  const db = await initDB();
+  const rows = await db.getAllAsync('SELECT id FROM proyectos') as any[];
+  return rows.map(r => r.id);
+};
+
+export const getAllMuestraIds = async (): Promise<string[]> => {
+  const db = await initDB();
+  const rows = await db.getAllAsync('SELECT id FROM muestras') as any[];
+  return rows.map(r => r.id);
+};
+
+export const getAllValidationIds = async (): Promise<string[]> => {
+  const db = await initDB();
+  const rows = await db.getAllAsync('SELECT id FROM validation_pairs') as any[];
+  return rows.map(r => r.id);
+};
+
+export const getValidationPairRaw = async (id: string): Promise<any | null> => {
+  const db = await initDB();
+  return await db.getFirstAsync('SELECT * FROM validation_pairs WHERE id = ?', [id]);
+};
+
 export const saveMuestra = async (data: any) => {
   const db = await initDB();
   await db.runAsync(
@@ -155,11 +224,12 @@ export const saveMuestra = async (data: any) => {
       data.imagen_thumbnail || '', 
       data.descripcion_texto || '',
       data.analisis_ia ? JSON.stringify(data.analisis_ia) : '{}', 
-      data.mineral_detectado || '', 
-      data.score_ia || 0, 
+      data.mineral_detectado || '',
+      data.score_ia || 0,
       0
     ]
   );
+  await enqueueSync('sample', data.id);
 };
 
 export const getMuestras = async (proyectoId?: string) => {
@@ -276,6 +346,7 @@ export const createProject = async (nombre: string): Promise<string> => {
     'INSERT INTO proyectos (id, nombre, fecha_creacion, ultimo_acceso) VALUES (?, ?, ?, ?)',
     [id, nombre, new Date().toISOString(), new Date().toISOString()]
   );
+  await enqueueSync('project', id);
   return id;
 };
 
@@ -310,6 +381,7 @@ export const saveProjectState = async (
     `UPDATE proyectos SET ${setClause}, ultimo_acceso = ? WHERE id = ?`,
     values as any[]
   );
+  await enqueueSync('project', projectId);
 };
 
 export const loadProjectState = async (projectId: string): Promise<{
@@ -351,6 +423,7 @@ export const saveProjectChatHistory = async (
     'UPDATE proyectos SET chat_history = ?, ultimo_acceso = ? WHERE id = ?',
     [JSON.stringify(messages), new Date().toISOString(), projectId]
   );
+  await enqueueSync('project', projectId);
 };
 
 export const loadLastAnalysis = async (): Promise<{
@@ -389,6 +462,7 @@ export async function saveFieldPackage(
      campo_analisis_json = ?, campo_mapa_b64 = ?, campo_size_kb = ? WHERE id = ?`,
     [data.resumen_geologo, data.analisis_json, data.mapa_b64, data.size_kb, projectId]
   );
+  await enqueueSync('project', projectId);
 }
 
 export async function loadFieldPackage(projectId: string): Promise<{
@@ -417,6 +491,7 @@ export const saveReportContent = async (projectId: string, geologoTexto: string,
     `UPDATE proyectos SET reporte_geologo_texto = ?, reporte_generado_at = datetime('now'), reporte_analisis_hash = ? WHERE id = ?`,
     [geologoTexto, analisisHash, projectId]
   );
+  await enqueueSync('project', projectId);
 };
 
 export const loadReportContent = async (projectId: string): Promise<{ geologoTexto: string; generadoAt: string; analisisHash: string } | null> => {
@@ -441,6 +516,8 @@ export const deleteProject = async (projectId: string): Promise<void> => {
   await db.runAsync('DELETE FROM muestras WHERE proyecto_id = ?', [projectId]);
   await db.runAsync('DELETE FROM proyectos WHERE id = ?', [projectId]);
   // spectral_cache and poligonos_cache don't have proyecto_id columns — skip
+  // Encola el borrado remoto (Supabase cascada las hijas por project_client_id).
+  await enqueueSync('project', projectId, 'delete');
 };
 
 export const renameProject = async (projectId: string, nombre: string): Promise<void> => {
@@ -449,11 +526,13 @@ export const renameProject = async (projectId: string, nombre: string): Promise<
     'UPDATE proyectos SET nombre = ?, ultimo_acceso = ? WHERE id = ?',
     [nombre, new Date().toISOString(), projectId]
   );
+  await enqueueSync('project', projectId);
 };
 
 export const saveSampleResena = async (sampleId: string, resena: string): Promise<void> => {
   const db = await initDB();
   await db.runAsync('UPDATE muestras SET reporte_resena = ? WHERE id = ?', [resena, sampleId]);
+  await enqueueSync('sample', sampleId);
 };
 
 export const loadMuestrasForReport = async (projectId: string): Promise<Array<{
@@ -510,6 +589,7 @@ export const updateMuestraCodigo = async (
     `UPDATE muestras SET muestra_codigo = ?, utm_zona = ?, utm_easting = ?, utm_northing = ?, spectral_snapshot = ? WHERE id = ?`,
     [codigo, utmZona, utmEasting, utmNorthing, JSON.stringify(spectralSnapshot), id]
   );
+  await enqueueSync('sample', id);
 };
 
 export interface LabResult {
@@ -537,6 +617,7 @@ export const updateMuestraLab = async (id: string, lab: LabResult): Promise<void
       id,
     ]
   );
+  await enqueueSync('sample', id);
 };
 
 export const updateMuestraValidation = async (
@@ -549,6 +630,7 @@ export const updateMuestraValidation = async (
     `UPDATE muestras SET validation_verdict = ?, validation_comment = ? WHERE id = ?`,
     [verdict, comment, id]
   );
+  await enqueueSync('sample', id);
 };
 
 // ─── VALIDATION PAIRS ─────────────────────────────────────────────────────
@@ -607,6 +689,7 @@ export const upsertValidationPair = async (
       data.verdict, data.verdictComment, data.verdictThreshold,
     ]
   );
+  await enqueueSync('validation', id);
 };
 
 export const getValidationPairs = async (proyectoId: string): Promise<ValidationPair[]> => {

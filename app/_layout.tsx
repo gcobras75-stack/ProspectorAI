@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { BadgeProvider } from './core/BadgeContext';
 import { AuthProvider, useAuth } from './core/AuthContext';
+import { startAutoSync, onLogin } from './core/SyncEngine';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -18,6 +19,14 @@ function RootNavigation() {
   const { session, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  // Arranca el auto-sync (reconexión → vaciar cola) una sola vez.
+  useEffect(() => { startAutoSync(); }, []);
+
+  // Al iniciar sesión: migra datos locales a la cuenta (una vez) y sincroniza.
+  useEffect(() => {
+    if (session?.user?.id) onLogin(session.user.id);
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (loading) return;
