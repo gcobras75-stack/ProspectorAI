@@ -152,7 +152,8 @@ interface DetailProps {
 
 function ProjectDetail({ project, onBack, onDeleted, onRenamed }: DetailProps) {
   const handleOpenInMap = useCallback(async () => {
-    await AsyncStorage.setItem('prospector_active_project', project.id);
+    // Misma clave que lee el mapa (index.tsx). Antes usaba otra → nunca cargaba.
+    await AsyncStorage.setItem('currentProjectId', project.id);
     router.push('/');
   }, [project.id]);
 

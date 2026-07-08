@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { StyleSheet, View, Text, ActivityIndicator, Platform, TouchableOpacity, Alert, Pressable, ScrollView, Dimensions, TextInput, Modal } from 'react-native';
 import MapView, { Marker, Polygon, Region, MapPressEvent, PanDragEvent, UrlTile } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -503,6 +503,49 @@ export default function ProspectorDashboard() {
     };
   }, []);
 
+  // Proyecto actualmente cargado en el mapa (para no recargar en cada foco).
+  const loadedProjectRef = useRef<string | null>(null);
+
+  // Carga un proyecto guardado en el mapa: su polígono/zona + análisis + config.
+  const loadProjectIntoMap = useCallback(async (pid: string) => {
+    loadedProjectRef.current = pid;
+    setCurrentProjectId(pid);
+    const proj = await loadProjectState(pid);
+    if (!proj) return;
+    const coords = Array.isArray(proj.coordenadas) ? proj.coordenadas : [];
+    if (coords.length > 0) {
+      setPolygonCoords(coords as any);
+      setTimeout(() => {
+        try {
+          mapRef.current?.fitToCoordinates(coords as any, {
+            edgePadding: { top: 100, right: 80, bottom: 220, left: 80 }, animated: true,
+          });
+        } catch {}
+      }, 400);
+    }
+    const pts = Array.isArray(proj.analisis_resultado) ? proj.analisis_resultado : [];
+    setAnalysisPoints(pts);
+    setZoneProspectivity((proj.prospectivity as any) ?? null);
+    if (proj.mineral) setSelectedMineral(proj.mineral);
+    if (proj.terrain) setTerrainType(proj.terrain);
+    setShowResults(pts.length > 0);
+    if (proj.chat_history?.length) {
+      const lastA = [...proj.chat_history].reverse().find((m: any) => m.role === 'assistant');
+      if (lastA && typeof lastA.content === 'string') setGeologoResumen(lastA.content);
+    }
+  }, []);
+
+  // Al enfocar Home: si el proyecto activo cambió (abriste uno desde Proyectos),
+  // cárgalo en el mapa. Corrige "abrir proyecto → no lleva al mapa del proyecto".
+  useFocusEffect(useCallback(() => {
+    (async () => {
+      const pid = (await AsyncStorage.getItem('currentProjectId')) || 'default';
+      if (pid !== loadedProjectRef.current) {
+        await loadProjectIntoMap(pid);
+      }
+    })();
+  }, [loadProjectIntoMap]));
+
   useEffect(() => {
     const loadSaved = async () => {
       try {
@@ -517,6 +560,7 @@ export default function ProspectorDashboard() {
         // Load geologist summary from current project's chat history
         const pid = (await AsyncStorage.getItem('currentProjectId')) || 'default';
         setCurrentProjectId(pid);
+        loadedProjectRef.current = pid;
         const proj = await loadProjectState(pid);
         // Fix #8: el análisis y el Índice de zona se guardaban pero no se re-mostraban
         // al reabrir. Restaurarlos aquí (datos reales persistidos por proyecto).

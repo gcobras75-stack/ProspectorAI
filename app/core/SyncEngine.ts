@@ -15,6 +15,7 @@ import {
   getSyncQueue, dequeueSync, enqueueSync,
   getProjectRowRaw, getMuestraById, getValidationPairRaw,
   getAllProjectIds, getAllMuestraIds, getAllValidationIds,
+  upsertProjectFromRemote, upsertSampleFromRemote, upsertValidationFromRemote,
 } from './Database';
 
 function parse<T>(raw: any, fallback: T): T {
@@ -164,8 +165,28 @@ export async function flushQueue(): Promise<{ synced: number; pending: number }>
   }
 }
 
-/** Al iniciar sesión: migra los datos locales existentes a la cuenta (una vez) y sincroniza. */
+/** Baja de Supabase a SQLite lo que falte localmente (restaura tras reinstalar).
+ *  Solo inserta lo ausente: no pisa cambios locales sin sincronizar. */
+export async function pullFromRemote(userId: string): Promise<{ projects: number; samples: number; validations: number } | null> {
+  const net = await NetInfo.fetch();
+  if (!(net.isConnected && net.isInternetReachable !== false)) return null;
+  try {
+    const { data: projects } = await supabase.from('projects').select('*').eq('user_id', userId);
+    for (const p of projects ?? []) await upsertProjectFromRemote(p);
+    const { data: samples } = await supabase.from('samples').select('*').eq('user_id', userId);
+    for (const s of samples ?? []) await upsertSampleFromRemote(s);
+    const { data: vps } = await supabase.from('validation_pairs').select('*').eq('user_id', userId);
+    for (const v of vps ?? []) await upsertValidationFromRemote(v);
+    return { projects: projects?.length ?? 0, samples: samples?.length ?? 0, validations: vps?.length ?? 0 };
+  } catch (_) {
+    return null; // silencioso; se reintenta en el próximo login/reconexión
+  }
+}
+
+/** Al iniciar sesión: 1) restaura desde Supabase (reinstalación), 2) migra los
+ *  datos locales existentes a la cuenta (una vez) y sincroniza. */
 export async function onLogin(userId: string): Promise<void> {
+  await pullFromRemote(userId);
   const key = `sync_migrated_${userId}`;
   const already = await AsyncStorage.getItem(key);
   if (!already) {

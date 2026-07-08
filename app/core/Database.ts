@@ -207,6 +207,83 @@ export const getValidationPairRaw = async (id: string): Promise<any | null> => {
   return await db.getFirstAsync('SELECT * FROM validation_pairs WHERE id = ?', [id]);
 };
 
+// ─── PULL: restaurar filas de Supabase a SQLite tras reinstalar ───────────────
+// Solo INSERTA lo que falta localmente (no pisa cambios locales sin sincronizar).
+
+export const upsertProjectFromRemote = async (r: any): Promise<void> => {
+  const db = await initDB();
+  const id = r.client_id;
+  if (!id) return;
+  const exists = await db.getFirstAsync('SELECT id FROM proyectos WHERE id = ?', [id]);
+  if (exists) return;
+  const d = r.data || {};
+  const now = new Date().toISOString();
+  await db.runAsync(
+    `INSERT INTO proyectos (id, nombre, fecha_creacion, ultimo_acceso, mineral, terrain, depth, rock_type,
+       coordenadas, analisis_resultado, satdata_source, acquisition_date, area_ha, chat_history, notas,
+       prospectivity, reporte_geologo_texto)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id, r.name || 'Proyecto', now, now, r.mineral || 'oro', r.terrain || 'sierra',
+      r.depth || '0-5m', r.rock_type || 'ignea',
+      JSON.stringify(r.coordenadas ?? []), JSON.stringify(r.analisis_resultado ?? []),
+      d.satdata_source || '', d.acquisition_date || '', Number(r.area_ha) || 0,
+      JSON.stringify(d.chat_history ?? []), d.notas || '',
+      JSON.stringify(r.prospectivity ?? null), d.reporte_geologo_texto || '',
+    ]
+  );
+};
+
+export const upsertSampleFromRemote = async (r: any): Promise<void> => {
+  const db = await initDB();
+  const id = r.client_id;
+  if (!id) return;
+  const exists = await db.getFirstAsync('SELECT id FROM muestras WHERE id = ?', [id]);
+  if (exists) return;
+  const d = r.data || {};
+  const lab = r.lab_result || {};
+  await db.runAsync(
+    `INSERT INTO muestras (id, proyecto_id, lat, lng, altitud, rumbo, fecha_hora, tipo_captura, imagen_thumbnail,
+       descripcion_texto, analisis_ia, mineral_detectado, score_ia, sincronizado, muestra_codigo,
+       utm_zona, utm_easting, utm_northing, spectral_snapshot,
+       lab_au_gt, lab_ag_gt, lab_cu_pct, lab_pb_pct, lab_zn_pct, lab_laboratorio,
+       validation_verdict, validation_comment)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id, r.project_client_id || 'default', r.lat, r.lng, d.altitud || 0, d.rumbo || 0,
+      d.fecha_hora || '', d.tipo_captura || 'normal', d.foto_url || '',   // foto: URL de Storage (si existe)
+      r.descripcion_texto || '', r.analisis_ia ? JSON.stringify(r.analisis_ia) : '{}',
+      r.mineral_detectado || '', d.score_ia || 0, d.muestra_codigo || '',
+      d.utm_zona || '', d.utm_easting || 0, d.utm_northing || 0, JSON.stringify(d.spectral_snapshot ?? {}),
+      lab.au_gt ?? null, lab.ag_gt ?? null, lab.cu_pct ?? null, lab.pb_pct ?? null, lab.zn_pct ?? null, lab.laboratorio || '',
+      d.validation_verdict || '', d.validation_comment || '',
+    ]
+  );
+};
+
+export const upsertValidationFromRemote = async (r: any): Promise<void> => {
+  const db = await initDB();
+  const id = r.client_id;
+  if (!id) return;
+  const exists = await db.getFirstAsync('SELECT id FROM validation_pairs WHERE id = ?', [id]);
+  if (exists) return;
+  const p = r.predicted || {};
+  const a = r.actual || {};
+  const d = r.data || {};
+  await db.runAsync(
+    `INSERT INTO validation_pairs (id, muestra_id, proyecto_id, created_at, spectral_consensus, spectral_evidence,
+       spectral_base_score, spectral_indices_json, metal_target, lab_au_gt, lab_ag_gt, lab_cu_pct, lab_pb_pct, lab_zn_pct,
+       verdict, verdict_comment, verdict_threshold)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id, d.muestra_id || '', r.project_client_id || 'default', d.created_at || new Date().toISOString(),
+      p.consensus || '', p.evidence || '', p.base_score || 0, JSON.stringify(p.indices ?? {}), p.metal || '',
+      a.au_gt ?? null, a.ag_gt ?? null, a.cu_pct ?? null, a.pb_pct ?? null, a.zn_pct ?? null,
+      a.verdict || '', a.comment || '', a.threshold ?? 0.5,
+    ]
+  );
+};
+
 export const saveMuestra = async (data: any) => {
   const db = await initDB();
   await db.runAsync(
