@@ -29,10 +29,12 @@ interface ResultsPanelProps {
   onClose: () => void;
   onNavigateTo?: (lat: number, lng: number) => void;
   onInterpret?: (context: string) => void;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 export default function ResultsPanel({
-  satelliteData, metalScores, analysisPoints, zoneProspectivity, knownOccurrences, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo, onInterpret,
+  satelliteData, metalScores, analysisPoints, zoneProspectivity, knownOccurrences, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo, onInterpret, collapsed, onToggleCollapsed,
 }: ResultsPanelProps) {
   const [legendOpen, setLegendOpen] = useState(false);
   const [techOpen, setTechOpen] = useState(false);
@@ -99,6 +101,19 @@ export default function ResultsPanel({
   const interpretPoint = (p: any) => {
     onInterpret?.(buildPointInterpretationContext(p, { selectedMineral, terrainType, allPoints: analysisPoints, satelliteData }));
   };
+  const verdictIcon = strongCount >= 1 ? '🎯' : vegPct > 50 ? '🌿' : '📊';
+
+  // ── Modo COLAPSADO: barra compacta inferior que no tapa el mapa ──
+  if (collapsed) {
+    return (
+      <TouchableOpacity style={styles.collapsedBar} activeOpacity={0.85} onPress={onToggleCollapsed}>
+        <Text style={styles.collapsedText} numberOfLines={1}>
+          {verdictIcon}  {selectedMineral} · {terrainType} — {nPts} punto{nPts !== 1 ? 's' : ''}
+        </Text>
+        <Text style={styles.collapsedChevron}>▲ ver</Text>
+      </TouchableOpacity>
+    );
+  }
 
   return (
     <Animated.View style={[styles.panel, { opacity: fadeAnim }]}>
@@ -108,9 +123,14 @@ export default function ResultsPanel({
           {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
           {analysisPoints.length > 0 ? `  ·  ${analysisPoints.length} puntos` : ''}
         </Text>
-        <TouchableOpacity onPress={onClose}>
-          <MaterialCommunityIcons name="close" size={24} color={Colors.primary} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          <TouchableOpacity onPress={onToggleCollapsed} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <MaterialCommunityIcons name="chevron-down" size={26} color={Colors.textSub} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onClose}>
+            <MaterialCommunityIcons name="close" size={24} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
@@ -454,6 +474,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: 10, borderBottomWidth: 1, borderBottomColor: Colors.primary, paddingBottom: 8,
   },
+  // Barra compacta (panel colapsado)
+  collapsedBar: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: 'rgba(0,0,0,0.97)',
+    borderTopLeftRadius: 16, borderTopRightRadius: 16,
+    borderTopWidth: 2, borderTopColor: Colors.primary,
+    paddingHorizontal: 16, paddingTop: 12, paddingBottom: 22, zIndex: 100,
+  },
+  collapsedText: { color: Colors.text, fontSize: 15, fontWeight: '800', flex: 1 },
+  collapsedChevron: { color: Colors.primary, fontSize: 13, fontWeight: '700', marginLeft: 10 },
   // ── NIVEL 1 — resumen llano ──
   n1: { marginHorizontal: 4, marginBottom: 6 },
   verdict: { color: Colors.text, fontSize: 16, fontWeight: '900', lineHeight: 22, marginBottom: 12 },

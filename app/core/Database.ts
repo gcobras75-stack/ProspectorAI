@@ -196,6 +196,15 @@ export const getAllMuestraIds = async (): Promise<string[]> => {
   return rows.map(r => r.id);
 };
 
+// Muestras cuya foto sigue siendo un archivo local (file://) sin subir a Storage.
+export const getSampleIdsWithLocalPhoto = async (): Promise<string[]> => {
+  const db = await initDB();
+  const rows = await db.getAllAsync(
+    "SELECT id FROM muestras WHERE imagen_thumbnail LIKE 'file://%'"
+  ) as any[];
+  return rows.map(r => r.id);
+};
+
 export const getAllValidationIds = async (): Promise<string[]> => {
   const db = await initDB();
   const rows = await db.getAllAsync('SELECT id FROM validation_pairs') as any[];

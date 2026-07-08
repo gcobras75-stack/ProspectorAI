@@ -219,6 +219,9 @@ export default function ProspectorDashboard() {
   const [currentProjectId, setCurrentProjectId] = useState('default');
   const [metalScores, setMetalScores] = useState<MetalScore[]>([]);
   const [showResults, setShowResults] = useState(false);
+  // Panel de resultados colapsado (barra compacta) — arranca colapsado al restaurar;
+  // se recuerda la elección del usuario durante la sesión.
+  const [resultsCollapsed, setResultsCollapsed] = useState(true);
   const [satelliteData, setSatelliteData] = useState<MiningSpectralResult | null>(null);
 
   // Map tap point analysis
@@ -1073,6 +1076,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         setZoneColors(zonas);
         setShowHeatmap(true);
         setShowResults(true);
+        setResultsCollapsed(false); // análisis nuevo → mostrar resultados desplegados
         setGeologoBadge(true);
         triggerHaptic('success');
         
@@ -1604,6 +1608,8 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           terrainType={terrainType}
           areaHa={areaHa}
           mapRef={mapRef}
+          collapsed={resultsCollapsed}
+          onToggleCollapsed={() => setResultsCollapsed(v => !v)}
           onClose={() => {
             setShowResults(false);
             AsyncStorage.getItem('hasSeenTip_3').then(seen => { if (!seen) setActiveTip(3); });

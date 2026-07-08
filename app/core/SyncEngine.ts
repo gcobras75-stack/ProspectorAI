@@ -16,6 +16,7 @@ import {
   getSyncQueue, dequeueSync, enqueueSync,
   getProjectRowRaw, getMuestraById, getValidationPairRaw,
   getAllProjectIds, getAllMuestraIds, getAllValidationIds,
+  getSampleIdsWithLocalPhoto,
   upsertProjectFromRemote, upsertSampleFromRemote, upsertValidationFromRemote,
   setSamplePhotoUrl,
 } from './Database';
@@ -150,6 +151,7 @@ async function processItem(item: { entity: string; entity_id: string; op: string
   }
 
   let table = '', payload: any = null;
+  let dequeue = true; // false → dejar en cola para reintentar (p. ej. foto no subida)
   if (item.entity === 'project') {
     const row = await getProjectRowRaw(item.entity_id);
     if (!row) return true; // fila borrada localmente → nada que subir
@@ -165,7 +167,10 @@ async function processItem(item: { entity: string; entity_id: string; op: string
         fotoUrl = uploaded;
         await setSamplePhotoUrl(row.id, uploaded); // la próxima vez ya es URL
       } else {
-        fotoUrl = ''; // no se pudo subir aún; se reintenta al re-sincronizar
+        // No se pudo subir (offline en la sierra, etc.): sincroniza la metadata
+        // pero DEJA la muestra en cola para reintentar la foto al recuperar señal.
+        fotoUrl = '';
+        dequeue = false;
       }
     }
     table = 'samples';
@@ -181,7 +186,7 @@ async function processItem(item: { entity: string; entity_id: string; op: string
 
   const { error } = await supabase.from(table).upsert(payload, { onConflict: 'user_id,client_id' });
   if (error) throw error;
-  return true;
+  return dequeue;
 }
 
 /** Vacía la cola. Silencioso: si no hay sesión/red, no hace nada y reintenta luego. */
@@ -198,9 +203,12 @@ export async function flushQueue(): Promise<{ synced: number; pending: number }>
     const queue = await getSyncQueue();
     for (const item of queue) {
       try {
-        await processItem(item as any, userId);
-        await dequeueSync(item.entity, item.entity_id);
-        synced++;
+        const done = await processItem(item as any, userId);
+        if (done) {
+          await dequeueSync(item.entity, item.entity_id);
+          synced++;
+        }
+        // done=false → se queda en cola (foto pendiente); continúa con las demás.
       } catch (_) {
         // Error de red/servidor → deja el resto en cola y corta este ciclo.
         break;
@@ -243,6 +251,9 @@ export async function onLogin(userId: string): Promise<void> {
     for (const id of await getAllValidationIds())  await enqueueSync('validation', id);
     await AsyncStorage.setItem(key, '1');
   }
+  // Migración de fotos: encola SIEMPRE las muestras con foto local (file://) sin
+  // subir, para proteger datos actuales antes de cualquier reinstalación.
+  for (const id of await getSampleIdsWithLocalPhoto()) await enqueueSync('sample', id);
   await flushQueue();
 }
 
