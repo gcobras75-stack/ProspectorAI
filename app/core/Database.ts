@@ -786,4 +786,10 @@ export const getMuestraById = async (id: string): Promise<any | null> => {
   return await db.getFirstAsync('SELECT * FROM muestras WHERE id = ?', [id]) as any;
 };
 
+// Actualiza la foto de una muestra a su URL de Storage tras subirla (sin re-encolar).
+export const setSamplePhotoUrl = async (id: string, url: string): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync('UPDATE muestras SET imagen_thumbnail = ? WHERE id = ?', [url, id]);
+};
+
 export default function DummyDatabaseRoute() { return null; }

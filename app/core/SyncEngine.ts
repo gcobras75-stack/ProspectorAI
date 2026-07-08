@@ -10,13 +10,48 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from './supabase';
 import {
   getSyncQueue, dequeueSync, enqueueSync,
   getProjectRowRaw, getMuestraById, getValidationPairRaw,
   getAllProjectIds, getAllMuestraIds, getAllValidationIds,
   upsertProjectFromRemote, upsertSampleFromRemote, upsertValidationFromRemote,
+  setSamplePhotoUrl,
 } from './Database';
+
+const SUPABASE_URL      = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+const PHOTO_BUCKET      = 'sample-photos';
+
+// Sube una foto local (file://) al Storage del usuario y devuelve su URL pública.
+// Usa uploadAsync (binario) — no requiere convertir base64 ni dependencias extra.
+async function uploadSamplePhoto(localUri: string, userId: string, sampleId: string): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return null;
+    const path = `${userId}/${sampleId}.jpg`;
+    const res = await FileSystem.uploadAsync(
+      `${SUPABASE_URL}/storage/v1/object/${PHOTO_BUCKET}/${path}`,
+      localUri,
+      {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          apikey: SUPABASE_ANON_KEY,
+          'Content-Type': 'image/jpeg',
+          'x-upsert': 'true',
+        },
+      }
+    );
+    if (res.status !== 200 && res.status !== 201) return null;
+    return `${SUPABASE_URL}/storage/v1/object/public/${PHOTO_BUCKET}/${path}`;
+  } catch {
+    return null;
+  }
+}
 
 function parse<T>(raw: any, fallback: T): T {
   if (raw === null || raw === undefined || raw === '') return fallback;
@@ -122,7 +157,20 @@ async function processItem(item: { entity: string; entity_id: string; op: string
   } else if (item.entity === 'sample') {
     const row = await getMuestraById(item.entity_id);
     if (!row) return true;
-    table = 'samples'; payload = samplePayload(row, userId);
+    // Sube la foto local a Storage (una vez) y usa la URL pública.
+    let fotoUrl: string = row.imagen_thumbnail || '';
+    if (fotoUrl.startsWith('file://')) {
+      const uploaded = await uploadSamplePhoto(fotoUrl, userId, row.id);
+      if (uploaded) {
+        fotoUrl = uploaded;
+        await setSamplePhotoUrl(row.id, uploaded); // la próxima vez ya es URL
+      } else {
+        fotoUrl = ''; // no se pudo subir aún; se reintenta al re-sincronizar
+      }
+    }
+    table = 'samples';
+    payload = samplePayload(row, userId);
+    if (fotoUrl.startsWith('http')) payload.data.foto_url = fotoUrl;
   } else if (item.entity === 'validation') {
     const row = await getValidationPairRaw(item.entity_id);
     if (!row) return true;

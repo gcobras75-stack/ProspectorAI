@@ -39,11 +39,13 @@ async function fetchWithRetry(
 // servidor autenticado con el token de sesión de Supabase (server-ai/).
 const AI_SERVER_URL = process.env.EXPO_PUBLIC_AI_SERVER_URL ?? '';
 
+const AI_TIMEOUT_MS = 90000; // 90 s: evita que el spinner (p. ej. del PDF) cuelgue para siempre
+
 async function callAIMessages(payload: object): Promise<Response> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('Inicia sesión para usar la IA.');
-  const res = await fetchWithRetry(
+  const reqPromise = fetchWithRetry(
     `${AI_SERVER_URL}/api/ai/chat`,
     {
       method: 'POST',
@@ -51,6 +53,11 @@ async function callAIMessages(payload: object): Promise<Response> {
       body: JSON.stringify(payload),
     }
   );
+  reqPromise.catch(() => {}); // evita "unhandled rejection" si gana el timeout
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('La IA tardó demasiado. Revisa tu conexión e intenta de nuevo.')), AI_TIMEOUT_MS)
+  );
+  const res = await Promise.race([reqPromise, timeout]);
   // Auth / suspensión / rate limit → mensaje claro (no formato Anthropic).
   if (res.status === 401 || res.status === 403 || res.status === 429) {
     let msg = 'No se pudo usar la IA.';

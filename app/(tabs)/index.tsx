@@ -661,8 +661,22 @@ export default function ProspectorDashboard() {
     const sampleLng = location?.coords.longitude ?? mapCenter?.longitude;
     if (sampleLat == null || sampleLng == null) return;
 
+    const wpId = Date.now().toString();
+
+    // Guarda la foto como ARCHIVO persistente (antes solo se guardaban 100 chars
+    // de base64 → foto rota). El SyncEngine la sube a Storage y guarda la URL,
+    // para que sobreviva a la reinstalación.
+    let fotoPath = '';
+    if (sampleBase64) {
+      try {
+        const fileUri = `${FileSystem.documentDirectory}muestra_${wpId}.jpg`;
+        await FileSystem.writeAsStringAsync(fileUri, sampleBase64, { encoding: FileSystem.EncodingType.Base64 });
+        fotoPath = fileUri;
+      } catch (_) { /* si falla el guardado de foto, la muestra igual se guarda */ }
+    }
+
     const newWp = {
-      id: Date.now().toString(),
+      id: wpId,
       proyecto_id: activeProject,
       lat: sampleLat,
       lng: sampleLng,
@@ -670,13 +684,13 @@ export default function ProspectorDashboard() {
       rumbo: trueHeading,
       fecha_hora: new Date().toISOString(),
       tipo_captura: sampleCaptureType,
-      imagen_thumbnail: sampleBase64 ? 'data:image/jpeg;base64,' + sampleBase64.substring(0, 100) : '',
+      imagen_thumbnail: fotoPath,
       descripcion_texto: waypointNote,
       analisis_ia: aiResult,
       mineral_detectado: aiResult?.mineral_detectado || 'N/A',
       score_ia: aiResult?.probabilidad || 0,
     };
-    
+
     await saveMuestra(newWp);
 
     // Generate sample code and UTM coords
