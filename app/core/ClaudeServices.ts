@@ -3,6 +3,7 @@ import { AnalysisPoint } from './GeologicalEngine';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS } from './indexGlossary';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { supabase } from './supabase';
 
 // ─── MODELOS ───────────────────────────────────────────
 const MODEL_FAST   = 'claude-haiku-4-5-20251001';   // Cámara y chat
@@ -33,21 +34,30 @@ async function fetchWithRetry(
   throw lastError;
 }
 
-// ─── HEADERS COMUNES ───────────────────────────────────
-function getHeaders(apiKey: string): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    'x-api-key': apiKey,
-    'anthropic-version': '2023-06-01',
-    'anthropic-dangerous-direct-browser-access': 'true'
-  };
-}
+// ─── PROXY DE IA (servidor) ─────────────────────────────
+// La clave de Anthropic ya NO vive en el cliente. Todas las llamadas van al
+// servidor autenticado con el token de sesión de Supabase (server-ai/).
+const AI_SERVER_URL = process.env.EXPO_PUBLIC_AI_SERVER_URL ?? '';
 
-// ─── VALIDAR API KEY ────────────────────────────────────
-function getApiKey(): string {
-  const key = process.env.EXPO_PUBLIC_CLAUDE_API_KEY?.trim();
-  if (!key) throw new Error('Configura EXPO_PUBLIC_CLAUDE_API_KEY en tu .env');
-  return key;
+async function callAIMessages(payload: object): Promise<Response> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error('Inicia sesión para usar la IA.');
+  const res = await fetchWithRetry(
+    `${AI_SERVER_URL}/api/ai/chat`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }
+  );
+  // Auth / suspensión / rate limit → mensaje claro (no formato Anthropic).
+  if (res.status === 401 || res.status === 403 || res.status === 429) {
+    let msg = 'No se pudo usar la IA.';
+    try { msg = (await res.json()).error || msg; } catch {}
+    throw new Error(msg);
+  }
+  return res;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -67,7 +77,6 @@ export async function analyzeRockImageWithClaude(
   base64Image: string,
   captureType: string
 ): Promise<ClaudeAnalysis> {
-  const API_KEY = getApiKey();
 
   let promptContext = "Muestra de campo estándar capturada con cámara normal de smartphone.";
   if (captureType === 'microscopio') {
@@ -107,10 +116,7 @@ Devuelve EXCLUSIVAMENTE JSON válido (sin markdown):
     }]
   };
 
-  const response = await fetchWithRetry(
-    'https://api.anthropic.com/v1/messages',
-    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
-  );
+  const response = await callAIMessages(payload);
 
   if (!response.ok) {
     const err = await response.text();
@@ -156,7 +162,6 @@ export async function analyzeSpectralCandidatesBatch(
   terrain: string,
   rockType: string
 ): Promise<SpectralAnalysisResult[]> {
-  const API_KEY = getApiKey();
 
   const candidatesData = candidates.map(c => ({
     id: c.id, rank: c.rank, base_score: c.base_score, indices: c.indices
@@ -198,10 +203,7 @@ Devuelve EXCLUSIVAMENTE un arreglo JSON válido (sin markdown):
     messages: [{ role: 'user', content: prompt }]
   };
 
-  const response = await fetchWithRetry(
-    'https://api.anthropic.com/v1/messages',
-    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
-  );
+  const response = await callAIMessages(payload);
 
   if (!response.ok) throw new Error('Fallo al conectar con Claude Sonnet.');
 
@@ -220,7 +222,6 @@ Devuelve EXCLUSIVAMENTE un arreglo JSON válido (sin markdown):
 export async function askClaudeGeologist(
   messagesHistory: { role: string; content: string }[]
 ): Promise<string> {
-  const API_KEY = getApiKey();
 
   // FIX: Limitar a los últimos 10 mensajes para no explotar contexto ni costo
   const limitedHistory = messagesHistory.slice(-10);
@@ -232,10 +233,7 @@ export async function askClaudeGeologist(
     messages: limitedHistory
   };
 
-  const response = await fetchWithRetry(
-    'https://api.anthropic.com/v1/messages',
-    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
-  );
+  const response = await callAIMessages(payload);
 
   if (!response.ok) {
     const err = await response.text();
@@ -325,7 +323,6 @@ type MessageContent = string | Array<{ type: 'image'; source: { type: 'base64'; 
 export async function askClaudeGeologoExperto(
   messagesHistory: { role: string; content: MessageContent }[]
 ): Promise<string> {
-  const API_KEY = getApiKey();
   const limitedHistory = messagesHistory.slice(-20);
   const payload = {
     model: MODEL_SMART,
@@ -333,10 +330,7 @@ export async function askClaudeGeologoExperto(
     system: GEOLOGO_SYSTEM,
     messages: limitedHistory,
   };
-  const response = await fetchWithRetry(
-    'https://api.anthropic.com/v1/messages',
-    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
-  );
+  const response = await callAIMessages(payload);
   if (!response.ok) {
     const err = await response.text();
     let msg = err;
@@ -372,17 +366,13 @@ Interpretación asistida por IA basada en datos satelitales — requiere verific
 Tono técnico pero claro y práctico. Sin markdown pesado; usa los encabezados a)–e) y viñetas simples con "•".`;
 
 export async function askClaudeInterpretacionPunto(pointContext: string): Promise<string> {
-  const API_KEY = getApiKey();
   const payload = {
     model: MODEL_SMART,
     max_tokens: 3000,
     system: INTERPRETACION_SYSTEM,
     messages: [{ role: 'user', content: pointContext }],
   };
-  const response = await fetchWithRetry(
-    'https://api.anthropic.com/v1/messages',
-    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
-  );
+  const response = await callAIMessages(payload);
   if (!response.ok) {
     const err = await response.text();
     let msg = err;
@@ -405,7 +395,6 @@ export async function generateReportSection(
   zoneCenter: { lat: number; lng: number },
   chatHistory?: string
 ): Promise<string> {
-  const API_KEY = getApiKey();
 
   // Build top-5 using ONLY real spectral data — no simulation scores or hallucinated minerals
   const top5 = analysisPoints.slice(0, 5).map((p, i) => {
@@ -467,10 +456,7 @@ NO uses markdown, NO uses asteriscos, NO uses #. Solo texto plano y la separaci�
     messages: [{ role: 'user', content: prompt }],
   };
 
-  const response = await fetchWithRetry(
-    'https://api.anthropic.com/v1/messages',
-    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
-  );
+  const response = await callAIMessages(payload);
 
   if (!response.ok) {
     const err = await response.text();
@@ -492,7 +478,6 @@ export async function generateSampleResena(
   anomalyLevel: string,
   coordText: string
 ): Promise<string> {
-  const API_KEY = getApiKey();
 
   const payload = {
     model: MODEL_FAST,
@@ -512,10 +497,7 @@ export async function generateSampleResena(
     }],
   };
 
-  const response = await fetchWithRetry(
-    'https://api.anthropic.com/v1/messages',
-    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
-  );
+  const response = await callAIMessages(payload);
 
   if (!response.ok) {
     const err = await response.text();
@@ -545,7 +527,6 @@ export interface LabCertificateOCR {
 }
 
 export async function extractLabCertificateOCR(base64Image: string, _mediaType: string = 'image/jpeg'): Promise<LabCertificateOCR> {
-  const API_KEY = getApiKey();
   const payload = {
     model: MODEL_SMART,
     max_tokens: 800,
@@ -562,10 +543,7 @@ Devuelve EXCLUSIVAMENTE JSON válido (sin markdown):
       ],
     }],
   };
-  const response = await fetchWithRetry(
-    'https://api.anthropic.com/v1/messages',
-    { method: 'POST', headers: getHeaders(API_KEY), body: JSON.stringify(payload) }
-  );
+  const response = await callAIMessages(payload);
   if (!response.ok) {
     const err = await response.text();
     throw new Error(`OCR certificado (${response.status}): ${err.substring(0, 100)}`);
