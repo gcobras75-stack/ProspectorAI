@@ -18,6 +18,12 @@
     "preview": {
       "distribution": "internal",
       "channel": "preview",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://kjprkyuaghzwjatcjnyx.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqcHJreXVhZ2h6d2phdGNqbnl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzOTM4NTcsImV4cCI6MjA5ODk2OTg1N30.Wv2TwiId7aDa2Ko_ozJkSp5ktV21oXUacwg2fhVSXlc",
+        "EXPO_PUBLIC_AI_SERVER_URL": "https://prospectorai-ai-production.up.railway.app",
+        "EXPO_PUBLIC_SERVER_URL": "https://prospector-gee-server-production.up.railway.app"
+      },
       "android": {
         "buildType": "apk"
       },
