@@ -126,6 +126,40 @@ app.post('/api/ai/chat', async (req, res) => {
   }
 });
 
+// ── Redirecciones de invitación (los links exp:// no son clicables en WhatsApp) ──
+// Actualiza estas constantes cuando cambien el canal o haya un APK nuevo.
+const IOS_EXP_URL = 'exp://u.expo.dev/d95e10b8-82f0-44d8-935a-7059989e4e54?channel-name=preview';
+const APK_URL     = 'https://github.com/gcobras75-stack/ProspectorAI/releases/download/apk-preview-20260708/ProspectorAI-preview-v1.apk';
+
+app.get('/ios', (_req, res) => res.redirect(302, IOS_EXP_URL));
+app.get('/apk', (_req, res) => res.redirect(302, APK_URL));
+
+app.get('/', (_req, res) => {
+  res.type('html').send(`<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProspectorAI</title>
+<style>
+  *{box-sizing:border-box} body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+    background:#000;color:#fff;font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:24px}
+  .card{width:100%;max-width:420px;text-align:center}
+  h1{color:#FFD700;font-size:30px;font-weight:900;margin:0 0 6px}
+  p{color:#999;margin:0 0 28px;font-size:15px}
+  a.btn{display:block;text-decoration:none;font-weight:800;font-size:16px;border-radius:12px;padding:16px;margin:12px 0}
+  .ios{background:#FFD700;color:#000}
+  .apk{background:#0d0d0d;color:#FFD700;border:1px solid #FFD700}
+  small{color:#666;display:block;margin-top:18px;line-height:1.5}
+</style></head><body>
+  <div class="card">
+    <h1>⛏️ ProspectorAI</h1>
+    <p>Elige tu dispositivo para instalar</p>
+    <a class="btn ios" href="/ios">📱 iPhone (Expo Go)</a>
+    <a class="btn apk" href="/apk">🤖 Android (APK)</a>
+    <small>En iPhone necesitas la app <b>Expo Go</b> instalada.<br>En Android, permite "orígenes desconocidos" al instalar el APK.</small>
+  </div>
+</body></html>`);
+});
+
 app.use((_req, res) => res.status(404).json({ error: 'Endpoint no encontrado.' }));
 
 app.listen(PORT, () => {
