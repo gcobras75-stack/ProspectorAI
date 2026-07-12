@@ -18,7 +18,7 @@ import {
   getAllProjectIds, getAllMuestraIds, getAllValidationIds,
   getSampleIdsWithLocalPhoto,
   upsertProjectFromRemote, upsertSampleFromRemote, upsertValidationFromRemote,
-  setSamplePhotoUrl,
+  setSamplePhotoUrl, recordSyncFailure, markSampleSynced,
 } from './Database';
 
 const SUPABASE_URL      = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
@@ -186,6 +186,10 @@ async function processItem(item: { entity: string; entity_id: string; op: string
 
   const { error } = await supabase.from(table).upsert(payload, { onConflict: 'user_id,client_id' });
   if (error) throw error;
+
+  // SYNCED honesto: solo aquí, con el upsert ya confirmado por Supabase.
+  if (item.entity === 'sample' && dequeue) await markSampleSynced(item.entity_id);
+
   return dequeue;
 }
 
@@ -199,6 +203,7 @@ export async function flushQueue(): Promise<{ synced: number; pending: number }>
 
   flushing = true;
   let synced = 0;
+  let failed = 0;
   try {
     const queue = await getSyncQueue();
     for (const item of queue) {
@@ -209,12 +214,22 @@ export async function flushQueue(): Promise<{ synced: number; pending: number }>
           synced++;
         }
         // done=false → se queda en cola (foto pendiente); continúa con las demás.
-      } catch (_) {
-        // Error de red/servidor → deja el resto en cola y corta este ciclo.
-        break;
+      } catch (e: any) {
+        // Un item que falla NO puede bloquear a los que vienen detrás: antes esto
+        // hacía `break` y un solo item envenenado congelaba la cola entera para
+        // siempre, en silencio. Ahora se registra el error, se deja en cola para
+        // reintentar, y se SIGUE con los demás.
+        failed++;
+        const msg = e?.message || e?.error_description || JSON.stringify(e) || 'error desconocido';
+        console.warn(`[Sync] falló ${item.entity}:${item.entity_id} →`, msg);
+        await recordSyncFailure(item.entity, item.entity_id, msg);
+        continue;
       }
     }
     const remaining = await getSyncQueue();
+    if (failed > 0) {
+      console.warn(`[Sync] ciclo terminado: ${synced} subidos, ${failed} fallidos, ${remaining.length} en cola`);
+    }
     return { synced, pending: remaining.length };
   } finally {
     flushing = false;

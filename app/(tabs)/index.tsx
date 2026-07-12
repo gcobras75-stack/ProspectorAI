@@ -25,7 +25,7 @@ import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
 import WaypointModal from '../components/WaypointModal';
 import ResultsPanel from '../components/ResultsPanel';
-import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, loadProjectState, listProjects, createProject, updateMuestraCodigo } from '../core/Database';
+import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, loadProjectState, listProjects, createProject, renameProject, updateMuestraCodigo } from '../core/Database';
 import SampleDetailModal from '../components/SampleDetailModal';
 import SampleLabelModal from '../components/SampleLabelModal';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
@@ -517,6 +517,9 @@ export default function ProspectorDashboard() {
     setCurrentProjectId(pid);
     const proj = await loadProjectState(pid);
     if (!proj) return;
+    // El nombre SIEMPRE se deriva del proyecto cargado: es una etiqueta, no una
+    // identidad. La identidad es `currentProjectId` y solo esa.
+    if (proj.nombre) setActiveProject(proj.nombre);
     const coords = Array.isArray(proj.coordenadas) ? proj.coordenadas : [];
     if (coords.length > 0) {
       setPolygonCoords(coords as any);
@@ -538,6 +541,9 @@ export default function ProspectorDashboard() {
       const lastA = [...proj.chat_history].reverse().find((m: any) => m.role === 'assistant');
       if (lastA && typeof lastA.content === 'string') setGeologoResumen(lastA.content);
     }
+    // Las muestras del mapa siguen al proyecto que se abre.
+    const data = await getMuestras(pid);
+    setWaypoints(data);
   }, []);
 
   // Al enfocar Home: si el proyecto activo cambió (abriste uno desde Proyectos),
@@ -560,13 +566,16 @@ export default function ProspectorDashboard() {
           if (parsed.length > 0) setPolygonCoords(parsed);
         }
         await initDB();
-        await loadMuestras();
 
         // Load geologist summary from current project's chat history
         const pid = (await AsyncStorage.getItem('currentProjectId')) || 'default';
         setCurrentProjectId(pid);
         loadedProjectRef.current = pid;
+        // Después de resolver el proyecto: las muestras se cargan con ESE id (antes
+        // se cargaban antes de conocerlo, con el valor obsoleto del estado).
+        await loadMuestras(pid);
         const proj = await loadProjectState(pid);
+        if (proj?.nombre) setActiveProject(proj.nombre);
         // Fix #8: el análisis y el Índice de zona se guardaban pero no se re-mostraban
         // al reabrir. Restaurarlos aquí (datos reales persistidos por proyecto).
         if (proj?.analisis_resultado && proj.analisis_resultado.length > 0) setAnalysisPoints(proj.analisis_resultado);
@@ -609,8 +618,10 @@ export default function ProspectorDashboard() {
     }
   }, [fieldPackageInfo, isConnected]);
 
-  const loadMuestras = async () => {
-    const data = await getMuestras();
+  // Muestras DEL proyecto activo. Antes llamaba a getMuestras() sin id, así que el
+  // mapa mezclaba las muestras de todos los proyectos.
+  const loadMuestras = async (pid?: string) => {
+    const data = await getMuestras(pid ?? currentProjectId);
     setWaypoints(data);
   };
 
@@ -682,7 +693,11 @@ export default function ProspectorDashboard() {
 
     const newWp = {
       id: wpId,
-      proyecto_id: activeProject,
+      // El ID real del proyecto, no su nombre. Antes iba `activeProject` (texto
+      // libre), así que la muestra quedaba huérfana: la pantalla de Proyectos las
+      // busca por id y siempre contaba 0, y en Supabase el project_client_id era
+      // un nombre que no casaba con ningún proyecto.
+      proyecto_id: currentProjectId,
       lat: sampleLat,
       lng: sampleLng,
       altitud: altitude,
@@ -1033,13 +1048,38 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         const zp = computeZoneProspectivity(finalPoints, satData, { metal: selectedMineral });
         setZoneProspectivity(zp);
 
+        // Caché local del polígono. OJO: `estado` describe CÓMO se analizó (con el
+        // servidor o en modo offline), NO si subió a Supabase. Antes decía 'SYNCED'
+        // aquí, lo que daba una falsa sensación de respaldo: nada se había subido.
         await savePoligonoCache({
            id: 'poly_' + Date.now(), mineral: selectedMineral, terrain: terrainType, rock_type: rockType,
-           coordenadas: coordsToUse, analisis_resultado: finalPoints, estado: wasAnalyzed ? 'SYNCED' : 'OFFLINE',
+           coordenadas: coordsToUse, analisis_resultado: finalPoints,
+           estado: wasAnalyzed ? 'ANALIZADO_ONLINE' : 'OFFLINE',
            satdata_source: satData.data_source,
            acquisition_date: satData.acquisition_date,
            prospectivity: zp,
         });
+
+        // El análisis se guarda DENTRO del proyecto activo y se encola a Supabase
+        // automáticamente. Antes solo iba a poligonos_cache (tabla local, sin
+        // proyecto y sin encolar): si el usuario no pulsaba "Guardar", el análisis
+        // no existía para la pantalla de Proyectos ni llegaba nunca a la nube.
+        try {
+          await saveProjectState(currentProjectId, {
+            mineral: selectedMineral,
+            terrain: terrainType,
+            depth,
+            rock_type: rockType,
+            coordenadas: coordsToUse,
+            analisis_resultado: finalPoints,
+            area_ha: parseFloat(areaHa) || 0,
+            satdata_source: satData.data_source,
+            acquisition_date: satData.acquisition_date,
+            prospectivity: zp,
+          });
+        } catch (e) {
+          console.warn('[Analisis] no se pudo persistir en el proyecto:', e);
+        }
 
         // Telemetría de costos: contexto del análisis (hectáreas + fuentes disparadas).
         logAnalisisZona({
@@ -1794,6 +1834,25 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         vibrationEnabled={vibrationEnabled}
         onClose={() => setShowConfigModal(false)}
         setActiveProject={setActiveProject}
+        onProjectCreated={async (id, nombre) => {
+          // UNA sola verdad: el proyecto recién creado pasa a ser el activo, y su id
+          // es el que usarán análisis y muestras a partir de aquí.
+          await AsyncStorage.setItem('currentProjectId', id);
+          setCurrentProjectId(id);
+          loadedProjectRef.current = id;
+          setActiveProject(nombre);
+          setAnalysisPoints([]);
+          setZoneProspectivity(null);
+          setShowResults(false);
+          await loadMuestras();
+        }}
+        onRenameActiveProject={async (nombre) => {
+          try {
+            await renameProject(currentProjectId, nombre);
+          } catch (e) {
+            console.warn('[Proyecto] no se pudo renombrar:', e);
+          }
+        }}
         setSelectedMineral={handleSetMineral}
         setTerrainType={handleSetTerrain}
         setDepth={setDepth}

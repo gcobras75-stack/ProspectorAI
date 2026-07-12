@@ -130,6 +130,10 @@ export const initDB = async () => {
     // Muestras — validation
     `ALTER TABLE muestras ADD COLUMN validation_verdict TEXT DEFAULT ''`,
     `ALTER TABLE muestras ADD COLUMN validation_comment TEXT DEFAULT ''`,
+    // Cola de sync — diagnóstico: por qué un item no sube y cuántas veces se ha
+    // reintentado. Sin esto, un fallo de push era invisible.
+    `ALTER TABLE sync_queue ADD COLUMN attempts   INTEGER DEFAULT 0`,
+    `ALTER TABLE sync_queue ADD COLUMN last_error TEXT    DEFAULT ''`,
   ];
   for (const sql of migrations) {
     try { await dbCache.execAsync(sql); } catch (_) { /* column already exists */ }
@@ -177,6 +181,36 @@ export const getSyncQueue = async (): Promise<Array<{ entity: SyncEntity; entity
 export const dequeueSync = async (entity: string, entityId: string): Promise<void> => {
   const db = await initDB();
   await db.runAsync('DELETE FROM sync_queue WHERE entity = ? AND entity_id = ?', [entity, entityId]);
+};
+
+/** Un item falló al subir: deja rastro (contador + último error) y lo MANTIENE en
+ *  cola para reintentarlo. Antes el error se tragaba con un `catch {}` mudo. */
+export const recordSyncFailure = async (
+  entity: string, entityId: string, error: string
+): Promise<void> => {
+  try {
+    const db = await initDB();
+    await db.runAsync(
+      'UPDATE sync_queue SET attempts = attempts + 1, last_error = ? WHERE entity = ? AND entity_id = ?',
+      [String(error).slice(0, 500), entity, entityId]
+    );
+  } catch (_) { /* el diagnóstico nunca debe romper el flujo */ }
+};
+
+/** Items que llevan al menos un intento fallido. Para inspeccionar por qué no sube algo. */
+export const getSyncFailures = async (): Promise<Array<{
+  entity: string; entity_id: string; attempts: number; last_error: string;
+}>> => {
+  const db = await initDB();
+  return await db.getAllAsync(
+    'SELECT entity, entity_id, attempts, last_error FROM sync_queue WHERE attempts > 0 ORDER BY attempts DESC'
+  ) as any[];
+};
+
+/** Marca una muestra como REALMENTE subida. Solo se llama tras un upsert confirmado. */
+export const markSampleSynced = async (sampleId: string): Promise<void> => {
+  const db = await initDB();
+  await db.runAsync('UPDATE muestras SET sincronizado = 1 WHERE id = ?', [sampleId]);
 };
 
 export const getProjectRowRaw = async (id: string): Promise<any | null> => {

@@ -98,11 +98,14 @@ function EmptyState() {
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
+// `ready` = hay un paquete de campo descargado para usar sin señal. NO tiene nada
+// que ver con la conexión actual: antes esto decía "Requiere conexión", lo que
+// hacía creer que la app estaba offline aun con WiFi.
 function StatusBadge({ ready }: { ready: boolean }) {
   return (
     <View style={[styles.badge, { backgroundColor: ready ? 'rgba(76,175,80,0.15)' : 'rgba(255,152,0,0.15)' }]}>
       <Text style={[styles.badgeText, { color: ready ? Colors.success : Colors.warning }]}>
-        {ready ? '✅ Listo para campo' : '⚠️ Requiere conexión'}
+        {ready ? '✅ Listo para campo' : '📴 Sin paquete de campo'}
       </Text>
     </View>
   );

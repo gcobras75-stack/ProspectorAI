@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, Modal, TouchableOpacity, ScrollView, TextInput, Switch, StyleSheet, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   CATEGORIES, MATERIALS_CATALOG, selectorConfidence, normalizeMaterialId,
 } from '../core/materialsCatalog';
+import { createProject } from '../core/Database';
 
 interface ConfigModalProps {
   visible: boolean;
@@ -23,6 +24,10 @@ interface ConfigModalProps {
   deepAnalysis: boolean;
   onClose: () => void;
   setActiveProject: (v: string) => void;
+  /** Un proyecto nuevo pasa a ser el activo: el padre fija currentProjectId con ESTE id. */
+  onProjectCreated: (id: string, nombre: string) => void;
+  /** El campo "PROYECTO ACTIVO" renombra el proyecto activo; no cambia su identidad. */
+  onRenameActiveProject: (nombre: string) => void;
   setSelectedMineral: (v: string) => void;
   setTerrainType: (v: string) => void;
   setDepth: (v: string) => void;
@@ -40,13 +45,27 @@ interface ConfigModalProps {
 export default function ConfigModal({
   visible, isFieldMode, activeProject, selectedMineral, terrainType, depth, rockType,
   useAI, autoAnalyzeSample, uvLamp, microscopeConnected, autoSync, vibrationEnabled, deepAnalysis, setDeepAnalysis,
-  onClose, setActiveProject, setSelectedMineral, setTerrainType, setDepth, setRockType,
+  onClose, setActiveProject, onProjectCreated, onRenameActiveProject,
+  setSelectedMineral, setTerrainType, setDepth, setRockType,
   setUseAI, setAutoAnalyzeSample, setUvLamp, setMicroscopeConnected, setAutoSync,
   setIsFieldMode, setVibrationEnabled,
 }: ConfigModalProps) {
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [materialQuery, setMaterialQuery] = useState('');
+
+  // Crear proyecto = crear su fila y ADOPTAR su id como proyecto activo. Antes se
+  // llamaba a createProject y se tiraba el id que devuelve: el proyecto nacía en la
+  // BD pero la app seguía apuntando al anterior ('default'), así que los análisis y
+  // las muestras se archivaban en el proyecto equivocado.
+  const handleCreateProject = useCallback(async () => {
+    const nombre = newProjectName.trim();
+    if (!nombre) return;
+    const id = await createProject(nombre);
+    onProjectCreated(id, nombre);
+    setNewProjectName('');
+    setShowNewProjectModal(false);
+  }, [newProjectName, onProjectCreated]);
 
   const insets = useSafeAreaInsets();
   // Altura máxima del modal = alto de pantalla menos safe areas y un margen.
@@ -82,10 +101,16 @@ export default function ConfigModal({
           <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 4 }]}>0. GESTIÓN LOCAL</Text>
 
           <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>PROYECTO ACTIVO</Text>
+          {/* Renombra el proyecto ACTIVO. El texto es solo la etiqueta: la identidad
+              del proyecto es su id, que no cambia al editar aquí. */}
           <TextInput
             style={[styles.input, isFieldMode && styles.inputLight, { height: 44, marginBottom: 10, fontSize: 15, fontWeight: 'bold' }]}
             value={activeProject}
             onChangeText={setActiveProject}
+            onEndEditing={e => {
+              const nombre = e.nativeEvent.text.trim();
+              if (nombre) onRenameActiveProject(nombre);
+            }}
             placeholder="Ej: Concesión Norte"
             placeholderTextColor="#888"
           />
@@ -256,13 +281,7 @@ export default function ConfigModal({
                   onChangeText={setNewProjectName}
                   autoFocus
                   returnKeyType="done"
-                  onSubmitEditing={async () => {
-                    if (newProjectName.trim()) {
-                      await require('../core/Database').createProject(newProjectName.trim());
-                      setNewProjectName('');
-                      setShowNewProjectModal(false);
-                    }
-                  }}
+                  onSubmitEditing={() => { void handleCreateProject(); }}
                 />
                 <View style={{ flexDirection: 'row', gap: 10 }}>
                   <TouchableOpacity
@@ -273,13 +292,7 @@ export default function ConfigModal({
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={{ flex: 1, padding: 12, borderRadius: 8, backgroundColor: '#4CAF50', alignItems: 'center' }}
-                    onPress={async () => {
-                      if (newProjectName.trim()) {
-                        await require('../core/Database').createProject(newProjectName.trim());
-                        setNewProjectName('');
-                        setShowNewProjectModal(false);
-                      }
-                    }}
+                    onPress={() => { void handleCreateProject(); }}
                   >
                     <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Crear</Text>
                   </TouchableOpacity>
