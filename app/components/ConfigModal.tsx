@@ -238,8 +238,8 @@ export default function ConfigModal({
 
           {/* Pie fijo — siempre visible; respeta la safe area inferior */}
           <View style={[styles.footer, isFieldMode && styles.footerLight, { paddingBottom: 14 }]}>
-            <TouchableOpacity style={styles.btnSave} onPress={onClose}>
-              <Text style={styles.btnTextBlack}>Aplicar Configuración</Text>
+            <TouchableOpacity style={styles.btnSave} onPress={onClose} accessibilityRole="button">
+              <Text style={styles.btnTextBlack} numberOfLines={1}>Aplicar Configuración</Text>
             </TouchableOpacity>
           </View>
 
@@ -346,6 +346,19 @@ const styles = StyleSheet.create({
   chipTextActive: { color: '#000' },
   prefRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 10 },
   actions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, gap: 10 },
-  btnSave: { flex: 1, backgroundColor: '#FFD700', padding: 20, borderRadius: 8, alignItems: 'center' },
-  btnTextBlack: { color: '#1a1a1a', fontWeight: 'bold', fontSize: 18 },
+  // OJO: aquí NO va `flex: 1`. El pie es una columna, así que flex:1 pondría
+  // flexBasis:0 sobre el eje vertical y colapsaría la altura del contenido a 0:
+  // el botón se pintaba como una barra amarilla sin texto. Se estira a lo ancho
+  // con alignSelf y se le da altura explícita.
+  btnSave: {
+    alignSelf: 'stretch',
+    backgroundColor: '#FFD700',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    minHeight: 56,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnTextBlack: { color: '#1a1a1a', fontWeight: 'bold', fontSize: 18, lineHeight: 24 },
 });
