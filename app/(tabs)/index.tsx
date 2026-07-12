@@ -26,6 +26,7 @@ import SelectedPointModal from '../components/SelectedPointModal';
 import WaypointModal from '../components/WaypointModal';
 import ResultsPanel from '../components/ResultsPanel';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, loadProjectState, listProjects, createProject, renameProject, updateMuestraCodigo } from '../core/Database';
+import { scheduleFlush } from '../core/SyncEngine';
 import SampleDetailModal from '../components/SampleDetailModal';
 import SampleLabelModal from '../components/SampleLabelModal';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
@@ -737,6 +738,11 @@ export default function ProspectorDashboard() {
 
     await updateMuestraCodigo(newWp.id, codigo, utmComp.zona, utmComp.easting, utmComp.northing, spectralSnapshot);
 
+    // Envío tras completar la muestra (código + UTM + snapshot ya escritos): así
+    // sube la fila entera, no una versión a medias. El debounce agrupa ambas
+    // escrituras en un solo push.
+    scheduleFlush();
+
     setSampleBase64(null);
     setAiResult(null);
     setSampleCaptureType('normal');
@@ -1077,6 +1083,9 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             acquisition_date: satData.acquisition_date,
             prospectivity: zp,
           });
+          // Pide el envío a Supabase. Sin esto, el análisis quedaba encolado en
+          // SQLite y solo subía al reiniciar la app.
+          scheduleFlush();
         } catch (e) {
           console.warn('[Analisis] no se pudo persistir en el proyecto:', e);
         }

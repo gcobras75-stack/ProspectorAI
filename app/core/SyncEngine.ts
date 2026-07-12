@@ -10,6 +10,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import { AppState } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from './supabase';
 import {
@@ -18,7 +19,7 @@ import {
   getAllProjectIds, getAllMuestraIds, getAllValidationIds,
   getSampleIdsWithLocalPhoto,
   upsertProjectFromRemote, upsertSampleFromRemote, upsertValidationFromRemote,
-  setSamplePhotoUrl, recordSyncFailure, markSampleSynced,
+  setSamplePhotoUrl, recordSyncFailure, markSampleSynced, getSyncFailures,
 } from './Database';
 
 const SUPABASE_URL      = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
@@ -61,6 +62,11 @@ function parse<T>(raw: any, fallback: T): T {
 
 let flushing = false;
 let listenerBound = false;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let heartbeat: ReturnType<typeof setInterval> | null = null;
+
+/** Latido de respaldo: vacía la cola aunque no haya cambios de red ni de AppState. */
+const HEARTBEAT_MS = 60_000;
 
 async function currentUserId(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
@@ -272,13 +278,55 @@ export async function onLogin(userId: string): Promise<void> {
   await flushQueue();
 }
 
-/** Escucha reconexiones para vaciar la cola automáticamente. Idempotente. */
+/** Pide un envío tras una escritura local, agrupando ráfagas (debounce).
+ *
+ *  ESTE ERA EL ESLABÓN QUE FALTABA: `enqueueSync` solo mete una fila en la tabla
+ *  local `sync_queue`; no empuja nada. Y `flushQueue` únicamente corría al arrancar
+ *  la app (onLogin) o ante un CAMBIO de red. Con la app abierta y el WiFi estable,
+ *  los análisis y las muestras se quedaban encolados indefinidamente: solo subían
+ *  al reiniciar la app. Ahora cada escritura pide su propio envío. */
+export function scheduleFlush(delayMs: number = 2000): void {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    void flushQueue();
+  }, delayMs);
+}
+
+/** Vacía la cola automáticamente. Idempotente. Tres disparadores independientes,
+ *  para que subir nunca dependa de un único evento frágil:
+ *   1) reconexión de red,
+ *   2) la app vuelve a primer plano,
+ *   3) latido periódico (por si los otros dos no llegan a ocurrir). */
 export function startAutoSync(): void {
   if (listenerBound) return;
   listenerBound = true;
+
   NetInfo.addEventListener(state => {
     if (state.isConnected && state.isInternetReachable !== false) {
-      flushQueue();
+      void flushQueue();
     }
   });
+
+  AppState.addEventListener('change', status => {
+    if (status === 'active') void flushQueue();
+  });
+
+  if (heartbeat) clearInterval(heartbeat);
+  heartbeat = setInterval(() => {
+    // Con la cola vacía no se toca la red: es una app de campo y la batería cuenta.
+    void (async () => {
+      const queue = await getSyncQueue();
+      if (queue.length > 0) await flushQueue();
+    })();
+  }, HEARTBEAT_MS);
+}
+
+/** Resumen de la cola para la UI: cuántos faltan por subir y qué ha fallado. */
+export async function getSyncStatus(): Promise<{
+  pending: number;
+  failures: Array<{ entity: string; entity_id: string; attempts: number; last_error: string }>;
+}> {
+  const [queue, failures] = await Promise.all([getSyncQueue(), getSyncFailures()]);
+  return { pending: queue.length, failures };
 }

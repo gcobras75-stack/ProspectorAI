@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { View, Text, Modal, TouchableOpacity, ScrollView, TextInput, Switch, StyleSheet, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -6,6 +6,9 @@ import {
   CATEGORIES, MATERIALS_CATALOG, selectorConfidence, normalizeMaterialId,
 } from '../core/materialsCatalog';
 import { createProject } from '../core/Database';
+import { getSyncStatus, flushQueue } from '../core/SyncEngine';
+
+type SyncStatus = Awaited<ReturnType<typeof getSyncStatus>>;
 
 interface ConfigModalProps {
   visible: boolean;
@@ -67,6 +70,32 @@ export default function ConfigModal({
     setShowNewProjectModal(false);
   }, [newProjectName, onProjectCreated]);
 
+  // ── Estado de sincronización ────────────────────────────────────────────────
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  const refreshSyncStatus = useCallback(async () => {
+    try {
+      setSyncStatus(await getSyncStatus());
+    } catch (_) {
+      setSyncStatus(null);
+    }
+  }, []);
+
+  // Se consulta al abrir el modal (no en cada render).
+  useEffect(() => {
+    if (visible) void refreshSyncStatus();
+  }, [visible, refreshSyncStatus]);
+
+  const handleSyncNow = useCallback(async () => {
+    setSyncing(true);
+    try {
+      await flushQueue();
+    } catch (_) { /* flushQueue ya registra sus propios errores */ }
+    await refreshSyncStatus();
+    setSyncing(false);
+  }, [refreshSyncStatus]);
+
   const insets = useSafeAreaInsets();
   // Altura máxima del modal = alto de pantalla menos safe areas y un margen.
   // El body hace scroll dentro de este límite; el pie queda siempre visible.
@@ -121,6 +150,41 @@ export default function ConfigModal({
             >
               <Text style={{ color: '#4CAF50', fontSize: 12, fontWeight: 'bold' }}>+ Nuevo proyecto</Text>
             </TouchableOpacity>
+          </View>
+
+          {/* Estado de sincronización — hasta ahora la cola vivía en SQLite sin que
+              nadie pudiera verla: un push que fallaba era invisible. */}
+          <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>ESTADO DE SINCRONIZACIÓN</Text>
+          <View style={[styles.syncBox, isFieldMode && styles.syncBoxLight]}>
+            <View style={styles.syncRow}>
+              <Text style={[styles.syncLabel, isFieldMode && { color: '#333' }]}>
+                {syncStatus === null
+                  ? 'Consultando…'
+                  : syncStatus.pending === 0
+                    ? '✅ Todo subido a la nube'
+                    : `⏳ ${syncStatus.pending} pendiente${syncStatus.pending > 1 ? 's' : ''} de subir`}
+              </Text>
+              <TouchableOpacity
+                onPress={handleSyncNow}
+                disabled={syncing}
+                style={[styles.syncBtn, syncing && { opacity: 0.5 }]}
+              >
+                <Text style={styles.syncBtnText}>{syncing ? 'Subiendo…' : 'Sincronizar ahora'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {syncStatus && syncStatus.failures.length > 0 && (
+              <View style={{ marginTop: 8 }}>
+                <Text style={styles.syncFailHeader}>
+                  ⚠️ {syncStatus.failures.length} con errores (se reintentan solos)
+                </Text>
+                {syncStatus.failures.slice(0, 3).map(f => (
+                  <Text key={`${f.entity}:${f.entity_id}`} style={styles.syncFailText} numberOfLines={2}>
+                    {f.entity} · {f.attempts} intento{f.attempts > 1 ? 's' : ''} · {f.last_error || 'sin detalle'}
+                  </Text>
+                ))}
+              </View>
+            )}
           </View>
 
           <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 20 }]}>1. GEOLOGÍA ESTRUCTURAL</Text>
@@ -353,6 +417,14 @@ const styles = StyleSheet.create({
   matLabelActive: { color: '#FFD700', fontWeight: '900' },
   confBadge: { borderRadius: 6, paddingVertical: 3, paddingHorizontal: 8 },
   confBadgeText: { color: '#000', fontSize: 10, fontWeight: '800' },
+  syncBox: { backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#333', borderRadius: 8, padding: 10, marginBottom: 10 },
+  syncBoxLight: { backgroundColor: '#F0F0F0', borderColor: '#CCC' },
+  syncRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  syncLabel: { color: '#EEE', fontSize: 12, fontWeight: '600', flex: 1 },
+  syncBtn: { backgroundColor: '#FFD700', borderRadius: 6, paddingVertical: 7, paddingHorizontal: 10 },
+  syncBtnText: { color: '#1a1a1a', fontSize: 11, fontWeight: 'bold' },
+  syncFailHeader: { color: '#FF9800', fontSize: 11, fontWeight: 'bold', marginBottom: 3 },
+  syncFailText: { color: '#999', fontSize: 10, lineHeight: 14 },
   chip: { backgroundColor: '#333', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#555' },
   chipActive: { backgroundColor: '#FFD700', borderColor: '#FFD700' },
   chipText: { color: '#FFF', fontSize: 14, fontWeight: 'bold', textTransform: 'capitalize' },
