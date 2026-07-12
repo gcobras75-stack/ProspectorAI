@@ -1,6 +1,10 @@
-import React, { useState } from 'react';
-import { View, Text, Modal, TouchableOpacity, ScrollView, TextInput, Switch, StyleSheet } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Text, Modal, TouchableOpacity, ScrollView, TextInput, Switch, StyleSheet, Dimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  CATEGORIES, MATERIALS_CATALOG, selectorConfidence, normalizeMaterialId,
+} from '../core/materialsCatalog';
 
 interface ConfigModalProps {
   visible: boolean;
@@ -42,19 +46,40 @@ export default function ConfigModal({
 }: ConfigModalProps) {
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
+  const [materialQuery, setMaterialQuery] = useState('');
+
+  const insets = useSafeAreaInsets();
+  // Altura máxima del modal = alto de pantalla menos safe areas y un margen.
+  // El body hace scroll dentro de este límite; el pie queda siempre visible.
+  const maxCardH = Dimensions.get('window').height - insets.top - insets.bottom - 24;
+
+  const selectedId = normalizeMaterialId(selectedMineral);
+
+  // Materiales filtrados por búsqueda, agrupados por categoría de UI.
+  const materialGroups = useMemo(() => {
+    const q = materialQuery.trim().toLowerCase();
+    const match = MATERIALS_CATALOG.filter(m =>
+      !q || m.label.toLowerCase().includes(q) || m.id.includes(q));
+    return CATEGORIES
+      .map(cat => ({ cat, items: match.filter(m => m.category === cat.id) }))
+      .filter(g => g.items.length > 0);
+  }, [materialQuery]);
 
   return (
     <Modal visible={visible} transparent animationType="slide">
-      <View style={styles.overlay}>
-        <ScrollView style={[styles.content, { maxHeight: '85%' }, isFieldMode && styles.contentLight]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+      <View style={[styles.overlay, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
+        <View style={[styles.card, { maxHeight: maxCardH }, isFieldMode && styles.contentLight]}>
+          {/* Cabecera fija */}
+          <View style={styles.header}>
             <Text style={[styles.title, isFieldMode && styles.titleLight, { marginBottom: 0 }]}>⚙️ CONFIGURACIÓN</Text>
-            <TouchableOpacity onPress={onClose}>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <MaterialCommunityIcons name="close" size={28} color={isFieldMode ? '#000' : '#FFD700'} />
             </TouchableOpacity>
           </View>
 
-          <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 20 }]}>0. GESTIÓN LOCAL</Text>
+          {/* Cuerpo desplazable (categorías + materiales + ajustes) */}
+          <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
+          <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 4 }]}>0. GESTIÓN LOCAL</Text>
 
           <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>PROYECTO ACTIVO</Text>
           <TextInput
@@ -75,14 +100,48 @@ export default function ConfigModal({
 
           <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 20 }]}>1. GEOLOGÍA ESTRUCTURAL</Text>
 
-          <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>MINERAL OBJETIVO</Text>
-          <View style={styles.chips}>
-            {['oro', 'plata', 'cobre', 'zinc', 'plomo'].map(m => (
-              <TouchableOpacity key={m} style={[styles.chip, selectedMineral === m && styles.chipActive]} onPress={() => setSelectedMineral(m)}>
-                <Text style={[styles.chipText, selectedMineral === m && styles.chipTextActive]}>{m}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>MATERIAL OBJETIVO</Text>
+          <TextInput
+            style={[styles.input, isFieldMode && styles.inputLight, { height: 40, marginBottom: 10, fontSize: 14 }]}
+            value={materialQuery}
+            onChangeText={setMaterialQuery}
+            placeholder="🔍 Buscar material… (oro, mármol, yeso…)"
+            placeholderTextColor="#888"
+            autoCapitalize="none"
+          />
+          {materialGroups.length === 0 && (
+            <Text style={{ color: '#888', fontSize: 12, marginBottom: 8 }}>Sin resultados para “{materialQuery}”.</Text>
+          )}
+          {materialGroups.map(({ cat, items }) => (
+            <View key={cat.id} style={{ marginBottom: 6 }}>
+              <Text style={[styles.matCatHeader, isFieldMode && { color: '#333' }]}>{cat.icon}  {cat.label.toUpperCase()}</Text>
+              {items.map(m => {
+                const active = selectedId === m.id;
+                const conf = selectorConfidence(m);
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={[styles.matRow, active && styles.matRowActive, isFieldMode && !active && styles.matRowLight]}
+                    onPress={() => setSelectedMineral(m.id)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                  >
+                    <Text style={styles.matIcon}>{m.icon}</Text>
+                    <Text style={[styles.matLabel, active && styles.matLabelActive, isFieldMode && !active && { color: '#000' }]}>
+                      {m.label}
+                    </Text>
+                    <View style={[styles.confBadge, { backgroundColor: conf.color }]}>
+                      <Text style={styles.confBadgeText}>{conf.label}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))}
+          <Text style={{ color: '#777', fontSize: 10, marginTop: 2, marginBottom: 4, lineHeight: 14 }}>
+            La confianza es la detectabilidad satelital honesta del material. En resultados puede bajar si no hay
+            cobertura medida en la zona. “De contexto” = se infiere por geología/terreno, no por firma espectral directa.
+          </Text>
 
           <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>TIPO DE TERRENO</Text>
           <View style={styles.chips}>
@@ -175,12 +234,14 @@ export default function ConfigModal({
             <Switch value={vibrationEnabled} onValueChange={setVibrationEnabled} trackColor={{ true: '#FFD700' }} />
           </View>
 
-          <View style={[styles.actions, { marginTop: 30 }]}>
+          </ScrollView>
+
+          {/* Pie fijo — siempre visible; respeta la safe area inferior */}
+          <View style={[styles.footer, isFieldMode && styles.footerLight, { paddingBottom: 14 }]}>
             <TouchableOpacity style={styles.btnSave} onPress={onClose}>
               <Text style={styles.btnTextBlack}>Aplicar Configuración</Text>
             </TouchableOpacity>
           </View>
-          <View style={{ height: 40 }} />
 
           {/* Cross-platform new project modal */}
           <Modal visible={showNewProjectModal} transparent animationType="fade">
@@ -226,7 +287,7 @@ export default function ConfigModal({
               </View>
             </View>
           </Modal>
-        </ScrollView>
+        </View>
       </View>
     </Modal>
   );
@@ -238,8 +299,24 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.85)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
   },
+  // Tarjeta = columna [cabecera fija | cuerpo scroll | pie fijo]. maxHeight se
+  // fija en línea según la pantalla y las safe areas.
+  card: {
+    width: '100%', backgroundColor: '#111', borderRadius: 12,
+    borderWidth: 2, borderColor: '#FFD700', overflow: 'hidden',
+  },
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 10,
+  },
+  body: { flexShrink: 1, paddingHorizontal: 20 },
+  footer: {
+    paddingHorizontal: 20, paddingTop: 12,
+    borderTopWidth: 1, borderTopColor: '#333', backgroundColor: '#111',
+  },
+  footerLight: { backgroundColor: '#FFFFFF', borderTopColor: '#CCC' },
   content: { width: '100%', backgroundColor: '#111', borderRadius: 12, padding: 20, borderWidth: 2, borderColor: '#FFD700' },
   contentLight: { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 3 },
   title: { color: '#FFD700', fontSize: 24, fontWeight: '900', marginBottom: 5 },
@@ -250,6 +327,19 @@ const styles = StyleSheet.create({
   input: { backgroundColor: '#222', color: '#FFF', borderRadius: 8, padding: 15, textAlignVertical: 'top', fontSize: 18 },
   inputLight: { backgroundColor: '#EEE', color: '#000' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  matCatHeader: { color: '#00FFFF', fontSize: 11, fontWeight: 'bold', letterSpacing: 1, marginTop: 10, marginBottom: 4 },
+  matRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#333',
+    borderRadius: 8, paddingVertical: 9, paddingHorizontal: 12, marginBottom: 6,
+  },
+  matRowActive: { backgroundColor: '#3A3100', borderColor: '#FFD700' },
+  matRowLight: { backgroundColor: '#F0F0F0', borderColor: '#CCC' },
+  matIcon: { fontSize: 18 },
+  matLabel: { flex: 1, color: '#EEE', fontSize: 14, fontWeight: '600' },
+  matLabelActive: { color: '#FFD700', fontWeight: '900' },
+  confBadge: { borderRadius: 6, paddingVertical: 3, paddingHorizontal: 8 },
+  confBadgeText: { color: '#000', fontSize: 10, fontWeight: '800' },
   chip: { backgroundColor: '#333', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#555' },
   chipActive: { backgroundColor: '#FFD700', borderColor: '#FFD700' },
   chipText: { color: '#FFF', fontSize: 14, fontWeight: 'bold', textTransform: 'capitalize' },

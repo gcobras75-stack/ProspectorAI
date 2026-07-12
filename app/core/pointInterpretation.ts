@@ -9,6 +9,7 @@
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from './indexGlossary';
 import { anomalyFromPct } from './spectralHelpers';
 import { findNearestCell, type MiningSpectralResult } from './SatelliteEngine';
+import { materialLabel, materialAiFrame } from './materialsCatalog';
 
 export interface PointInterpOptions {
   selectedMineral: string;
@@ -63,11 +64,14 @@ export function buildPointInterpretationContext(p: any, opts: PointInterpOptions
     ? '\nADVERTENCIA: la celda más cercana está enmascarada por vegetación (NDVI alto) — la señal mineral puede estar atenuada.'
     : '';
 
+  const frame = materialAiFrame(selectedMineral);
+
   return `[INTERPRETACIÓN DE PUNTO — datos reales del análisis]
 Punto #${rank} de ${total} en el ranking del análisis.
 Coordenadas: Lat ${p.lat.toFixed(6)}, Lng ${p.lng.toFixed(6)}
-Terreno: ${terrainType}  |  Metal objetivo: ${selectedMineral.toUpperCase()}
-Intensidad de alteración (índices reales S2): ${primLevel} (${realScore}%)
+Terreno: ${terrainType}  |  Material objetivo: ${materialLabel(selectedMineral)}
+MARCO GEOLÓGICO (interpreta según esto, NO asumas alteración de oro si no corresponde): ${frame.aiFrame}
+Intensidad de ${frame.signalWord} (índices reales S2): ${primLevel} (${realScore}%)
 Nivel de consenso: ${consensusText}
 Fuentes que respaldan el punto: ${sources.join(', ')}
 

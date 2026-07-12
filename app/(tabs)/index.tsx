@@ -19,6 +19,7 @@ import HistoryModal from '../components/HistoryModal';
 import ConfigModal from '../components/ConfigModal';
 import MoreSheet from '../components/MoreSheet';
 import { TAP_METAL_META } from '../core/spectralHelpers';
+import { materialIcon, materialLabel, normalizeMaterialId } from '../core/materialsCatalog';
 import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
 import WaypointModal from '../components/WaypointModal';
@@ -529,7 +530,7 @@ export default function ProspectorDashboard() {
     const pts = Array.isArray(proj.analisis_resultado) ? proj.analisis_resultado : [];
     setAnalysisPoints(pts);
     setZoneProspectivity((proj.prospectivity as any) ?? null);
-    if (proj.mineral) setSelectedMineral(proj.mineral);
+    if (proj.mineral) setSelectedMineral(normalizeMaterialId(proj.mineral));
     if (proj.terrain) setTerrainType(proj.terrain);
     setShowResults(pts.length > 0);
     if (proj.chat_history?.length) {
@@ -581,7 +582,7 @@ export default function ProspectorDashboard() {
         const savedMineral = await AsyncStorage.getItem('config_mineral');
         const savedTerrain = await AsyncStorage.getItem('config_terrain');
         const savedDeepAnalysis = await AsyncStorage.getItem('config_deepAnalysis');
-        if (savedMineral) setSelectedMineral(savedMineral);
+        if (savedMineral) setSelectedMineral(normalizeMaterialId(savedMineral));
         if (savedTerrain) setTerrainType(savedTerrain);
         if (savedDeepAnalysis) setDeepAnalysis(savedDeepAnalysis === 'true');
 
@@ -647,7 +648,7 @@ export default function ProspectorDashboard() {
     setIsAiProcessing(true);
     triggerHaptic('medium');
     try {
-      const analysis = await analyzeRockImageWithClaude(base64, type);
+      const analysis = await analyzeRockImageWithClaude(base64, type, selectedMineral);
       setAiResult(analysis);
       triggerHaptic('success');
     } catch (e: any) {
@@ -1289,7 +1290,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           onPress={() => setShowConfigModal(true)}
         >
           <Text style={styles.configChipText} numberOfLines={1}>
-            {TAP_METAL_META[selectedMineral]?.icon ?? '⛏'} {selectedMineral} · {terrainType}
+            {materialIcon(selectedMineral)} {materialLabel(selectedMineral)} · {terrainType}
           </Text>
         </TouchableOpacity>
 

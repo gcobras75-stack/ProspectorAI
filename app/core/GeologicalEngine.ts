@@ -1,18 +1,22 @@
 import type { MiningSpectralResult, AsterSpectralCell, EmitSpectralCell } from './SatelliteEngine';
 import { findNearestCell, computeAdaptiveCellSize } from './SatelliteEngine';
+import { CATALOG_WEIGHTS, getMaterial } from './materialsCatalog';
 
 /**
- * Pesos espectrales por metal (fuente única, exportada para que otros módulos
+ * Pesos espectrales por material (fuente única, exportada para que otros módulos
  * — p.ej. el cálculo de confianza en ConsensusFusion — los reutilicen).
+ *
+ * Los 22 materiales del catálogo (CATALOG_WEIGHTS) son la fuente de verdad; se
+ * conservan además los ids heredados (zinc/plomo/litio) para retrocompatibilidad
+ * con proyectos guardados antes del catálogo agrupado.
  */
 export const METAL_WEIGHTS: Record<string, Record<string, number>> = {
-  oro:    { gossan: 0.35, iron_oxide: 0.30, clay: 0.20, silica: 0.15 },
-  plata:  { clay: 0.40, argillic: 0.30, propylitic: 0.30 },
-  cobre:  { ferric_iron: 0.40, malachite: 0.35, propylitic: 0.25 },
+  // Ids heredados (se normalizan a ids del catálogo en la UI, pero por si acaso).
   zinc:   { sphalerite: 0.45, carbonate: 0.35, clay: 0.20 },
   plomo:  { galena: 0.40, gossan: 0.35, iron_oxide: 0.25 },
-  hierro: { iron_oxide: 0.45, ferric_iron: 0.35, gossan: 0.20 },
   litio:  { clay: 0.45, carbonate: 0.35, argillic: 0.20 },
+  // Catálogo Fase 1 (22 materiales) — pisa cualquier legado con mismo id.
+  ...CATALOG_WEIGHTS,
 };
 
 /**
@@ -577,11 +581,15 @@ export function computeAllMetalScores(points: AnalysisPoint[], terrain: string):
   for (const p of points) for (const k of (p.enriched_indices || [])) enrichedKeys.add(k);
 
   const terrainKey = terrain === 'playa' ? 'playa' : 'sierra';
-  const metals = ['oro', 'plata', 'cobre', 'zinc', 'plomo', 'hierro', 'litio'];
+  // Panel "otros metales": los 7 metálicos del catálogo (misma señal espectral
+  // real, distinta ponderación). El resto de familias (ornamental, construcción…)
+  // no compiten aquí — su comparación no aporta al usuario.
+  const metals = ['oro', 'plata', 'cobre', 'hierro', 'plomo_zinc', 'manganeso', 'tierras_raras'];
 
   return metals.map(metal => {
     const weights = METAL_WEIGHTS[metal] || {};
     const cfg     = METAL_CONFIG[metal]?.[terrainKey];
+    const cat     = getMaterial(metal);
     const scoreMax = SCORE_MAXIMO_GLOBAL[metal]?.[terrainKey] ?? 50;
 
     // Score crudo 0–1 = Σ(índice_real · peso). Los índices sintéticos valen 0.
@@ -611,8 +619,8 @@ export function computeAllMetalScores(points: AnalysisPoint[], terrain: string):
 
     return {
       metal,
-      label: cfg?.label ?? metal,
-      icon: cfg?.icon ?? '⛏️',
+      label: cfg?.label ?? cat?.label ?? metal,
+      icon: cfg?.icon ?? cat?.icon ?? '⛏️',
       score_maximo: scoreMax,
       score_poligono,
       score_percent,

@@ -1,0 +1,278 @@
+/**
+ * materialsCatalog.ts — CATÁLOGO ÚNICO de materiales analizables (Fase 1).
+ *
+ * Fuente de verdad única que reemplaza las listas dispersas e inconsistentes
+ * (ConfigModal chips, TAP_METAL_META, METAL_WEIGHTS, SCORE_MAXIMO_GLOBAL).
+ *
+ * Cada material pertenece a:
+ *   • una FAMILIA de detección  → define su receta espectral (pesos sobre los
+ *     índices reales que YA calcula el proxy GEE) y el marco geológico para la IA.
+ *   • una CATEGORÍA de UI       → solo agrupa visualmente en el selector.
+ *
+ * HONESTIDAD (regla de la casa): `confidenceBase` es la detectabilidad INTRÍNSECA
+ * del material vía satélite. La confianza REAL que se muestra en resultados es
+ * min(confidenceBase, cobertura_real) — un material "Media" baja a "De contexto"
+ * donde no hay dato medido (índices sintéticos sin ASTER/EMIT). Ver
+ * resolveDisplayConfidence().
+ *
+ * Módulo hoja: no importa nada del motor para evitar ciclos. Los pesos usan las
+ * mismas claves string que SpectralIndices (GeologicalEngine).
+ */
+
+export type MaterialConfidence = 'alta' | 'media' | 'contexto';
+
+export type MaterialFamily =
+  | 'metalicos_alteracion'
+  | 'oxidos_fe'
+  | 'carbonatos'
+  | 'sulfatos'
+  | 'silice_arcillas'
+  | 'volcanicos'
+  | 'aluvial';
+
+export type MaterialCategory =
+  | 'metalicos'
+  | 'industriales'
+  | 'ornamental'
+  | 'construccion'
+  | 'especiales';
+
+export interface MaterialEntry {
+  id: string;                 // id estable persistido en DB/AsyncStorage
+  label: string;              // nombre legible (mayúscula inicial)
+  icon: string;               // emoji
+  category: MaterialCategory; // agrupación de UI
+  family: MaterialFamily;     // receta de detección
+  confidenceBase: MaterialConfidence;
+  /** Detección real llega con recetas de Fase 2 (índice térmico de sílice).
+   *  Muestra "(mejora en camino)" junto a la etiqueta. */
+  pendingImprovement?: boolean;
+  /** Pesos sobre los índices espectrales reales (claves de SpectralIndices). */
+  weights: Record<string, number>;
+}
+
+// ─── Metadata de familias (marco geológico para la IA) ───────────────────────
+
+export interface FamilyMeta {
+  label: string;
+  /** Marco metalogenético/geológico que se inyecta en los prompts para que la
+   *  interpretación se adapte al material (no hablar de "alteración de oro" si
+   *  buscas mármol). */
+  aiFrame: string;
+  /** Palabra para el objetivo del punto ("alteración" vs "señal"). */
+  signalWord: string;
+}
+
+export const FAMILIES: Record<MaterialFamily, FamilyMeta> = {
+  metalicos_alteracion: {
+    label: 'Metálicos por alteración',
+    signalWord: 'alteración hidrotermal',
+    aiFrame:
+      'sistemas hidrotermales metálicos (epitermal Au-Ag, pórfido Cu-Mo, skarn, ' +
+      'vetas polimetálicas). Interpreta óxidos de hierro, arcillas y alteración ' +
+      'como halos de posible mineralización metálica.',
+  },
+  oxidos_fe: {
+    label: 'Óxidos de fierro',
+    signalWord: 'concentración de óxidos de hierro',
+    aiFrame:
+      'concentraciones de óxidos de hierro (hematita, magnetita, goethita). Para ' +
+      'bancos de jales, depósitos antropogénicos de residuos mineros con geometría ' +
+      'artificial. NO lo interpretes como alteración hidrotermal de metales preciosos.',
+  },
+  carbonatos: {
+    label: 'Carbonatos',
+    signalWord: 'firma de carbonato',
+    aiFrame:
+      'rocas carbonatadas (caliza, mármol, dolomía, ónix). Interpreta las firmas de ' +
+      'carbonato como roca de plataforma sedimentaria o metamórfica y evalúa su ' +
+      'aptitud como roca ornamental/industrial. NO hables de alteración hidrotermal ni de oro.',
+  },
+  sulfatos: {
+    label: 'Sulfatos',
+    signalWord: 'firma de sulfato',
+    aiFrame:
+      'evaporitas y sulfatos (yeso, anhidrita, barita). Interprétalos como depósitos ' +
+      'sedimentarios/evaporíticos. NO uses el marco de metales preciosos ni de alteración hidrotermal.',
+  },
+  silice_arcillas: {
+    label: 'Sílice / Arcillas',
+    signalWord: 'firma de sílice/arcilla',
+    aiFrame:
+      'materias primas industriales: sílice (cuarzo, arena silícea), caolín y arcillas. ' +
+      'Interprétalas como recurso industrial no metálico. La detección de sílice pura ' +
+      'requiere banda térmica (mejora en camino), así que sé cauto con el sílice.',
+  },
+  volcanicos: {
+    label: 'Volcánicos / contexto',
+    signalWord: 'contexto litológico',
+    aiFrame:
+      'rocas volcánicas y piroclásticas (piedra pómez, laja, cantera/toba). Interpreta ' +
+      'por contexto litológico y morfología del terreno, NO por una firma espectral única.',
+  },
+  aluvial: {
+    label: 'Aluvial / geomorfología',
+    signalWord: 'contexto geomorfológico',
+    aiFrame:
+      'depósitos aluviales y de placer (agregados de río, placeres de oro). Interpreta ' +
+      'por geomorfología fluvial (paleocauces, drenaje), NO por firma mineral directa. ' +
+      'El oro de placer NO es visible desde satélite: solo se infiere el ambiente favorable.',
+  },
+};
+
+// ─── Metadata de categorías (agrupación de UI) ───────────────────────────────
+
+export const CATEGORIES: { id: MaterialCategory; label: string; icon: string }[] = [
+  { id: 'metalicos',    label: 'Metálicos',          icon: '⛏️' },
+  { id: 'industriales', label: 'Industriales',       icon: '🏭' },
+  { id: 'ornamental',   label: 'Piedra ornamental',  icon: '💎' },
+  { id: 'construccion', label: 'Construcción',       icon: '🧱' },
+  { id: 'especiales',   label: 'Especiales',         icon: '⚗️' },
+];
+
+// ─── Catálogo (22 materiales) ────────────────────────────────────────────────
+
+export const MATERIALS_CATALOG: MaterialEntry[] = [
+  // ── Metálicos ──────────────────────────────────────────────────────────────
+  { id: 'oro',           label: 'Oro',            icon: '🥇', category: 'metalicos',    family: 'metalicos_alteracion', confidenceBase: 'media',
+    weights: { gossan: 0.35, iron_oxide: 0.30, clay: 0.20, silica: 0.15 } },
+  { id: 'plata',         label: 'Plata',          icon: '🥈', category: 'metalicos',    family: 'metalicos_alteracion', confidenceBase: 'media',
+    weights: { clay: 0.40, argillic: 0.30, propylitic: 0.30 } },
+  { id: 'cobre',         label: 'Cobre',          icon: '🟤', category: 'metalicos',    family: 'metalicos_alteracion', confidenceBase: 'media',
+    weights: { ferric_iron: 0.40, malachite: 0.35, propylitic: 0.25 } },
+  { id: 'hierro',        label: 'Fierro',         icon: '⚙️', category: 'metalicos',    family: 'oxidos_fe',            confidenceBase: 'alta',
+    weights: { iron_oxide: 0.45, ferric_iron: 0.35, gossan: 0.20 } },
+  { id: 'plomo_zinc',    label: 'Plomo-Zinc',     icon: '🔩', category: 'metalicos',    family: 'metalicos_alteracion', confidenceBase: 'media',
+    weights: { carbonate: 0.30, sphalerite: 0.25, galena: 0.20, gossan: 0.15, iron_oxide: 0.10 } },
+  { id: 'manganeso',     label: 'Manganeso',      icon: '🧲', category: 'metalicos',    family: 'metalicos_alteracion', confidenceBase: 'contexto',
+    weights: { iron_oxide: 0.45, ferric_iron: 0.35, clay: 0.20 } },
+  { id: 'tierras_raras', label: 'Tierras raras',  icon: '🧪', category: 'metalicos',    family: 'metalicos_alteracion', confidenceBase: 'media',
+    weights: { clay: 0.30, argillic: 0.30, iron_oxide: 0.20, silica: 0.20 } },
+
+  // ── Industriales ─────────────────────────────────────────────────────────────
+  { id: 'fluorita',      label: 'Fluorita',       icon: '💠', category: 'industriales', family: 'metalicos_alteracion', confidenceBase: 'contexto',
+    weights: { clay: 0.40, argillic: 0.30, iron_oxide: 0.30 } },
+  { id: 'barita',        label: 'Barita',         icon: '⚪', category: 'industriales', family: 'sulfatos',             confidenceBase: 'contexto',
+    weights: { carbonate: 0.40, clay: 0.30, iron_oxide: 0.30 } },
+  { id: 'yeso',          label: 'Yeso',           icon: '🤍', category: 'industriales', family: 'sulfatos',             confidenceBase: 'media',
+    weights: { clay: 0.40, argillic: 0.35, carbonate: 0.25 } },
+  { id: 'silice',        label: 'Sílice',         icon: '🪟', category: 'industriales', family: 'silice_arcillas',      confidenceBase: 'contexto', pendingImprovement: true,
+    weights: { silica: 1.0 } },
+  { id: 'arcillas_caolin', label: 'Arcillas / Caolín', icon: '🏺', category: 'industriales', family: 'silice_arcillas', confidenceBase: 'alta',
+    weights: { clay: 0.45, argillic: 0.40, iron_oxide: 0.15 } },
+
+  // ── Piedra ornamental ────────────────────────────────────────────────────────
+  { id: 'marmol',        label: 'Mármol',         icon: '🏛️', category: 'ornamental',   family: 'carbonatos',          confidenceBase: 'media',
+    weights: { carbonate: 1.0 } },
+  { id: 'onix',          label: 'Ónix',           icon: '🖤', category: 'ornamental',   family: 'carbonatos',          confidenceBase: 'contexto',
+    weights: { carbonate: 1.0 } },
+  { id: 'cantera',       label: 'Cantera',        icon: '🧱', category: 'ornamental',   family: 'volcanicos',          confidenceBase: 'contexto', pendingImprovement: true,
+    weights: { silica: 0.50, iron_oxide: 0.25, clay: 0.25 } },
+  { id: 'granito',       label: 'Granito',        icon: '🪨', category: 'ornamental',   family: 'silice_arcillas',     confidenceBase: 'contexto', pendingImprovement: true,
+    weights: { silica: 0.60, iron_oxide: 0.20, clay: 0.20 } },
+  { id: 'laja',          label: 'Laja',           icon: '🪧', category: 'ornamental',   family: 'volcanicos',          confidenceBase: 'contexto',
+    weights: { iron_oxide: 0.34, clay: 0.33, ferric_iron: 0.33 } },
+
+  // ── Construcción ─────────────────────────────────────────────────────────────
+  { id: 'caliza',        label: 'Caliza',         icon: '🧱', category: 'construccion', family: 'carbonatos',          confidenceBase: 'media',
+    weights: { carbonate: 1.0 } },
+  { id: 'agregados',     label: 'Agregados pétreos', icon: '🚧', category: 'construccion', family: 'aluvial',          confidenceBase: 'contexto',
+    weights: { iron_oxide: 0.34, clay: 0.33, ferric_iron: 0.33 } },
+  { id: 'pomez',         label: 'Piedra pómez',   icon: '🫧', category: 'construccion', family: 'volcanicos',          confidenceBase: 'contexto',
+    weights: { iron_oxide: 0.34, clay: 0.33, ferric_iron: 0.33 } },
+
+  // ── Especiales ───────────────────────────────────────────────────────────────
+  { id: 'bancos_jales',  label: 'Bancos de jales', icon: '♻️', category: 'especiales',  family: 'oxidos_fe',           confidenceBase: 'alta',
+    weights: { iron_oxide: 0.50, ferric_iron: 0.30, gossan: 0.20 } },
+  { id: 'placeres',      label: 'Placeres de río', icon: '🌊', category: 'especiales',  family: 'aluvial',             confidenceBase: 'contexto',
+    weights: { iron_oxide: 0.40, gossan: 0.35, ferric_iron: 0.25 } },
+];
+
+// ─── Índice por id + helpers ──────────────────────────────────────────────────
+
+const BY_ID: Record<string, MaterialEntry> = Object.fromEntries(
+  MATERIALS_CATALOG.map(m => [m.id, m])
+);
+
+/** Mapea ids heredados (selector viejo) a ids del catálogo nuevo. */
+export function normalizeMaterialId(id: string | null | undefined): string {
+  const v = (id ?? '').toLowerCase().trim();
+  switch (v) {
+    case 'zinc':
+    case 'plomo':
+      return 'plomo_zinc';
+    case 'litio':          // el slot de litio-en-arcillas pasó a Tierras raras
+      return 'tierras_raras';
+    default:
+      return BY_ID[v] ? v : 'oro'; // desconocido → oro (default histórico)
+  }
+}
+
+export function getMaterial(id: string | null | undefined): MaterialEntry | undefined {
+  return BY_ID[normalizeMaterialId(id)];
+}
+
+export function materialLabel(id: string | null | undefined): string {
+  return getMaterial(id)?.label ?? (id ?? '').toString();
+}
+
+export function materialIcon(id: string | null | undefined): string {
+  return getMaterial(id)?.icon ?? '⛏️';
+}
+
+/** Marco geológico de la familia del material, para inyectar en prompts de IA. */
+export function materialAiFrame(id: string | null | undefined): FamilyMeta {
+  const fam = getMaterial(id)?.family ?? 'metalicos_alteracion';
+  return FAMILIES[fam];
+}
+
+/** Pesos espectrales de todos los materiales, para fusionar en METAL_WEIGHTS. */
+export const CATALOG_WEIGHTS: Record<string, Record<string, number>> = Object.fromEntries(
+  MATERIALS_CATALOG.map(m => [m.id, m.weights])
+);
+
+// ─── Etiquetas de confianza ───────────────────────────────────────────────────
+
+export const CONFIDENCE_META: Record<MaterialConfidence, { label: string; color: string }> = {
+  alta:     { label: 'Alta',        color: '#4CAF50' },
+  media:    { label: 'Media',       color: '#FFA000' },
+  contexto: { label: 'De contexto', color: '#78909C' },
+};
+
+/** Etiqueta para el SELECTOR (confianza intrínseca + "mejora en camino"). */
+export function selectorConfidence(entry: MaterialEntry): { label: string; color: string } {
+  const base = CONFIDENCE_META[entry.confidenceBase];
+  return {
+    color: base.color,
+    label: entry.pendingImprovement ? `${base.label} (mejora en camino)` : base.label,
+  };
+}
+
+/**
+ * Confianza REAL para RESULTADOS = min(intrínseca, cobertura medida).
+ * Si el modelo del material depende de índices sin dato real (requires_deep /
+ * alta fracción sintética no enriquecida por ASTER/EMIT), baja a "De contexto".
+ */
+export function resolveDisplayConfidence(
+  id: string | null | undefined,
+  opts?: { requiresDeep?: boolean; syntheticWeightPct?: number },
+): { level: MaterialConfidence; label: string; color: string; note?: string } {
+  const entry = getMaterial(id);
+  let level: MaterialConfidence = entry?.confidenceBase ?? 'contexto';
+  let note: string | undefined;
+
+  const synthPct = opts?.syntheticWeightPct ?? 0;
+  // min() con la cobertura real: sin dato medido, no se puede prometer Alta/Media.
+  if (opts?.requiresDeep || synthPct >= 50) {
+    if (level !== 'contexto') {
+      level = 'contexto';
+      note = 'sin dato medido en esta zona (requiere ASTER/EMIT)';
+    }
+  } else if (synthPct > 0 && level === 'alta') {
+    level = 'media';
+    note = `${synthPct}% del modelo sin proxy óptico directo`;
+  }
+
+  const meta = CONFIDENCE_META[level];
+  return { level, label: meta.label, color: meta.color, note };
+}

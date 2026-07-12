@@ -1,6 +1,7 @@
 ﻿// app/core/ClaudeServices.ts
 import { AnalysisPoint } from './GeologicalEngine';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS } from './indexGlossary';
+import { materialAiFrame, materialLabel } from './materialsCatalog';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from './supabase';
@@ -82,7 +83,8 @@ export interface ClaudeAnalysis {
 
 export async function analyzeRockImageWithClaude(
   base64Image: string,
-  captureType: string
+  captureType: string,
+  materialId?: string,
 ): Promise<ClaudeAnalysis> {
 
   let promptContext = "Muestra de campo estándar capturada con cámara normal de smartphone.";
@@ -91,6 +93,13 @@ export async function analyzeRockImageWithClaude(
   } else if (captureType.startsWith('uv_')) {
     promptContext = `Imagen bajo iluminación UV tipo ${captureType}. Analiza patrones de fluorescencia espectral (Tungsteno, Fluorita, Scheelita, Calcita, Uranio secundario).`;
   }
+
+  // Marco geológico adaptado al material objetivo (no asumir oro/alteración si
+  // el usuario busca mármol, yeso, etc.).
+  const frame = materialAiFrame(materialId);
+  const objetivo = materialId
+    ? `El usuario está prospectando: ${materialLabel(materialId)}. Marco geológico: ${frame.aiFrame}`
+    : 'Objetivo no especificado; identifica lo que la muestra realmente indique.';
 
   const payload = {
     model: MODEL_FAST,
@@ -104,9 +113,10 @@ export async function analyzeRockImageWithClaude(
         },
         {
           type: "text",
-          text: `Actúa como el mejor geólogo del mundo experto en alteraciones y metalogenia. Analiza visualmente esta muestra. ${promptContext}
+          text: `Actúa como el mejor geólogo del mundo experto en mineralogía y petrología. Analiza visualmente esta muestra. ${promptContext}
+${objetivo}
 
-Identifica el metal o mineral evaluando texturas, alteraciones y colores. Sé definitivo y preciso.
+Identifica el material o mineral evaluando texturas, alteraciones y colores según el marco geológico indicado. Sé definitivo y preciso, pero honesto: si la muestra no corresponde al objetivo, dilo.
 
 Devuelve EXCLUSIVAMENTE JSON válido (sin markdown):
 {
@@ -174,9 +184,11 @@ export async function analyzeSpectralCandidatesBatch(
     id: c.id, rank: c.rank, base_score: c.base_score, indices: c.indices
   }));
 
+  const frame = materialAiFrame(mineral);
   const prompt = `Eres un Geólogo Principal experto en exploración de recursos minerales.
 Analiza índices espectrales de ${candidates.length} puntos candidatos.
-Mineral objetivo: ${mineral.toUpperCase()}
+Material objetivo: ${materialLabel(mineral).toUpperCase()}
+MARCO GEOLÓGICO (adáptate a él, NO asumas oro/alteración hidrotermal si no corresponde): ${frame.aiFrame}
 Contexto: Terreno "${terrain}", roca dominante "${rockType}".
 
 Interpreta los valores como anomalías espectrales reales de satélites hiperespectrales.
@@ -361,8 +373,8 @@ REGLAS ANTI-ALUCINACIÓN (CRÍTICAS E INVIOLABLES):
 5. Nunca reclames años de experiencia, títulos ni cédula como hechos. Si firmas, hazlo como "Ing. Villegas — Asistente geológico de IA de ProspectorAI".
 
 ESTRUCTURA OBLIGATORIA DE LA RESPUESTA (usa exactamente estos encabezados a)–e)):
-a) LECTURA DE LA EVIDENCIA — qué dice cada índice presente y qué significa su combinación (asociaciones minerales, tipo de alteración hidrotermal). Solo índices con valor real entregado.
-b) HIPÓTESIS GEOLÓGICA — qué sistema podría ser (epitermal Au-Ag, skarn, pórfido Cu-Mo, etc.) y POR QUÉ. Marca claramente qué es EVIDENCIA OBSERVADA y qué es HIPÓTESIS.
+a) LECTURA DE LA EVIDENCIA — qué dice cada índice presente y qué significa su combinación (asociaciones minerales, proceso geológico compatible). Solo índices con valor real entregado.
+b) HIPÓTESIS GEOLÓGICA — qué sistema/depósito podría ser, SIGUIENDO EL MARCO GEOLÓGICO indicado en el contexto (según el material objetivo y su familia: metálicos por alteración, carbonatos, sulfatos, sílice/arcillas, volcánicos o aluvial). NO impongas un modelo epitermal Au-Ag si el material objetivo es, p. ej., mármol, yeso o agregados. Marca claramente qué es EVIDENCIA OBSERVADA y qué es HIPÓTESIS.
 c) POSIBILIDADES Y LIMITACIONES — qué NO se puede saber desde satélite (leyes, profundidad, tonelaje, continuidad) y qué datos faltan en este punto.
 d) RECOMENDACIÓN DE CAMPO — qué muestrear, dónde exactamente, y qué análisis de laboratorio pedir.
 e) NIVEL DE CONFIANZA HONESTO — cualitativo (bajo / medio / alto) según el consenso de fuentes entregado, y qué haría falta para subirlo. Sin inventar cifras.
@@ -430,7 +442,8 @@ export async function generateReportSection(
   const prompt = `Eres "Ing. Villegas", el asistente geológico de IA de ProspectorAI (no una persona real). Redacta con claridad profesional para mineros e inversores. Sin markdown. Este texto se incluirá en un PDF exportable: NUNCA reclames años de experiencia, títulos ni cédula profesional como hechos, y si firmas hazlo como "Ing. Villegas — Asistente geológico de IA de ProspectorAI". Cualquier cifra estimada es aproximada/ilustrativa, no una métrica medida.
 
 Datos del proyecto:
-- Metal objetivo: ${metalName}
+- Material objetivo: ${materialLabel(metalName)}
+- MARCO GEOLÓGICO (adáptate a él; NO impongas alteración hidrotermal de oro si no corresponde): ${materialAiFrame(metalName).aiFrame}
 - Terreno: ${terrainType}
 - Área analizada: ${areaHa} ha
 - Fuentes satelitales: ${satelitesSources}
@@ -450,7 +463,7 @@ Genera EXACTAMENTE 3 secciones separadas por la cadena: \\n\\n--- SECCIÓN ---\\
 
 SECCIÓN 1 — RESUMEN EJECUTIVO (3-5 líneas): qué tipo de anomalía espectral se detectó, nivel de consenso, en qué tipo de terreno, coordenadas del centro de zona.
 
-SECCIÓN 2 — INTERPRETACIÓN GEOLÓGICA Y ESTRUCTURAL (5-7 líneas): qué patrón espectral sugiere y qué alteraciones hidrotermales son compatibles con los índices detectados; y el CONTROL ESTRUCTURAL: si hay puntos con near_lineament=true o "Estructura ✓" en evidence, interprétalos como lineamientos compatibles con fallas/fracturas que pudieron controlar el emplazamiento de vetas (di "lineamiento compatible con control estructural", NUNCA afirmes la falla ni la veta). Si NINGÚN punto tiene señal estructural, dilo explícitamente ("sin evidencia estructural suficiente en estos datos") y recomienda mapeo estructural de campo. Contexto tectónico esperado en la región. No inventes vetas, fallas, leyes ni tonelaje.
+SECCIÓN 2 — INTERPRETACIÓN GEOLÓGICA Y ESTRUCTURAL (5-7 líneas): qué patrón espectral sugiere y qué procesos geológicos son compatibles con los índices detectados, SEGÚN EL MARCO GEOLÓGICO del material objetivo (habla de alteración hidrotermal SOLO si el material es metálico por alteración; para carbonatos/sulfatos/sílice/aluvial usa el marco correcto); y el CONTROL ESTRUCTURAL: si hay puntos con near_lineament=true o "Estructura ✓" en evidence, interprétalos como lineamientos compatibles con fallas/fracturas que pudieron controlar el emplazamiento de vetas (di "lineamiento compatible con control estructural", NUNCA afirmes la falla ni la veta). Si NINGÚN punto tiene señal estructural, dilo explícitamente ("sin evidencia estructural suficiente en estos datos") y recomienda mapeo estructural de campo. Contexto tectónico esperado en la región. No inventes vetas, fallas, leyes ni tonelaje.
 
 SECCIÓN 3 — PLAN DE CAMPO RECOMENDADO: lista numerada con el orden de visita de los top-5 puntos (usa sus coordenadas reales) y qué verificar en cada uno.
 

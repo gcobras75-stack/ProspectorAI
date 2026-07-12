@@ -6,6 +6,7 @@ import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct } from '../core/spectr
 import { METAL_COLORS } from './ScoreCard';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from '../core/indexGlossary';
 import { buildPointInterpretationContext } from '../core/pointInterpretation';
+import { materialLabel, materialIcon, materialAiFrame } from '../core/materialsCatalog';
 
 interface SelectedPointModalProps {
   selectedPoint: any;
@@ -63,7 +64,7 @@ export default function SelectedPointModal({
               📍 Lat: {selectedPoint.lat.toFixed(6)} | Lng: {selectedPoint.lng.toFixed(6)}
             </Text>
             <Text style={styles.meta}>
-              Terreno: {terrainType.charAt(0).toUpperCase() + terrainType.slice(1)}{'  |  '}Metal: {selectedMineral.toUpperCase()}
+              Terreno: {terrainType.charAt(0).toUpperCase() + terrainType.slice(1)}{'  |  '}Material: {materialLabel(selectedMineral)}
             </Text>
           </View>
 
@@ -76,11 +77,11 @@ export default function SelectedPointModal({
             {/* Primary mineral */}
             <View style={styles.primaryBox}>
               <Text style={{ color: '#888', fontSize: 9, letterSpacing: 0.8, marginBottom: 6 }}>
-                MINERAL SELECCIONADO — {selectedMineral.toUpperCase()}
+                MATERIAL SELECCIONADO — {materialLabel(selectedMineral).toUpperCase()}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <Text style={{ color: METAL_COLORS[selectedMineral] ?? '#FFD700', fontWeight: '900', fontSize: 16 }}>
-                  {TAP_METAL_META[selectedMineral]?.icon}  {TAP_METAL_META[selectedMineral]?.label}
+                  {materialIcon(selectedMineral)}  {materialLabel(selectedMineral)}
                 </Text>
                 <View style={{ borderWidth: 1.5, borderColor: primColor, borderRadius: 5, paddingHorizontal: 10, paddingVertical: 3, backgroundColor: `${primColor}22` }}>
                   <Text style={{ color: primColor, fontWeight: '900', fontSize: 13 }}>{primLevel}</Text>
@@ -90,7 +91,7 @@ export default function SelectedPointModal({
                 <View style={{ height: '100%', width: `${realScore}%`, backgroundColor: primColor, borderRadius: 3 }} />
               </View>
               <Text style={{ color: '#555', fontSize: 9, fontStyle: 'italic' }}>
-                Intensidad de alteración calculada de índices espectrales reales
+                Intensidad de {materialAiFrame(selectedMineral).signalWord} calculada de índices espectrales reales
               </Text>
             </View>
 

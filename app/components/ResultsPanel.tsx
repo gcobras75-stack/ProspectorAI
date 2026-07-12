@@ -9,6 +9,7 @@ import { type ZoneProspectivity } from '../core/ConsensusFusion';
 import { type KnownOccurrencesResult } from '../core/mrdsService';
 import { Colors, Typography, Spacing, Radii, anomalyFromPct } from '../core/theme';
 import { buildPointInterpretationContext } from '../core/pointInterpretation';
+import { materialLabel, resolveDisplayConfidence } from '../core/materialsCatalog';
 
 // Puntos de confianza: ●●●○ etc. — independientes del color (color = favorabilidad)
 const confidenceDots = (label: 'ALTA' | 'MEDIA' | 'BAJA') => {
@@ -108,7 +109,7 @@ export default function ResultsPanel({
     return (
       <TouchableOpacity style={styles.collapsedBar} activeOpacity={0.85} onPress={onToggleCollapsed}>
         <Text style={styles.collapsedText} numberOfLines={1}>
-          {verdictIcon}  {selectedMineral} · {terrainType} — {nPts} punto{nPts !== 1 ? 's' : ''}
+          {verdictIcon}  {materialLabel(selectedMineral)} · {terrainType} — {nPts} punto{nPts !== 1 ? 's' : ''}
         </Text>
         <Text style={styles.collapsedChevron}>▲ ver</Text>
       </TouchableOpacity>
@@ -120,7 +121,7 @@ export default function ResultsPanel({
       {/* Header — subtitle only */}
       <View style={styles.header}>
         <Text style={{ color: Colors.textSub, ...Typography.caption }}>
-          {selectedMineral.toUpperCase()} · {terrainType.toUpperCase()}
+          {materialLabel(selectedMineral).toUpperCase()} · {terrainType.toUpperCase()}
           {analysisPoints.length > 0 ? `  ·  ${analysisPoints.length} puntos` : ''}
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
@@ -192,7 +193,7 @@ export default function ResultsPanel({
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={[styles.heroBand, { color: zoneProspectivity.band_color }]}>{zoneProspectivity.band_label}</Text>
-                <Text style={styles.heroSub}>solo {selectedMineral} · no es probabilidad de yacimiento</Text>
+                <Text style={styles.heroSub}>solo {materialLabel(selectedMineral)} · no es probabilidad de yacimiento</Text>
               </View>
             </View>
 
@@ -344,6 +345,23 @@ export default function ResultsPanel({
           </View>
         )}
 
+        {/* Confianza honesta del material = min(intrínseca, cobertura real) */}
+        {(() => {
+          const conf = resolveDisplayConfidence(selectedMineral, {
+            requiresDeep: selMs?.requires_deep,
+            syntheticWeightPct: selMs?.synthetic_weight_pct,
+          });
+          return (
+            <View style={styles.confRow}>
+              <Text style={styles.confRowLabel}>CONFIANZA DE DETECCIÓN</Text>
+              <View style={[styles.confRowBadge, { backgroundColor: conf.color }]}>
+                <Text style={styles.confRowBadgeText}>{conf.label}</Text>
+              </View>
+              {conf.note ? <Text style={styles.confRowNote}>{conf.note}</Text> : null}
+            </View>
+          );
+        })()}
+
         {/* Primary ScoreCard — selected mineral only */}
         {metalScores.filter(ms => ms.metal === selectedMineral).map((ms) => (
           <ScoreCard
@@ -399,7 +417,7 @@ export default function ResultsPanel({
           <View style={styles.rankingSection}>
             <View style={styles.rankingHeader}>
               <Text style={styles.rankingTitle}>
-                ZONAS PRIORITARIAS — {selectedMineral.toUpperCase()} {terrainType.toUpperCase()}
+                ZONAS PRIORITARIAS — {materialLabel(selectedMineral).toUpperCase()} {terrainType.toUpperCase()}
               </Text>
             </View>
             <Text style={{ color: Colors.textDim, fontSize: 11, paddingHorizontal: 2, marginBottom: 8, lineHeight: 15 }}>
@@ -571,6 +589,14 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 10,
   },
+  confRow: {
+    flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+    marginBottom: 8, paddingHorizontal: 2,
+  },
+  confRowLabel: { color: Colors.textSub, fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
+  confRowBadge: { borderRadius: 6, paddingVertical: 3, paddingHorizontal: 9 },
+  confRowBadgeText: { color: '#000', fontSize: 11, fontWeight: '900' },
+  confRowNote: { color: Colors.textDim, fontSize: 10, flexShrink: 1 },
   assocTitle: {
     color: Colors.textDisabled,
     fontSize: 9,
