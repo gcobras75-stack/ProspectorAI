@@ -10,7 +10,35 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator,
   KeyboardAvoidingView, Platform, ScrollView, Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase, friendlyAuthError, inviteStatusMessage } from './core/supabase';
+
+/**
+ * Campo de contraseña con ojito 👁️ para mostrar/ocultar. Oculto por defecto.
+ * Reutilizable: cualquier contraseña de la app debe usar este componente.
+ */
+function PasswordField({
+  value, onChangeText, placeholder = '••••••••',
+}: { value: string; onChangeText: (t: string) => void; placeholder?: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <View style={styles.passwordRow}>
+      <TextInput
+        style={styles.passwordInput} value={value} onChangeText={onChangeText}
+        placeholder={placeholder} placeholderTextColor="#555"
+        secureTextEntry={!show} autoCapitalize="none" autoCorrect={false}
+      />
+      <TouchableOpacity
+        style={styles.eyeBtn} onPress={() => setShow((s) => !s)}
+        accessibilityRole="button"
+        accessibilityLabel={show ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Ionicons name={show ? 'eye-off-outline' : 'eye-outline'} size={22} color="#AAA" />
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 export default function LoginScreen() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -21,6 +49,10 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false);
 
   const isRegister = mode === 'register';
+
+  // Código a prueba de humanos: MAYÚSCULAS y sin espacios (los que se cuelan
+  // al copiar de WhatsApp), en vivo mientras escribe/pega.
+  const onChangeCode = (t: string) => setCode(t.toUpperCase().replace(/\s/g, ''));
 
   const submit = async () => {
     if (busy) return;
@@ -73,8 +105,16 @@ export default function LoginScreen() {
           {isRegister ? 'Crea tu cuenta con tu código de invitación' : 'Entra a tu cuenta'}
         </Text>
 
+        {/* Registro: el CÓDIGO va al frente — es lo primero que trae el piloto nuevo. */}
         {isRegister && (
           <>
+            <Text style={styles.label}>Código de invitación</Text>
+            <TextInput
+              style={[styles.input, styles.codeInput]} value={code} onChangeText={onChangeCode}
+              placeholder="PROSP-XXXX" placeholderTextColor="#555"
+              autoCapitalize="characters" autoCorrect={false} autoComplete="off"
+            />
+
             <Text style={styles.label}>Nombre</Text>
             <TextInput
               style={styles.input} value={nombre} onChangeText={setNombre}
@@ -91,21 +131,7 @@ export default function LoginScreen() {
         />
 
         <Text style={styles.label}>Contraseña</Text>
-        <TextInput
-          style={styles.input} value={password} onChangeText={setPassword}
-          placeholder="••••••••" placeholderTextColor="#555" secureTextEntry
-        />
-
-        {isRegister && (
-          <>
-            <Text style={styles.label}>Código de invitación</Text>
-            <TextInput
-              style={[styles.input, styles.codeInput]} value={code} onChangeText={setCode}
-              placeholder="PROSP-XXXX" placeholderTextColor="#555"
-              autoCapitalize="characters" autoCorrect={false}
-            />
-          </>
-        )}
+        <PasswordField value={password} onChangeText={setPassword} />
 
         <TouchableOpacity style={[styles.primaryBtn, busy && { opacity: 0.6 }]} onPress={submit} disabled={busy}>
           {busy
@@ -113,11 +139,19 @@ export default function LoginScreen() {
             : <Text style={styles.primaryBtnText}>{isRegister ? 'Crear cuenta' : 'Entrar'}</Text>}
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.switchBtn} onPress={() => setMode(isRegister ? 'login' : 'register')}>
-          <Text style={styles.switchText}>
-            {isRegister ? '¿Ya tienes cuenta? Entra' : '¿Tienes un código? Crea tu cuenta'}
-          </Text>
-        </TouchableOpacity>
+        {/* Acceso directo al registro con código desde la primera pantalla. */}
+        {!isRegister && (
+          <TouchableOpacity style={styles.inviteBtn} onPress={() => setMode('register')}>
+            <Text style={styles.inviteBtnText}>🎟️  Tengo un código de invitación</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* En login, el acceso al registro ya lo da el botón del código de arriba. */}
+        {isRegister && (
+          <TouchableOpacity style={styles.switchBtn} onPress={() => setMode('login')}>
+            <Text style={styles.switchText}>¿Ya tienes cuenta? Entra</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -134,6 +168,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 12, fontSize: 15,
   },
   codeInput: { letterSpacing: 2, fontWeight: '700', color: '#FFD700' },
+  passwordRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#111', borderRadius: 10, borderWidth: 1, borderColor: '#333',
+  },
+  passwordInput: {
+    flex: 1, color: '#FFF', paddingHorizontal: 14, paddingVertical: 12, fontSize: 15,
+  },
+  eyeBtn: { paddingHorizontal: 14, paddingVertical: 10 },
+  inviteBtn: {
+    marginTop: 16, height: 48, borderRadius: 10, borderWidth: 1.5, borderColor: '#FFD700',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  inviteBtnText: { color: '#FFD700', fontSize: 15, fontWeight: '800' },
   primaryBtn: {
     backgroundColor: '#FFD700', borderRadius: 10, height: 52, marginTop: 26,
     justifyContent: 'center', alignItems: 'center',

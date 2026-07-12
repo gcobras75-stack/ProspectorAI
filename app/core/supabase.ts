@@ -49,11 +49,12 @@ export function friendlyAuthError(message: string | undefined): string {
 }
 
 // Mensaje del pre-chequeo de código (RPC check_invite_code).
+// Todos los casos "malos" comparten una salida clara y accionable para el piloto.
 export function inviteStatusMessage(status: string | null | undefined): string {
   switch (status) {
-    case 'REVOKED':   return 'Ese código fue revocado.';
-    case 'EXPIRED':   return 'Ese código ya expiró.';
-    case 'EXHAUSTED': return 'Ese código ya alcanzó su límite de usos.';
-    default:          return 'Ese código de invitación no existe. Revísalo (ojo con el guion “-”).';
+    case 'REVOKED':   return 'Ese código fue revocado — pídele uno nuevo a quien te invitó.';
+    case 'EXPIRED':   return 'Ese código ya expiró — pídele uno nuevo a quien te invitó.';
+    case 'EXHAUSTED': return 'Ese código ya se usó — pídele uno nuevo a quien te invitó.';
+    default:          return 'Código no válido o ya usado — pídele uno nuevo a quien te invitó.';
   }
 }
