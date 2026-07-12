@@ -347,5 +347,5 @@ const styles = StyleSheet.create({
   prefRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 10 },
   actions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, gap: 10 },
   btnSave: { flex: 1, backgroundColor: '#FFD700', padding: 20, borderRadius: 8, alignItems: 'center' },
-  btnTextBlack: { color: '#000', fontWeight: 'bold', fontSize: 18 },
+  btnTextBlack: { color: '#1a1a1a', fontWeight: 'bold', fontSize: 18 },
 });

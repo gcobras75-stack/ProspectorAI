@@ -99,10 +99,10 @@ export default function WaypointModal({
                   {isAiProcessing ? (
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <ActivityIndicator color="#000" style={{ marginRight: 8 }} />
-                      <Text style={[styles.photoBtnText, isFieldMode && styles.photoBtnTextLight, { marginLeft: 0 }]}>ANALIZANDO CON IA...</Text>
+                      <Text style={[styles.photoBtnText, isFieldMode && styles.photoBtnTextLight, { marginLeft: 0, color: '#1a1a1a' }]}>ANALIZANDO CON IA...</Text>
                     </View>
                   ) : (
-                    <Text style={[styles.photoBtnText, isFieldMode && styles.photoBtnTextLight, { color: '#FFF' }]}>⚠️ ANALIZAR CON IA</Text>
+                    <Text style={[styles.photoBtnText, isFieldMode && styles.photoBtnTextLight, { color: '#1a1a1a' }]}>⚠️ ANALIZAR CON IA</Text>
                   )}
                 </TouchableOpacity>
               )}
