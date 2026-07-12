@@ -20,6 +20,7 @@ import ConfigModal from '../components/ConfigModal';
 import MoreSheet from '../components/MoreSheet';
 import { TAP_METAL_META } from '../core/spectralHelpers';
 import { materialIcon, materialLabel, normalizeMaterialId } from '../core/materialsCatalog';
+import { newAnalisisId, setCurrentAnalisis, logAnalisisZona } from '../core/costTelemetry';
 import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
 import WaypointModal from '../components/WaypointModal';
@@ -919,11 +920,14 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         return;
       }
 
+      const analisisId = newAnalisisId();
+      setCurrentAnalisis(analisisId);   // agrupa las llamadas de IA de este análisis
       const data = analyzeZoneLocal(coordsToUse, selectedMineral, terrainType, depth, rockType, waypoints, satData);
-      
+
       if (data.success && data.top_points) {
         let finalPoints = data.top_points;
         let wasAnalyzed = false;
+        let usedAster = false, usedEmit = false, usedStruct = false;   // fuentes disparadas (telemetría)
         
         if (useAI && isConnected) {
            try {
@@ -963,6 +967,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               setAsterData(aster);
               if (aster.has_coverage && aster.data_source !== 'NO_DATA_OFFLINE') {
                 asterResult = aster;
+                usedAster = true;
               }
             } else {
               Alert.alert('ASTER', `Sin cobertura en esta zona.\nAnálisis con solo Sentinel-2.\n\n${coverage.message}`);
@@ -980,6 +985,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             setEmitData(emit);
             if (emit.data_source !== 'NO_DATA_OFFLINE') {
               emitResult = emit;
+              usedEmit = true;
             }
           } catch (emitErr: any) {
             console.warn('[analyzeZone] EMIT failed:', emitErr.message);
@@ -994,6 +1000,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             setStructuralData(structural);
             if (structural.data_source !== 'NO_DATA_OFFLINE') {
               structuralResult = structural;
+              usedStruct = true;
             }
           } catch (structErr: any) {
             console.warn('[analyzeZone] Structural failed:', structErr.message);
@@ -1032,6 +1039,12 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
            satdata_source: satData.data_source,
            acquisition_date: satData.acquisition_date,
            prospectivity: zp,
+        });
+
+        // Telemetría de costos: contexto del análisis (hectáreas + fuentes disparadas).
+        logAnalisisZona({
+          analisisId, hectareas: data.area_ha, material: selectedMineral,
+          fuentes: { s2: true, aster: usedAster, emit: usedEmit, s1: usedStruct, dem: usedStruct },
         });
 
         setAnalysisPoints(finalPoints);

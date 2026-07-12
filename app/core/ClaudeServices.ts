@@ -2,6 +2,7 @@
 import { AnalysisPoint } from './GeologicalEngine';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS } from './indexGlossary';
 import { materialAiFrame, materialLabel } from './materialsCatalog';
+import { logAICall } from './costTelemetry';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from './supabase';
@@ -143,6 +144,7 @@ Devuelve EXCLUSIVAMENTE JSON válido (sin markdown):
   }
 
   const data = await response.json();
+  logAICall('foto', MODEL_FAST, data?.usage, { material: materialId });
   const content = data.content?.[0]?.text || '';
   const match = content.match(/\{[\s\S]*\}/);
   if (match) {
@@ -227,6 +229,7 @@ Devuelve EXCLUSIVAMENTE un arreglo JSON válido (sin markdown):
   if (!response.ok) throw new Error('Fallo al conectar con Claude Sonnet.');
 
   const data = await response.json();
+  logAICall('lote', MODEL_SMART, data?.usage, { material: mineral });
   const content = data.content?.[0]?.text || '';
   const match = content.match(/\[[\s\S]*\]/);
   if (match) {
@@ -357,6 +360,7 @@ export async function askClaudeGeologoExperto(
     throw new Error(`Geólogo IA (${response.status}): ${msg.substring(0, 100)}`);
   }
   const data = await response.json();
+  logAICall('chat', MODEL_SMART, data?.usage);
   return data.content?.[0]?.text || '';
 }
 
@@ -399,6 +403,7 @@ export async function askClaudeInterpretacionPunto(pointContext: string): Promis
     throw new Error(`Interpretación IA (${response.status}): ${msg.substring(0, 100)}`);
   }
   const data = await response.json();
+  logAICall('interpretacion', MODEL_SMART, data?.usage);
   return data.content?.[0]?.text || '';
 }
 
@@ -486,6 +491,7 @@ NO uses markdown, NO uses asteriscos, NO uses #. Solo texto plano y la separaci�
   }
 
   const data = await response.json();
+  logAICall('reporte', MODEL_SMART, data?.usage, { material: metalName });
   return data.content?.[0]?.text || '';
 }
 
