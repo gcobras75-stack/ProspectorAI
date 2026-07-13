@@ -1,14 +1,29 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { View, Text, Modal, TouchableOpacity, ScrollView, TextInput, Switch, StyleSheet, Dimensions } from 'react-native';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { View, Text, Modal, TouchableOpacity, ScrollView, TextInput, Switch, StyleSheet, Dimensions, Keyboard, Platform, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
-  CATEGORIES, MATERIALS_CATALOG, selectorConfidence, normalizeMaterialId,
+  CATEGORIES, CATEGORIES_EXPANDED_BY_DEFAULT, MATERIALS_CATALOG, selectorConfidence, normalizeMaterialId,
 } from '../core/materialsCatalog';
 import { createProject } from '../core/Database';
 import { getSyncStatus, flushQueue } from '../core/SyncEngine';
 
 type SyncStatus = Awaited<ReturnType<typeof getSyncStatus>>;
+
+// Qué categorías dejó abiertas el usuario. Vive a nivel de MÓDULO a propósito: así
+// sobrevive a cerrar y reabrir el modal durante la sesión. Quien busca cantera seguido
+// no debería volver a expandir "Piedra ornamental" cada vez.
+let expandedMemory: Record<string, boolean> | null = null;
+
+function sessionExpanded(): Record<string, boolean> {
+  if (expandedMemory) return expandedMemory;
+  const init: Record<string, boolean> = {};
+  for (const c of CATEGORIES) {
+    init[c.id] = (CATEGORIES_EXPANDED_BY_DEFAULT as string[]).includes(c.id);
+  }
+  expandedMemory = init;
+  return init;
+}
 
 interface ConfigModalProps {
   visible: boolean;
@@ -97,25 +112,80 @@ export default function ConfigModal({
   }, [refreshSyncStatus]);
 
   const insets = useSafeAreaInsets();
-  // Altura máxima del modal = alto de pantalla menos safe areas y un margen.
+
+  // ── Teclado ────────────────────────────────────────────────────────────────
+  // Un KeyboardAvoidingView dentro de un <Modal> no es fiable en iOS (el modal
+  // vive en su propia ventana y no siempre recibe el ajuste). Se mide el teclado
+  // y se ENCOGE la tarjeta: así el campo de búsqueda queda arriba y la lista
+  // filtrada ocupa el espacio que queda, con scroll, en vez de irse bajo el teclado.
+  const [keyboardH, setKeyboardH] = useState(0);
+  useEffect(() => {
+    // iOS avisa con 'will*' (animación suave); Android solo con 'did*'.
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = Keyboard.addListener(showEvt as any, e => {
+      setKeyboardH(e?.endCoordinates?.height ?? 0);
+    });
+    const onHide = Keyboard.addListener(hideEvt as any, () => setKeyboardH(0));
+    return () => { onShow.remove(); onHide.remove(); };
+  }, []);
+
+  // Altura máxima del modal = alto de pantalla menos safe areas, margen Y TECLADO.
   // El body hace scroll dentro de este límite; el pie queda siempre visible.
-  const maxCardH = Dimensions.get('window').height - insets.top - insets.bottom - 24;
+  // Suelo de 260 px: en un iPhone chico con el teclado abierto, encoger sin límite
+  // dejaría la tarjeta tan baja que no cabría ni el campo de búsqueda.
+  const bottomInset = keyboardH > 0 ? keyboardH : insets.bottom;
+  const maxCardH = Math.max(
+    260,
+    Dimensions.get('window').height - insets.top - bottomInset - 24,
+  );
+
+  // Scroll automático: al enfocar el buscador, se sube a la parte alta del modal
+  // para que la lista filtrada quede entre el campo y el teclado.
+  const bodyRef = useRef<ScrollView>(null);
+  const searchY = useRef(0);
+  const focusSearch = useCallback(() => {
+    // Pequeño retraso: el teclado ya está animando y la tarjeta ya encogió.
+    setTimeout(() => {
+      bodyRef.current?.scrollTo({ y: Math.max(0, searchY.current - 8), animated: true });
+    }, Platform.OS === 'ios' ? 60 : 180);
+  }, []);
 
   const selectedId = normalizeMaterialId(selectedMineral);
 
-  // Materiales filtrados por búsqueda, agrupados por categoría de UI.
+  // Categorías desplegadas. Arranca con Metálicos y Especiales abiertas (esto es una
+  // app de minerales), y RECUERDA lo que el usuario abrió durante la sesión: quien
+  // busca cantera seguido no debe pelear con el colapso en cada apertura del modal.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => sessionExpanded());
+  const toggleCat = useCallback((id: string) => {
+    setExpanded(prev => {
+      const next = { ...prev, [id]: !prev[id] };
+      expandedMemory = next;   // persiste mientras viva el proceso
+      return next;
+    });
+  }, []);
+
+  const query = materialQuery.trim().toLowerCase();
+  const searching = query.length > 0;
+
+  // Materiales agrupados por categoría. El buscador recorre SIEMPRE el catálogo
+  // entero, esté la categoría colapsada o no: escribir "mármol" lo encuentra igual.
   const materialGroups = useMemo(() => {
-    const q = materialQuery.trim().toLowerCase();
     const match = MATERIALS_CATALOG.filter(m =>
-      !q || m.label.toLowerCase().includes(q) || m.id.includes(q));
+      !query || m.label.toLowerCase().includes(query) || m.id.includes(query));
     return CATEGORIES
       .map(cat => ({ cat, items: match.filter(m => m.category === cat.id) }))
       .filter(g => g.items.length > 0);
-  }, [materialQuery]);
+  }, [query]);
 
   return (
     <Modal visible={visible} transparent animationType="slide">
-      <View style={[styles.overlay, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
+      {/* Tocar fuera del campo cierra el teclado. Los TouchableOpacity de dentro
+          (materiales, botones) capturan su propio toque, así que siguen funcionando. */}
+      <Pressable
+        style={[styles.overlay, { paddingTop: insets.top + 12, paddingBottom: bottomInset + 12 }]}
+        onPress={Keyboard.dismiss}
+      >
         <View style={[styles.card, { maxHeight: maxCardH }, isFieldMode && styles.contentLight]}>
           {/* Cabecera fija */}
           <View style={styles.header}>
@@ -126,7 +196,15 @@ export default function ConfigModal({
           </View>
 
           {/* Cuerpo desplazable (categorías + materiales + ajustes) */}
-          <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            ref={bodyRef}
+            style={styles.body}
+            contentContainerStyle={{ paddingBottom: 16 }}
+            // 'handled': el PRIMER toque sobre un material lo selecciona, en vez de
+            // gastarse solo en cerrar el teclado.
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
           <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 4 }]}>0. GESTIÓN LOCAL</Text>
 
           <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>PROYECTO ACTIVO</Text>
@@ -190,35 +268,74 @@ export default function ConfigModal({
           <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 20 }]}>1. GEOLOGÍA ESTRUCTURAL</Text>
 
           <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>MATERIAL OBJETIVO</Text>
-          <TextInput
-            style={[styles.input, isFieldMode && styles.inputLight, { height: 40, marginBottom: 10, fontSize: 14 }]}
-            value={materialQuery}
-            onChangeText={setMaterialQuery}
-            placeholder="🔍 Buscar material… (oro, mármol, yeso…)"
-            placeholderTextColor="#888"
-            autoCapitalize="none"
-          />
+          <View onLayout={e => { searchY.current = e.nativeEvent.layout.y; }}>
+            <TextInput
+              style={[styles.input, isFieldMode && styles.inputLight, { height: 40, marginBottom: 10, fontSize: 14 }]}
+              value={materialQuery}
+              onChangeText={setMaterialQuery}
+              onFocus={focusSearch}
+              placeholder="🔍 Buscar material… (oro, mármol, yeso…)"
+              placeholderTextColor="#888"
+              autoCapitalize="none"
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+          </View>
           {materialGroups.length === 0 && (
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 8 }}>Sin resultados para “{materialQuery}”.</Text>
           )}
-          {materialGroups.map(({ cat, items }) => (
+          {materialGroups.map(({ cat, items }) => {
+            // Buscando, todo se muestra abierto: colapsar los resultados de una
+            // búsqueda sería esconder justo lo que el usuario pidió ver.
+            const open = searching || !!expanded[cat.id];
+            return (
             <View key={cat.id} style={{ marginBottom: 6 }}>
-              <Text style={[styles.matCatHeader, isFieldMode && { color: '#333' }]}>{cat.icon}  {cat.label.toUpperCase()}</Text>
-              {items.map(m => {
+              <TouchableOpacity
+                onPress={() => { if (!searching) toggleCat(cat.id); }}
+                activeOpacity={searching ? 1 : 0.7}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: open }}
+                style={styles.matCatRow}
+              >
+                <Text style={[styles.matCatHeader, isFieldMode && { color: '#333' }]}>
+                  {cat.icon}  {cat.label.toUpperCase()} ({items.length})
+                </Text>
+                {!searching && (
+                  <Text style={[styles.matCatChevron, isFieldMode && { color: '#333' }]}>{open ? '▾' : '▸'}</Text>
+                )}
+              </TouchableOpacity>
+
+              {open && items.map(m => {
                 const active = selectedId === m.id;
                 const conf = selectorConfidence(m);
                 return (
                   <TouchableOpacity
                     key={m.id}
                     style={[styles.matRow, active && styles.matRowActive, isFieldMode && !active && styles.matRowLight]}
-                    onPress={() => setSelectedMineral(m.id)}
+                    // Seleccionar cierra el teclado: el usuario ya encontró lo que buscaba.
+                    onPress={() => { Keyboard.dismiss(); setSelectedMineral(m.id); }}
                     accessibilityRole="button"
                     accessibilityState={{ selected: active }}
                   >
                     <Text style={styles.matIcon}>{m.icon}</Text>
-                    <Text style={[styles.matLabel, active && styles.matLabelActive, isFieldMode && !active && { color: '#000' }]}>
-                      {m.label}
-                    </Text>
+
+                    {/* El NOMBRE manda y va primero. La pista de confianza va DEBAJO, en
+                        gris pequeño: metida en el badge, su ancho empujaba el nombre
+                        fuera de la tarjeta y no se sabía qué material era. */}
+                    <View style={styles.matTextCol}>
+                      <Text
+                        style={[styles.matLabel, active && styles.matLabelActive, isFieldMode && !active && { color: '#000' }]}
+                        numberOfLines={1}
+                      >
+                        {m.label}
+                      </Text>
+                      {conf.hint ? (
+                        <Text style={[styles.matHint, isFieldMode && { color: '#666' }]} numberOfLines={1}>
+                          {conf.hint}
+                        </Text>
+                      ) : null}
+                    </View>
+
                     <View style={[styles.confBadge, { backgroundColor: conf.color }]}>
                       <Text style={styles.confBadgeText}>{conf.label}</Text>
                     </View>
@@ -226,7 +343,8 @@ export default function ConfigModal({
                 );
               })}
             </View>
-          ))}
+            );
+          })}
           <Text style={{ color: '#777', fontSize: 10, marginTop: 2, marginBottom: 4, lineHeight: 14 }}>
             La confianza es la detectabilidad satelital honesta del material. En resultados puede bajar si no hay
             cobertura medida en la zona. “De contexto” = se infiere por geología/terreno, no por firma espectral directa.
@@ -365,7 +483,7 @@ export default function ConfigModal({
             </View>
           </Modal>
         </View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }
@@ -405,6 +523,13 @@ const styles = StyleSheet.create({
   inputLight: { backgroundColor: '#EEE', color: '#000' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   matCatHeader: { color: '#00FFFF', fontSize: 11, fontWeight: 'bold', letterSpacing: 1, marginTop: 10, marginBottom: 4 },
+  // Encabezado de categoría plegable: área de toque cómoda y chevron a la derecha.
+  matCatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 },
+  matCatChevron: { color: '#00FFFF', fontSize: 13, fontWeight: 'bold', marginTop: 10, marginBottom: 4, paddingHorizontal: 4 },
+  // El nombre y su pista comparten una columna flexible; el badge queda fuera de ella,
+  // así que su ancho ya no puede empujar al nombre.
+  matTextCol: { flex: 1, justifyContent: 'center' },
+  matHint: { color: '#8A8A8A', fontSize: 10, marginTop: 1 },
   matRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#333',
@@ -413,7 +538,11 @@ const styles = StyleSheet.create({
   matRowActive: { backgroundColor: '#3A3100', borderColor: '#FFD700' },
   matRowLight: { backgroundColor: '#F0F0F0', borderColor: '#CCC' },
   matIcon: { fontSize: 18 },
-  matLabel: { flex: 1, color: '#EEE', fontSize: 14, fontWeight: '600' },
+  // SIN flex:1. Antes era hijo directo de la fila (eje horizontal) y flex:1 significaba
+  // "llena el ancho". Ahora vive dentro de matTextCol, que es una COLUMNA: ahí flex:1
+  // pondría flexBasis:0 y colapsaría la altura del nombre a cero — el mismo fallo que
+  // dejaba el botón "Aplicar Configuración" como una barra amarilla vacía.
+  matLabel: { color: '#EEE', fontSize: 14, fontWeight: '600' },
   matLabelActive: { color: '#FFD700', fontWeight: '900' },
   confBadge: { borderRadius: 6, paddingVertical: 3, paddingHorizontal: 8 },
   confBadgeText: { color: '#000', fontSize: 10, fontWeight: '800' },

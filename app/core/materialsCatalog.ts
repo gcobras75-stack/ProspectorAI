@@ -140,13 +140,19 @@ export const FAMILIES: Record<MaterialFamily, FamilyMeta> = {
 
 // ─── Metadata de categorías (agrupación de UI) ───────────────────────────────
 
+// El ORDEN importa: ProspectorAI es una app de minerales. Metálicos primero y
+// siempre arriba; Especiales (jales, placeres) es minería también, así que va
+// segundo. El resto detrás, y colapsadas por defecto en el selector.
 export const CATEGORIES: { id: MaterialCategory; label: string; icon: string }[] = [
   { id: 'metalicos',    label: 'Metálicos',          icon: '⛏️' },
+  { id: 'especiales',   label: 'Especiales',         icon: '⚗️' },
   { id: 'industriales', label: 'Industriales',       icon: '🏭' },
   { id: 'ornamental',   label: 'Piedra ornamental',  icon: '💎' },
   { id: 'construccion', label: 'Construcción',       icon: '🧱' },
-  { id: 'especiales',   label: 'Especiales',         icon: '⚗️' },
 ];
+
+/** Categorías abiertas al abrir el selector. Las demás arrancan colapsadas. */
+export const CATEGORIES_EXPANDED_BY_DEFAULT: MaterialCategory[] = ['metalicos', 'especiales'];
 
 // ─── Catálogo (22 materiales) ────────────────────────────────────────────────
 
@@ -264,10 +270,15 @@ export const CONFIDENCE_META: Record<MaterialConfidence, { label: string; color:
  * los materiales térmicos se anuncia la condición REAL bajo la que suben, en vez de
  * prometer una mejora futura indefinida.
  */
-export function selectorConfidence(entry: MaterialEntry): { label: string; color: string } {
+export function selectorConfidence(
+  entry: MaterialEntry,
+): { label: string; color: string; hint?: string } {
   const base = CONFIDENCE_META[entry.confidenceBase];
+  // El badge lleva SOLO el nivel. La explicación viaja aparte (`hint`) y se pinta en
+  // una línea secundaria: metida en el badge, su ancho empujaba el NOMBRE del material
+  // fuera de la tarjeta y no se sabía qué material era.
   if (entry.confidenceBase === 'contexto' && isThermalMaterial(entry.id)) {
-    return { color: base.color, label: `${base.label} · sube a Media con roca expuesta` };
+    return { color: base.color, label: base.label, hint: 'sube a Media con roca expuesta' };
   }
   return { color: base.color, label: base.label };
 }
