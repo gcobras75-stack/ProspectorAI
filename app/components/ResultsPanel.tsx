@@ -9,6 +9,7 @@ import { type ZoneProspectivity } from '../core/ConsensusFusion';
 import { type KnownOccurrencesResult } from '../core/mrdsService';
 import { Colors, Typography, Spacing, Radii, anomalyFromPct } from '../core/theme';
 import { buildPointInterpretationContext } from '../core/pointInterpretation';
+import { type RockProposal, type RockSource } from '../core/lithologyService';
 import { openExternalNavigation } from '../core/externalNav';
 import { materialLabel, resolveDisplayConfidence } from '../core/materialsCatalog';
 
@@ -29,6 +30,9 @@ interface ResultsPanelProps {
   areaHa: string;
   /** Índice de sílice térmico. Solo llega para sílice/granito/cantera/pómez. */
   thermalData?: ThermalResult | null;
+  rockType?: string;
+  rockSource?: RockSource;
+  rockProposal?: RockProposal | null;
   mapRef: React.RefObject<MapView | null>;
   onClose: () => void;
   onNavigateTo?: (lat: number, lng: number) => void;
@@ -38,7 +42,7 @@ interface ResultsPanelProps {
 }
 
 export default function ResultsPanel({
-  satelliteData, metalScores, analysisPoints, zoneProspectivity, knownOccurrences, selectedMineral, terrainType, areaHa, thermalData, mapRef, onClose, onNavigateTo, onInterpret, collapsed, onToggleCollapsed,
+  satelliteData, metalScores, analysisPoints, zoneProspectivity, knownOccurrences, selectedMineral, terrainType, areaHa, thermalData, rockType, rockSource, rockProposal, mapRef, onClose, onNavigateTo, onInterpret, collapsed, onToggleCollapsed,
 }: ResultsPanelProps) {
   const [legendOpen, setLegendOpen] = useState(false);
   const [techOpen, setTechOpen] = useState(false);
@@ -103,7 +107,7 @@ export default function ResultsPanel({
     onNavigateTo?.(p.lat, p.lng);
   };
   const interpretPoint = (p: any) => {
-    onInterpret?.(buildPointInterpretationContext(p, { selectedMineral, terrainType, allPoints: analysisPoints, satelliteData, thermalData }));
+    onInterpret?.(buildPointInterpretationContext(p, { selectedMineral, terrainType, allPoints: analysisPoints, satelliteData, thermalData, rockType, rockSource, rockProposal }));
   };
   const verdictIcon = strongCount >= 1 ? '🎯' : vegPct > 50 ? '🌿' : '📊';
 

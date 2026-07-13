@@ -28,6 +28,7 @@ import WaypointModal from '../components/WaypointModal';
 import ResultsPanel from '../components/ResultsPanel';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, loadProjectState, listProjects, createProject, renameProject, updateMuestraCodigo } from '../core/Database';
 import { scheduleFlush } from '../core/SyncEngine';
+import { proposeRockType, centroidOf, rockSourceLabel, type RockProposal, type RockSource } from '../core/lithologyService';
 import SampleDetailModal from '../components/SampleDetailModal';
 import SampleLabelModal from '../components/SampleLabelModal';
 import { analyzeRockImageWithClaude, ClaudeAnalysis, analyzeSpectralCandidatesBatch, askClaudeGeologist } from '../core/ClaudeServices';
@@ -269,6 +270,16 @@ export default function ProspectorDashboard() {
   const [terrainType, setTerrainType] = useState('sierra');
   const [depth, setDepth] = useState('0-5m');
   const [rockType, setRockType] = useState('ignea');
+  // De dónde salió el tipo de roca. 'default' = nadie lo eligió todavía.
+  const [rockSource, setRockSource] = useState<RockSource>('default');
+  const [rockProposal, setRockProposal] = useState<RockProposal | null>(null);
+
+  // El usuario manda: si toca el selector, su elección NO se pisa por una propuesta
+  // posterior (mover un vértice no debe deshacer lo que él corrigió a mano).
+  const handleSetRockType = useCallback((v: string) => {
+    setRockType(v);
+    setRockSource('usuario');
+  }, []);
   
   // AI, Database & Hardware Configuration
   const [useAI, setUseAI] = useState(true);
@@ -515,6 +526,34 @@ export default function ProspectorDashboard() {
       if (headSub) headSub.remove();
     };
   }, []);
+
+  // ── Tipo de roca propuesto por ubicación ────────────────────────────────────
+  // Se pedía a ciegas justo el dato que el prospector no sabe. Ahora se propone desde
+  // la carta geológica del centroide y él solo corrige si hace falta.
+  // Se dispara al TENER polígono (≥3 vértices), no en cada render: la consulta va
+  // cacheada por celda de ~0.05° dentro de lithologyService.
+  const proposedForRef = useRef<string>('');
+  useEffect(() => {
+    if (polygonCoords.length < 3) return;
+    const c = centroidOf(polygonCoords as any);
+    if (!c) return;
+    const key = `${c.lat.toFixed(2)}_${c.lng.toFixed(2)}`;
+    if (proposedForRef.current === key) return;   // ya se consultó esta zona
+    proposedForRef.current = key;
+
+    (async () => {
+      const proposal = await proposeRockType(c.lat, c.lng);
+      if (!proposal) return;                       // sin cobertura/red: se queda manual
+      setRockProposal(proposal);
+      // Si el usuario ya eligió a mano, se respeta: la propuesta solo se guarda para
+      // poder medir después si acertaba (telemetría), pero NO pisa su decisión.
+      setRockSource(prev => {
+        if (prev === 'usuario') return prev;
+        setRockType(proposal.rock_type);
+        return proposal.source;
+      });
+    })();
+  }, [polygonCoords]);
 
   // Proyecto actualmente cargado en el mapa (para no recargar en cada foco).
   const loadedProjectRef = useRef<string | null>(null);
@@ -1162,6 +1201,8 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         logAnalisisZona({
           analisisId, hectareas: data.area_ha, material: selectedMineral,
           fuentes: { s2: true, aster: usedAster, emit: usedEmit, s1: usedStruct, dem: usedStruct, thermal: usedThermal },
+          // Propuesta vs final: comparar ambas da la tasa de acierto de la carta.
+          roca: { propuesta: rockProposal?.rock_type ?? null, final: rockType, origen: rockSource },
         });
 
         setAnalysisPoints(finalPoints);
@@ -1769,6 +1810,9 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
       {showResults && (
         <ResultsPanel
           thermalData={thermalData}
+          rockType={rockType}
+          rockSource={rockSource}
+          rockProposal={rockProposal}
           satelliteData={satelliteData}
           metalScores={metalScores}
           analysisPoints={analysisPoints}
@@ -1805,6 +1849,9 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         selectedPoint={selectedPoint}
         satelliteData={satelliteData}
         thermalData={thermalData}
+        rockType={rockType}
+        rockSource={rockSource}
+        rockProposal={rockProposal}
         selectedMineral={selectedMineral}
         terrainType={terrainType}
         mapRef={mapRef}
@@ -1973,7 +2020,9 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         setSelectedMineral={handleSetMineral}
         setTerrainType={handleSetTerrain}
         setDepth={setDepth}
-        setRockType={setRockType}
+        setRockType={handleSetRockType}
+        rockProposal={rockProposal}
+        rockSource={rockSource}
         setUseAI={setUseAI}
         setAutoAnalyzeSample={setAutoAnalyzeSample}
         setUvLamp={setUvLamp}

@@ -82,6 +82,17 @@ export function newAnalisisId(): string {
 // desconocida — y perderíamos toda la telemetría, no solo el dato de caché.
 // Por eso reintentamos una vez sin ellas.
 const CACHE_COLS = ['cache_creation_input_tokens', 'cache_read_input_tokens'];
+// Columnas añadidas por la migración 0012 (tipo de roca propuesto por ubicación).
+// Mismo trato: si la migración no está aplicada, se guarda la fila SIN ellas en vez de
+// perder el registro entero.
+const ROCA_COLS = ['roca_propuesta', 'roca_final', 'roca_origen'];
+
+/** Quita del row las columnas que la BD todavía no conoce. */
+function sinColumnas(row: Record<string, any>, cols: string[]): Record<string, any> {
+  const out = { ...row };
+  for (const c of cols) delete out[c];
+  return out;
+}
 
 async function insertRow(row: Record<string, any>): Promise<void> {
   try {
@@ -89,12 +100,14 @@ async function insertRow(row: Record<string, any>): Promise<void> {
     const { error } = await supabase.from('analytics_costos').insert(row);
     if (!error) return;
 
-    const faltaColumnaCache = CACHE_COLS.some(c => error.message?.includes(c));
-    if (faltaColumnaCache) {
-      const { ['cache_creation_input_tokens']: _w, ['cache_read_input_tokens']: _r, ...sinCache } = row;
-      const retry = await supabase.from('analytics_costos').insert(sinCache);
+    // PostgREST rechaza la fila ENTERA ante una columna desconocida. Se reintenta
+    // quitando solo las columnas que falten, para no perder toda la telemetría por una
+    // migración pendiente.
+    const faltantes = [...CACHE_COLS, ...ROCA_COLS].filter(c => error.message?.includes(c));
+    if (faltantes.length > 0) {
+      const retry = await supabase.from('analytics_costos').insert(sinColumnas(row, faltantes));
       if (retry.error) console.log('[costTelemetry] insert omitido:', retry.error.message);
-      else console.log('[costTelemetry] migración 0011 pendiente: fila guardada sin tokens de caché.');
+      else console.log('[costTelemetry] migración pendiente; fila guardada sin:', faltantes.join(', '));
       return;
     }
     console.log('[costTelemetry] insert omitido:', error.message);
@@ -139,6 +152,9 @@ export function logAnalisisZona(params: {
   // `thermal` = índice de sílice térmico (ASTER GED). Se dispara solo para la familia
   // sílice/roca, así que su frecuencia dice cuánto se usa esa familia de materiales.
   fuentes: { s2?: boolean; emit?: boolean; aster?: boolean; s1?: boolean; dem?: boolean; thermal?: boolean };
+  /** Tipo de roca: qué propuso la carta, qué se usó, y de dónde salió. Comparar
+   *  propuesta vs final da directamente la tasa de acierto de la fuente litológica. */
+  roca?: { propuesta?: string | null; final?: string; origen?: string };
   material?: string;
   nInterpretaciones?: number;
   nFotos?: number;
@@ -151,5 +167,8 @@ export function logAnalisisZona(params: {
     material: params.material ?? null,
     n_interpretaciones: params.nInterpretaciones ?? 0,
     n_fotos: params.nFotos ?? 0,
+    roca_propuesta: params.roca?.propuesta ?? null,
+    roca_final: params.roca?.final ?? null,
+    roca_origen: params.roca?.origen ?? null,
   });
 }

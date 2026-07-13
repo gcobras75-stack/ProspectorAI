@@ -9,6 +9,7 @@ import { METAL_COLORS } from './ScoreCard';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from '../core/indexGlossary';
 import { isSaturated, hasSaturatedIndex, SATURATION_NOTICE } from '../core/saturation';
 import { buildPointInterpretationContext } from '../core/pointInterpretation';
+import { type RockProposal, type RockSource } from '../core/lithologyService';
 import { materialLabel, materialIcon, materialAiFrame, QUICK_METALS, THERMAL_VEG_NOTE } from '../core/materialsCatalog';
 
 interface SelectedPointModalProps {
@@ -20,13 +21,16 @@ interface SelectedPointModalProps {
   allPoints?: any[];
   /** Índice de sílice térmico. Solo llega para sílice/granito/cantera/pómez. */
   thermalData?: ThermalResult | null;
+  rockType?: string;
+  rockSource?: RockSource;
+  rockProposal?: RockProposal | null;
   onClose: () => void;
   onSaveSample: () => void;
   onInterpret: (context: string) => void;
 }
 
 export default function SelectedPointModal({
-  selectedPoint, satelliteData, selectedMineral, terrainType, mapRef, allPoints, thermalData, onClose, onSaveSample, onInterpret,
+  selectedPoint, satelliteData, selectedMineral, terrainType, mapRef, allPoints, thermalData, rockType, rockSource, rockProposal, onClose, onSaveSample, onInterpret,
 }: SelectedPointModalProps) {
   const [openIdx, setOpenIdx] = useState<string | null>(null);
 
@@ -46,7 +50,7 @@ export default function SelectedPointModal({
   // carries ONLY real, measured values so the AI cannot hallucinate (see
   // INTERPRETACION_SYSTEM in ClaudeServices). Missing data is stated as missing.
   const buildInterpretationContext = (): string =>
-    buildPointInterpretationContext(selectedPoint, { selectedMineral, terrainType, allPoints, satelliteData, thermalData });
+    buildPointInterpretationContext(selectedPoint, { selectedMineral, terrainType, allPoints, satelliteData, thermalData, rockType, rockSource, rockProposal });
 
   return (
     <Modal visible={!!selectedPoint} transparent animationType="slide">

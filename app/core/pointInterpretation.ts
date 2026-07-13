@@ -11,6 +11,7 @@ import { isSaturated, saturatedKeys } from './saturation';
 import { anomalyFromPct } from './spectralHelpers';
 import { findNearestCell, type MiningSpectralResult, type ThermalResult } from './SatelliteEngine';
 import { materialLabel, materialAiFrame, isThermalMaterial, THERMAL_VEG_NOTE } from './materialsCatalog';
+import { rockSourceLabel, type RockProposal, type RockSource } from './lithologyService';
 
 export interface PointInterpOptions {
   selectedMineral: string;
@@ -19,10 +20,14 @@ export interface PointInterpOptions {
   satelliteData: MiningSpectralResult | null;
   /** Índice de sílice térmico. Solo existe para sílice/granito/cantera/pómez. */
   thermalData?: ThermalResult | null;
+  /** Tipo de roca en uso y de dónde salió. El modelo DEBE saberlo para calibrar. */
+  rockType?: string;
+  rockSource?: RockSource;
+  rockProposal?: RockProposal | null;
 }
 
 export function buildPointInterpretationContext(p: any, opts: PointInterpOptions): string {
-  const { selectedMineral, terrainType, allPoints, satelliteData, thermalData } = opts;
+  const { selectedMineral, terrainType, allPoints, satelliteData, thermalData, rockType, rockSource, rockProposal } = opts;
 
   const realScore = Math.round(p.base_score || p.score || 0);
   const idx = p.indices ?? null;
@@ -81,6 +86,31 @@ export function buildPointInterpretationContext(p: any, opts: PointInterpOptions
 
   const frame = materialAiFrame(selectedMineral);
 
+  // ── Tipo de roca: QUÉ es y DE DÓNDE viene ───────────────────────────────────
+  // Una carta regional (Macrostrat/GLiM, escala continental) NO es verdad de campo:
+  // acierta la familia litológica dominante, pero puede errar en un afloramiento
+  // concreto. El modelo tiene que saber si el dato lo midió alguien o lo dedujo un
+  // mapa, y modular su certeza en consecuencia. Antes ni siquiera se le decía.
+  let rockBlock = '';
+  if (rockType) {
+    const origen = rockSourceLabel(rockSource ?? 'default');
+    if (rockSource === 'macrostrat' || rockSource === 'glim' || rockSource === 'sgm') {
+      const unidad = rockProposal?.unit_name ? ` (unidad: ${rockProposal.unit_name})` : '';
+      rockBlock =
+        `
+Tipo de roca: ${rockType} — PROPUESTO por ${origen}${unidad}, NO verificado en campo. ` +
+        `Es una carta a escala regional: acierta la litología dominante de la zona, pero puede no ` +
+        `describir el afloramiento exacto de este punto. Úsala como contexto, dilo si tu ` +
+        `interpretación depende mucho de ella, y sugiere verificarla en campo.`;
+    } else if (rockSource === 'usuario') {
+      rockBlock = `
+Tipo de roca: ${rockType} — INDICADO POR EL USUARIO (observación directa, más fiable que la carta).`;
+    } else {
+      rockBlock = `
+Tipo de roca: ${rockType} — valor por defecto, NADIE lo confirmó. No lo tomes como dato.`;
+    }
+  }
+
   // ── Índice de sílice térmico (emisividad ASTER GED) ──────────────────────────
   // Solo se inyecta si la ruta corrió para este material. Si el gate del servidor
   // dice que no es concluyente (vegetación), se le ORDENA al modelo decirlo: no
@@ -117,7 +147,7 @@ export function buildPointInterpretationContext(p: any, opts: PointInterpOptions
   return `[INTERPRETACIÓN DE PUNTO — datos reales del análisis]
 Punto #${rank} de ${total} en el ranking del análisis.
 Coordenadas: Lat ${p.lat.toFixed(6)}, Lng ${p.lng.toFixed(6)}
-Terreno: ${terrainType}  |  Material objetivo: ${materialLabel(selectedMineral)}
+Terreno: ${terrainType}  |  Material objetivo: ${materialLabel(selectedMineral)}${rockBlock}
 MARCO GEOLÓGICO (interpreta según esto, NO asumas alteración de oro si no corresponde): ${frame.aiFrame}
 Intensidad de ${frame.signalWord} (índices reales S2): ${primLevel} (${realScore}%)
 Nivel de consenso: ${consensusText}

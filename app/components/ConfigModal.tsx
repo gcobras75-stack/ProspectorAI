@@ -7,6 +7,7 @@ import {
 } from '../core/materialsCatalog';
 import { createProject } from '../core/Database';
 import { getSyncStatus, flushQueue } from '../core/SyncEngine';
+import { type RockProposal, type RockSource } from '../core/lithologyService';
 
 type SyncStatus = Awaited<ReturnType<typeof getSyncStatus>>;
 
@@ -33,6 +34,10 @@ interface ConfigModalProps {
   terrainType: string;
   depth: string;
   rockType: string;
+  /** Propuesta de tipo de roca desde la carta geológica (null si no hay). */
+  rockProposal?: RockProposal | null;
+  /** De dónde salió el rockType actual: carta, usuario o valor por defecto. */
+  rockSource?: RockSource;
   useAI: boolean;
   autoAnalyzeSample: boolean;
   uvLamp: string;
@@ -61,7 +66,7 @@ interface ConfigModalProps {
 }
 
 export default function ConfigModal({
-  visible, isFieldMode, activeProject, selectedMineral, terrainType, depth, rockType,
+  visible, isFieldMode, activeProject, selectedMineral, terrainType, depth, rockType, rockProposal, rockSource,
   useAI, autoAnalyzeSample, uvLamp, microscopeConnected, autoSync, vibrationEnabled, deepAnalysis, setDeepAnalysis,
   onClose, setActiveProject, onProjectCreated, onRenameActiveProject,
   setSelectedMineral, setTerrainType, setDepth, setRockType,
@@ -379,6 +384,27 @@ export default function ConfigModal({
             ))}
           </View>
 
+          {/* Origen del dato. El prospector rara vez sabe el tipo de roca: se le propone
+              desde la carta y se le dice DE DÓNDE sale, para que sepa cuánto fiarse.
+              Una carta regional no es verdad de campo, y así se dice. */}
+          {rockProposal && rockSource !== 'usuario' ? (
+            <Text style={[styles.rockHint, isFieldMode && { color: '#555' }]}>
+              📄 Propuesto según carta geológica regional
+              {rockProposal.unit_name ? ` · ${rockProposal.unit_name}` : ''} — puedes cambiarlo.
+            </Text>
+          ) : rockSource === 'usuario' ? (
+            <Text style={[styles.rockHint, isFieldMode && { color: '#555' }]}>
+              ✏️ Lo elegiste tú
+              {rockProposal && rockProposal.rock_type !== rockType
+                ? ` (la carta proponía ${rockProposal.rock_type === 'metamorfica' ? 'metamórfica' : rockProposal.rock_type})`
+                : ''}.
+            </Text>
+          ) : (
+            <Text style={[styles.rockHint, isFieldMode && { color: '#555' }]}>
+              Traza una zona para que la app lo proponga desde la carta geológica.
+            </Text>
+          )}
+
           <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 30 }]}>SATÉLITES</Text>
           <View style={styles.prefRow}>
             <View style={{ flex: 1 }}>
@@ -554,6 +580,7 @@ const styles = StyleSheet.create({
   syncBtnText: { color: '#1a1a1a', fontSize: 11, fontWeight: 'bold' },
   syncFailHeader: { color: '#FF9800', fontSize: 11, fontWeight: 'bold', marginBottom: 3 },
   syncFailText: { color: '#999', fontSize: 10, lineHeight: 14 },
+  rockHint: { color: '#888', fontSize: 10, lineHeight: 14, marginTop: 6 },
   chip: { backgroundColor: '#333', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#555' },
   chipActive: { backgroundColor: '#FFD700', borderColor: '#FFD700' },
   chipText: { color: '#FFF', fontSize: 14, fontWeight: 'bold', textTransform: 'capitalize' },
