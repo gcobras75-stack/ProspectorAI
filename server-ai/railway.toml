@@ -1,4 +1,9 @@
 # Config de Railway para el servicio de IA (independiente del server GEE/AgroCrop).
+#
+# Este servicio se despliega desde GitHub: repo gcobras75-stack/ProspectorAI con
+# Root Directory = /server-ai y Watch Paths = /server-ai/** (ambos se configuran en
+# el servicio, no aquí). Un cambio en la app NO redespliega este servidor, y este
+# servidor NO viaja por OTA: se despliega con push a master.
 [build]
 builder = "NIXPACKS"
 
@@ -6,3 +11,8 @@ builder = "NIXPACKS"
 startCommand = "npm start"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+# Sin healthcheck, Railway promovía un deploy aunque el proceso arrancara roto.
+# /health ya existía en index.js (verifica que estén ANTHROPIC_API_KEY y Supabase);
+# ahora Railway no promueve el deploy si no responde.
+healthcheckPath = "/health"
+healthcheckTimeout = 30
