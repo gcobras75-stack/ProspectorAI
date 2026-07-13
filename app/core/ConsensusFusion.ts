@@ -40,7 +40,7 @@ function emitAnomalyScore(cell: EmitSpectralCell, metal: string): number {
     oro:    [0.35, 0.20, 0.15, 0.30],
     plata:  [0.25, 0.35, 0.15, 0.25],
     cobre:  [0.40, 0.15, 0.20, 0.25],
-    litio:  [0.10, 0.20, 0.50, 0.20],
+    tierras_raras:  [0.10, 0.20, 0.50, 0.20],
     hierro: [0.60, 0.10, 0.10, 0.20],
   };
   const w = weights[metal] ?? [0.25, 0.25, 0.25, 0.25];
@@ -62,7 +62,7 @@ function asterAnomalyScore(cell: AsterSpectralCell, metal: string): number {
     oro:    [0.30, 0.20, 0.15, 0.35],
     plata:  [0.20, 0.35, 0.20, 0.25],
     cobre:  [0.35, 0.15, 0.20, 0.30],
-    litio:  [0.10, 0.25, 0.45, 0.20],
+    tierras_raras:  [0.10, 0.25, 0.45, 0.20],
     hierro: [0.55, 0.10, 0.10, 0.25],
   };
 

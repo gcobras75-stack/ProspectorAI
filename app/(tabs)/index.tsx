@@ -152,7 +152,12 @@ export default function ProspectorDashboard() {
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      const online = state.isConnected && state.isInternetReachable;
+      // `isInternetReachable` es null mientras NetInfo aún no lo determina, y en
+      // muchos dispositivos se queda así. Con la lógica anterior
+      // (`isConnected && isInternetReachable`) ese null hacía online=false CON WIFI
+      // ACTIVO, y eso apagaba en silencio la IA y el índice térmico.
+      // null = "no se sabe" ⇒ se asume que hay red, igual que hace SyncEngine.
+      const online = state.isConnected === true && state.isInternetReachable !== false;
       if (online && !isConnected && !isSyncing && autoSyncRef.current) {
          syncPendingAnalyses();
       }
@@ -1080,8 +1085,12 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         // Va FUERA de `deepAnalysis` a propósito: para estos materiales el térmico no
         // es un extra opcional, es LA evidencia. Esconderlo tras un toggle significaría
         // que su confianza nunca sube para quien no lo active.
+        // No se condiciona a `isConnected`: fetchThermalGrid ya cae a caché y, si no
+        // hay nada, devuelve NO_DATA_OFFLINE con quality_ok=false. Colgar la evidencia
+        // principal de estos materiales de un flag de red frágil fue justo lo que la
+        // dejó muerta.
         let thermalResult: ThermalResult | null = null;
-        if (isThermalMaterial(selectedMineral) && isConnected) {
+        if (isThermalMaterial(selectedMineral)) {
           try {
             setAnalysisStep('Consultando índice de sílice térmico...');
             const thermalCoords = coordsToUse.map(c => ({ lat: c.latitude, lng: c.longitude }));
@@ -1630,9 +1639,12 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <View style={styles.consoleBarLeft}>
                   <MaterialCommunityIcons name="vector-polygon" size={16} color={polygonCoords.length >= 3 ? areaColor : '#FFD700'} />
+                  {/* La píldora lleva flexShrink:0: sin él se encogía hasta el ancho de
+                      una letra dentro de la barra y el texto salía apilado en vertical,
+                      una letra por línea. numberOfLines={1} lo remata. */}
                   {polygonCoords.length < 3 ? (
-                    <View style={{ marginLeft: 6, backgroundColor: 'rgba(255,215,0,0.15)', borderRadius: 12, borderWidth: 1, borderColor: '#B8960C', paddingHorizontal: 8, paddingVertical: 2 }}>
-                      <Text style={{ color: '#FFD700', fontSize: 12, fontWeight: '700' }}>
+                    <View style={{ marginLeft: 6, flexShrink: 0, backgroundColor: 'rgba(255,215,0,0.15)', borderRadius: 12, borderWidth: 1, borderColor: '#B8960C', paddingHorizontal: 8, paddingVertical: 2 }}>
+                      <Text style={{ color: '#FFD700', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
                         {polygonCoords.length} de 3 puntos mínimos
                       </Text>
                     </View>

@@ -8,7 +8,7 @@ export const METAL_COLORS: Record<string, string> = {
   oro:    '#FFD700',
   plata:  '#B0BEC5',
   cobre:  '#FF7043',
-  litio:  '#69F0AE',
+  tierras_raras: '#69F0AE',
   hierro: '#EF5350',
 };
 
@@ -25,7 +25,7 @@ const METAL_ASSOCIATION: Record<string, string> = {
   oro:    'Patrón de óxido de hierro y gossan compatible con alteración hidrotermal Au-Ag epitermal o pórfido.',
   plata:  'Alteración argílica avanzada compatible con sistemas Ag-Pb-Zn epitermales y vetas polimetálicas.',
   cobre:  'Oxidación de Fe y alteración propilítica compatible con pórfidos Cu-Mo y skarn de cobre.',
-  litio:  'Arcillas aluminosas y magnesianas compatibles con pegmatitas de Li y salares evaporíticos.',
+  tierras_raras: 'Arcillas y óxidos compatibles con carbonatitas, pegmatitas y placeres de minerales pesados portadores de REE.',
   hierro: 'Óxidos de Fe ferroso y férrico consistentes con BIF, skarn de hierro o depósitos de Fe en placer.',
 };
 

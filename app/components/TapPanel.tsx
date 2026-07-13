@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-nati
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { findNearestCell, type MiningSpectralResult } from '../core/SatelliteEngine';
 import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct, tapMessage } from '../core/spectralHelpers';
+import { QUICK_METALS } from '../core/materialsCatalog';
 import { isSaturated, hasSaturatedIndex, SATURATION_NOTICE } from '../core/saturation';
 import { Colors, Radii } from '../core/theme';
 
@@ -47,7 +48,7 @@ export default function TapPanel({ tapPoint, satelliteData, onClose }: TapPanelP
       <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
         {hasReal ? (
           <>
-            {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const).map(metal => {
+            {QUICK_METALS.map(metal => {
               const score = cellAnomalyScore(nearestCell!, metal);
               const { level, color: aColor } = anomalyFromPct(score);
               const msg = tapMessage(score);

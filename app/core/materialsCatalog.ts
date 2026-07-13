@@ -151,6 +151,14 @@ export const CATEGORIES: { id: MaterialCategory; label: string; icon: string }[]
   { id: 'construccion', label: 'Construcción',       icon: '🧱' },
 ];
 
+/**
+ * Metales de la lista rápida "OTROS METALES" (modal de punto y TapPanel).
+ * FUENTE ÚNICA: antes cada componente llevaba su propio array hardcodeado con
+ * 'litio', que el catálogo ya había sustituido por Tierras raras. Resultado: un
+ * litio fantasma que no existía en ninguna otra parte de la app.
+ */
+export const QUICK_METALS = ['oro', 'plata', 'cobre', 'tierras_raras', 'hierro'] as const;
+
 /** Categorías abiertas al abrir el selector. Las demás arrancan colapsadas. */
 export const CATEGORIES_EXPANDED_BY_DEFAULT: MaterialCategory[] = ['metalicos', 'especiales'];
 

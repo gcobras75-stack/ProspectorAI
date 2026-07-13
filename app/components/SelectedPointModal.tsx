@@ -9,7 +9,7 @@ import { METAL_COLORS } from './ScoreCard';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from '../core/indexGlossary';
 import { isSaturated, hasSaturatedIndex, SATURATION_NOTICE } from '../core/saturation';
 import { buildPointInterpretationContext } from '../core/pointInterpretation';
-import { materialLabel, materialIcon, materialAiFrame } from '../core/materialsCatalog';
+import { materialLabel, materialIcon, materialAiFrame, QUICK_METALS, THERMAL_VEG_NOTE } from '../core/materialsCatalog';
 
 interface SelectedPointModalProps {
   selectedPoint: any;
@@ -106,7 +106,7 @@ export default function SelectedPointModal({
                 <Text style={{ color: '#444', fontSize: 9, letterSpacing: 0.8, marginBottom: 8 }}>
                   OTROS METALES — celda Sentinel-2 más cercana
                 </Text>
-                {(['oro', 'plata', 'cobre', 'litio', 'hierro'] as const)
+                {QUICK_METALS
                   .filter(m => m !== selectedMineral)
                   .map(metal => {
                     const score = cellAnomalyScore(nearestCell, metal);
@@ -188,6 +188,49 @@ export default function SelectedPointModal({
             >
               <Text style={styles.btnInterpretText}>🎓  INTERPRETACIÓN DE DATOS</Text>
             </TouchableOpacity>
+
+            {/* ── Índice de sílice térmico (ASTER) ──────────────────────────────
+                Solo existe para sílice/granito/cantera/pómez. Sin esta sección la
+                medición era invisible: se calculaba y no se mostraba en ningún sitio. */}
+            {(() => {
+              if (!thermalData || !thermalData.cells?.length) return null;
+              const tc: any = findNearestCell(selectedPoint.lat, selectedPoint.lng, thermalData.cells as any);
+              if (!tc || tc.silica_index == null) return null;
+              const ok = thermalData.quality_ok && tc.masked_by_vegetation !== true;
+              const fmt = (v: any) => (typeof v === 'number' ? v.toFixed(4) : '—');
+              return (
+                <View style={[styles.idxBox, !ok && { borderColor: '#FF9800' }]}>
+                  <Text style={styles.idxTitle}>
+                    ÍNDICE DE SÍLICE TÉRMICO — ASTER {ok ? '' : '· NO CONCLUYENTE'}
+                  </Text>
+                  {ok ? (
+                    <Text style={styles.idxHint}>
+                      Medido sobre roca expuesta ({thermalData.rock_pct}% de la zona)
+                    </Text>
+                  ) : (
+                    // Un valor bajo aquí NO significa "poca sílice": significa "no medido".
+                    <Text style={{ color: '#FF9800', fontSize: 10, lineHeight: 14, marginBottom: 6 }}>
+                      {THERMAL_VEG_NOTE}
+                    </Text>
+                  )}
+                  <View style={styles.thRow}>
+                    <Text style={styles.thLabel}>Sílice (cuarzo)</Text>
+                    <Text style={[styles.thVal, ok && { color: '#FFD700' }]}>{fmt(tc.silica_index)}</Text>
+                  </View>
+                  <View style={styles.thRow}>
+                    <Text style={styles.thLabel}>Carbonato (caliza/mármol)</Text>
+                    <Text style={styles.thVal}>{fmt(tc.carbonate_index)}</Text>
+                  </View>
+                  <View style={styles.thRow}>
+                    <Text style={styles.thLabel}>Máfico (roca pobre en sílice)</Text>
+                    <Text style={styles.thVal}>{fmt(tc.mafic_index)}</Text>
+                  </View>
+                  <Text style={styles.idxNote}>
+                    Referencia medida: arena de cuarzo casi puro ≈ 1.042 · basalto ≈ 0.997.
+                  </Text>
+                </View>
+              );
+            })()}
 
             {/* Cómo llegar — mapas EXTERNOS para alcanzar la zona en vehículo. El GPS
                 interno sigue siendo el del último tramo a pie, donde no hay camino. */}
@@ -340,6 +383,9 @@ const styles = StyleSheet.create({
   idxTrack: { height: 4, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' },
   idxFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: '#FFD700', borderRadius: 3, opacity: 0.85 },
   idxDetail: { color: '#AAA', fontSize: 10, lineHeight: 14, marginTop: 5, fontStyle: 'italic' },
+  thRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 3 },
+  thLabel: { color: '#AAA', fontSize: 12, flex: 1 },
+  thVal: { color: '#EEE', fontSize: 13, fontWeight: '800' },
   idxNote: { color: '#666', fontSize: 9, marginTop: 6, lineHeight: 13 },
   // Aviso de saturación. En una sesión futura este texto será el botón que
   // dispara el análisis de contraste regional (en construcción en el servidor).

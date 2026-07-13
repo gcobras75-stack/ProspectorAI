@@ -14,7 +14,7 @@ export const METAL_WEIGHTS: Record<string, Record<string, number>> = {
   // Ids heredados (se normalizan a ids del catálogo en la UI, pero por si acaso).
   zinc:   { sphalerite: 0.45, carbonate: 0.35, clay: 0.20 },
   plomo:  { galena: 0.40, gossan: 0.35, iron_oxide: 0.25 },
-  litio:  { clay: 0.45, carbonate: 0.35, argillic: 0.20 },
+  tierras_raras:  { clay: 0.45, carbonate: 0.35, argillic: 0.20 },
   // Catálogo Fase 1 (22 materiales) — pisa cualquier legado con mismo id.
   ...CATALOG_WEIGHTS,
 };
@@ -412,7 +412,7 @@ export const SCORE_MAXIMO_GLOBAL: Record<string, Record<string, number>> = {
   oro:    { sierra: 92, playa: 78 },
   plata:  { sierra: 71, playa: 45 },
   cobre:  { sierra: 88, playa: 40 },
-  litio:  { sierra: 85, playa: 30 },
+  tierras_raras:  { sierra: 85, playa: 30 },
   hierro: { sierra: 95, playa: 70 },
 };
 
@@ -461,7 +461,7 @@ const METAL_CONFIG: Record<string, Record<string, MetalConfigEntry>> = {
     sierra: { label: 'Cobre',  icon: '🟤', satellite: 'ASTER',     bands: ['FERROUS_IRON', 'ASTER_CHLORITE', 'IRON_OXIDE'],    guideMineral: ['Malaquita', 'Azurita', 'Calcopirita'] },
     playa:  { label: 'Cobre',  icon: '🟤', satellite: 'SENTINEL2', bands: ['IRON_OXIDE', 'NDVI'],                              guideMineral: ['Calcopirita residual'],                warning: 'Muy baja probabilidad en playas' },
   },
-  litio: {
+  tierras_raras: {
     sierra: { label: 'Litio',  icon: '⚡', satellite: 'EMIT',      bands: ['EMIT_AL_CLAY', 'EMIT_MG_CLAY'],                   guideMineral: ['Espodumena', 'Petalita', 'Lepidolita'] },
     playa:  { label: 'Litio',  icon: '⚡', satellite: 'EMIT',      bands: ['EMIT_AL_CLAY'],                                    guideMineral: ['Bischofita', 'Halita'],                warning: 'Solo en salares / playas salinas' },
   },
@@ -489,7 +489,7 @@ function seededRandom(lat: number, lng: number, offset: number): number {
 
 // Per-metal base offset so each metal gets independent index values
 const METAL_SEED_BASE: Record<string, number> = {
-  oro: 10, plata: 20, cobre: 30, litio: 40, hierro: 50,
+  oro: 10, plata: 20, cobre: 30, tierras_raras: 40, hierro: 50,
 };
 
 export interface GeologicalIndicator {
@@ -508,7 +508,9 @@ export function computePointScore(
   terrain: string,
 ): { scores: MetalScore[]; indicators: GeologicalIndicator[] } {
   const terrainKey = terrain === 'playa' ? 'playa' : 'sierra';
-  const metals = ['oro', 'plata', 'cobre', 'litio', 'hierro'];
+  // Lista de metales del scoring. 'litio' se retiró del catálogo (lo sustituyó
+  // Tierras raras); mantenerlo aquí generaba una tarjeta LITIO fantasma.
+  const metals = ['oro', 'plata', 'cobre', 'tierras_raras', 'hierro'];
 
   const scores: MetalScore[] = metals.map(metal => {
     const scoreMax = SCORE_MAXIMO_GLOBAL[metal]?.[terrainKey] ?? 100;

@@ -13,7 +13,7 @@ export const TAP_METAL_META: Record<string, { label: string; icon: string; color
   oro:    { label: 'ORO',    icon: '🥇', color: '#B7950B' },
   plata:  { label: 'PLATA',  icon: '🥈', color: '#626567' },
   cobre:  { label: 'COBRE',  icon: '🟤', color: '#A04000' },
-  litio:  { label: 'LITIO',  icon: '⚡', color: '#1E8449' },
+  tierras_raras: { label: 'T. RARAS', icon: '🧪', color: '#1E8449' },
   hierro: { label: 'HIERRO', icon: '🔴', color: '#922B21' },
 };
 
@@ -36,7 +36,7 @@ export function cellAnomalyScore(cell: MiningSpectralCell, metal: string): numbe
     case 'oro':    return Math.round((normIron * 0.50 + normClay * 0.30 + normFerr * 0.20) * 100);
     case 'plata':  return Math.round((normClay * 0.60 + normIron * 0.40)                   * 100);
     case 'cobre':  return Math.round((normFerr * 0.50 + normIron * 0.30 + normClay * 0.20) * 100);
-    case 'litio':  return Math.round((normClay * 0.80 + normFerr * 0.20)                   * 100);
+    case 'tierras_raras': return Math.round((normClay * 0.80 + normFerr * 0.20)            * 100);
     case 'hierro': return Math.round((normIron * 0.70 + normFerr * 0.30)                   * 100);
     default:       return Math.round((normIron * 0.40 + normClay * 0.40 + normFerr * 0.20) * 100);
   }
