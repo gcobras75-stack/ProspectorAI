@@ -18,7 +18,8 @@
         "NSCameraUsageDescription": "Permite escanear rocas con la IA usando los lentes macro y filtros UV.",
         "NSPhotoLibraryUsageDescription": "Para enviar fotos de rocas y minerales al geólogo.",
         "NSLocationWhenInUseUsageDescription": "Permite registrar las coordenadas geológicas exactas de la muestra recolectada.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Permite monitorear tu ubicación en el terreno para el mapa de calor mineral."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Permite monitorear tu ubicación en el terreno para el mapa de calor mineral.",
+        "LSApplicationQueriesSchemes": ["comgooglemaps", "waze", "maps"]
       }
     },
     "android": {

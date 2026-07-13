@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import MapView from 'react-native-maps';
+import { openExternalNavigation } from '../core/externalNav';
 import { findNearestCell, type MiningSpectralResult } from '../core/SatelliteEngine';
 import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct } from '../core/spectralHelpers';
 import { METAL_COLORS } from './ScoreCard';
@@ -178,6 +180,17 @@ export default function SelectedPointModal({
               <Text style={styles.btnInterpretText}>🎓  INTERPRETACIÓN DE DATOS</Text>
             </TouchableOpacity>
 
+            {/* Cómo llegar — mapas EXTERNOS para alcanzar la zona en vehículo. El GPS
+                interno sigue siendo el del último tramo a pie, donde no hay camino. */}
+            <TouchableOpacity
+              style={styles.btnNav}
+              activeOpacity={0.85}
+              onPress={() => openExternalNavigation(selectedPoint.lat, selectedPoint.lng, `Punto #${selectedPoint.rank}`)}
+            >
+              <MaterialCommunityIcons name="navigation-variant" size={18} color="#1a1a1a" />
+              <Text style={styles.btnNavText}>CÓMO LLEGAR</Text>
+            </TouchableOpacity>
+
             {/* Secondary compact actions, side by side */}
             <View style={styles.actionRow}>
               <TouchableOpacity
@@ -187,7 +200,9 @@ export default function SelectedPointModal({
                   onClose();
                 }}
               >
-                <Text style={styles.btnCompactText}>NAVEGAR</Text>
+                {/* Antes decía "NAVEGAR", pero no navega: centra el mapa interno. El
+                    nombre chocaba con la navegación externa real de arriba. */}
+                <Text style={styles.btnCompactText}>VER EN EL MAPA</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.btnCompactOutline} onPress={onSaveSample}>
                 <Text style={styles.btnCompactOutlineText}>GUARDAR MUESTRA</Text>
@@ -262,6 +277,19 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   btnInterpretText: { color: '#000', fontWeight: '900', fontSize: 15, letterSpacing: 0.3 },
+  // Cómo llegar — cian para no competir con el amarillo de la acción principal.
+  // Fondo claro ⇒ texto oscuro (misma regla que el resto de botones de la app).
+  btnNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#00E5FF',
+    height: 48,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  btnNavText: { color: '#1a1a1a', fontWeight: '900', fontSize: 15, letterSpacing: 0.3 },
   // Secondary compact actions
   actionRow: { flexDirection: 'row', gap: 10 },
   btnCompact: {

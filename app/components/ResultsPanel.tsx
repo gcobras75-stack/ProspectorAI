@@ -9,6 +9,7 @@ import { type ZoneProspectivity } from '../core/ConsensusFusion';
 import { type KnownOccurrencesResult } from '../core/mrdsService';
 import { Colors, Typography, Spacing, Radii, anomalyFromPct } from '../core/theme';
 import { buildPointInterpretationContext } from '../core/pointInterpretation';
+import { openExternalNavigation } from '../core/externalNav';
 import { materialLabel, resolveDisplayConfidence } from '../core/materialsCatalog';
 
 // Puntos de confianza: ●●●○ etc. — independientes del color (color = favorabilidad)
@@ -164,6 +165,15 @@ export default function ResultsPanel({
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.n1BtnInterp} onPress={() => interpretPoint(p)} activeOpacity={0.85}>
                       <Text style={styles.n1BtnInterpText}>🎓 Interpretación</Text>
+                    </TouchableOpacity>
+                    {/* Mapas externos para llegar a la zona; el GPS interno cubre el
+                        último tramo a pie. */}
+                    <TouchableOpacity
+                      style={styles.n1BtnNav}
+                      onPress={() => openExternalNavigation(p.lat, p.lng, `Punto #${p.rank ?? i + 1}`)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.n1BtnNavText}>🧭 Cómo llegar</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -518,7 +528,16 @@ const styles = StyleSheet.create({
   simpleDot: { fontSize: 22, marginRight: 10 },
   simpleTitle: { color: Colors.text, fontSize: 14, fontWeight: '700', lineHeight: 19 },
   simpleSub: { color: Colors.textSub, fontSize: 12.5, marginTop: 3, lineHeight: 17 },
-  simpleActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  // Envuelve: "Ver en el mapa" e "Interpretación" comparten la primera línea y
+  // "Cómo llegar" ocupa la segunda a ancho completo. Tres botones en una sola fila
+  // dejaban las etiquetas apretadas.
+  simpleActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  n1BtnNav: {
+    width: '100%', height: 42, borderRadius: 8,
+    backgroundColor: '#00E5FF',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  n1BtnNavText: { color: '#1a1a1a', fontWeight: '900', fontSize: 13.5 },
   n1BtnMap: {
     flex: 1, height: 42, borderRadius: 8,
     backgroundColor: Colors.surface3, borderWidth: 1, borderColor: Colors.surface4,
