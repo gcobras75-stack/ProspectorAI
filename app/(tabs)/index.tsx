@@ -13,6 +13,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, enrichPointsWithDeepData, MetalScore } from '../core/GeologicalEngine';
 import { Colors, Typography, Spacing, Radii, Touch } from '../core/theme';
 import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult } from '../core/SatelliteEngine';
+import { getAreaLevel, AREA_LEVEL_COLOR, areaBlockMessage, AREA_WARN_MESSAGE } from '../core/areaLimits';
 import { fuseAnalysisPoints, computeZoneProspectivity, type ZoneProspectivity } from '../core/ConsensusFusion';
 import FieldModeButton, { FieldModeButtonHandle } from '../components/FieldModeButton';
 import HistoryModal from '../components/HistoryModal';
@@ -853,8 +854,20 @@ export default function ProspectorDashboard() {
   };
 
   const finishDrawing = async (overrideCoords?: Coordinate[]) => {
-    setDrawingType('none');
     const finalCoords = overrideCoords || polygonCoords;
+
+    // Tope duro de superficie: no salimos del modo trazado, para que el usuario
+    // pueda seguir editando o borrando vértices sin perder lo que ya marcó.
+    if (finalCoords.length >= 3) {
+      const ha = calcPolygonArea(finalCoords) / 10_000;
+      if (getAreaLevel(ha) === 'block') {
+        triggerHaptic('heavy');
+        Alert.alert('Zona muy grande', areaBlockMessage(ha));
+        return;
+      }
+    }
+
+    setDrawingType('none');
     if (finalCoords.length >= 3) {
       triggerHaptic('success');
       await AsyncStorage.setItem('lastPolygon', JSON.stringify(finalCoords));
@@ -902,7 +915,16 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         { latitude: rectPointB.latitude, longitude: rectPointA.longitude },
       ];
     }
-    
+
+    // Tope duro de superficie (ver app/core/areaLimits.ts). Cubre polígono,
+    // rectángulo y polígonos restaurados de AsyncStorage.
+    const areaHaCheck = calcPolygonArea(coordsToUse) / 10_000;
+    if (getAreaLevel(areaHaCheck) === 'block') {
+      triggerHaptic('heavy');
+      Alert.alert('Zona muy grande', areaBlockMessage(areaHaCheck));
+      return;
+    }
+
     setIsAnalyzing(true);
     setAnalysisStep('Consultando Sentinel-2...');
 
@@ -1188,6 +1210,12 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
   const areaHa = (areaM2 / 10000).toFixed(2);
   const areaKm2 = (areaM2 / 1000000).toFixed(4);
   const showStatsBox = areaM2 > 0;
+
+  // Semáforo de superficie: normal → ámbar (>5.000 ha) → rojo (>10.000 ha).
+  const areaHaNum = areaM2 / 10000;
+  const areaLevel = getAreaLevel(areaHaNum);
+  const areaColor = AREA_LEVEL_COLOR[areaLevel];
+  const areaBlocked = areaLevel === 'block';
 
   if (errorMsg) return <View style={styles.center}><Text style={styles.errorText}>{errorMsg}</Text></View>;
   if (!location) return (
@@ -1563,40 +1591,58 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
 
           {/* CONSOLA COMPACTA DE 1 LÍNEA */}
           {drawingType === 'polygon' ? (
-            <View style={styles.consoleBar}>
-              <View style={styles.consoleBarLeft}>
-                <MaterialCommunityIcons name="vector-polygon" size={16} color="#FFD700" />
-                {polygonCoords.length < 3 ? (
-                  <View style={{ marginLeft: 6, backgroundColor: 'rgba(255,215,0,0.15)', borderRadius: 12, borderWidth: 1, borderColor: '#B8960C', paddingHorizontal: 8, paddingVertical: 2 }}>
-                    <Text style={{ color: '#FFD700', fontSize: 12, fontWeight: '700' }}>
-                      {polygonCoords.length} de 3 puntos mínimos
+            <View style={[
+              styles.consoleBar,
+              // Con aviso o bloqueo la barra crece para caber el mensaje.
+              areaLevel !== 'ok' && polygonCoords.length >= 3 && {
+                flexDirection: 'column', alignItems: 'stretch', maxHeight: undefined, minHeight: undefined, paddingVertical: 8,
+              },
+            ]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={styles.consoleBarLeft}>
+                  <MaterialCommunityIcons name="vector-polygon" size={16} color={polygonCoords.length >= 3 ? areaColor : '#FFD700'} />
+                  {polygonCoords.length < 3 ? (
+                    <View style={{ marginLeft: 6, backgroundColor: 'rgba(255,215,0,0.15)', borderRadius: 12, borderWidth: 1, borderColor: '#B8960C', paddingHorizontal: 8, paddingVertical: 2 }}>
+                      <Text style={{ color: '#FFD700', fontSize: 12, fontWeight: '700' }}>
+                        {polygonCoords.length} de 3 puntos mínimos
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={[styles.consoleBarText, { color: areaColor }]} numberOfLines={1}>
+                      {' '}{areaHa} ha{areaLevel !== 'ok' ? ' ⚠️' : ''} · ~{Math.round(computeAdaptiveCellSize(parseFloat(areaHa) || 0))} m/celda
                     </Text>
-                  </View>
-                ) : (
-                  <Text style={styles.consoleBarText} numberOfLines={1}>
-                    {' '}{areaHa} ha · ~{Math.round(computeAdaptiveCellSize(parseFloat(areaHa) || 0))} m/celda
-                  </Text>
-                )}
+                  )}
+                </View>
+                <View style={styles.consoleBarActions}>
+                  <TouchableOpacity style={styles.consoleBtnSecondary} onPress={addPointFromCrosshair}>
+                    <MaterialCommunityIcons name="target" size={14} color="#FFD700" />
+                    <Text style={styles.consoleBtnSecondaryText}> MARCAR</Text>
+                  </TouchableOpacity>
+                  {/* ANALIZAR reserva su lugar siempre: invisible/deshabilitado hasta el 3er punto
+                      para que el botón MARCAR no se desplace al aparecer. Si la zona supera el
+                      tope de hectáreas se pinta como bloqueado; al tocarlo explica por qué. */}
+                  <TouchableOpacity
+                    style={[
+                      styles.consoleBtnPrimary,
+                      polygonCoords.length < 3 && { opacity: 0 },
+                      areaBlocked && styles.consoleBtnBlocked,
+                    ]}
+                    onPress={() => finishDrawing()}
+                    disabled={polygonCoords.length < 3}
+                  >
+                    <MaterialCommunityIcons name="radar" size={14} color={areaBlocked ? '#FFF' : '#000'} />
+                    <Text style={[styles.consoleBtnPrimaryText, areaBlocked && { color: '#FFF' }]}> ANALIZAR</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.consoleBtnDanger} onPress={() => setPolygonCoords([])}>
+                    <Text style={styles.consoleBtnDangerText}>LIMPIAR</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              <View style={styles.consoleBarActions}>
-                <TouchableOpacity style={styles.consoleBtnSecondary} onPress={addPointFromCrosshair}>
-                  <MaterialCommunityIcons name="target" size={14} color="#FFD700" />
-                  <Text style={styles.consoleBtnSecondaryText}> MARCAR</Text>
-                </TouchableOpacity>
-                {/* ANALIZAR reserva su lugar siempre: invisible/deshabilitado hasta el 3er punto
-                    para que el botón MARCAR no se desplace al aparecer. */}
-                <TouchableOpacity
-                  style={[styles.consoleBtnPrimary, polygonCoords.length < 3 && { opacity: 0 }]}
-                  onPress={() => finishDrawing()}
-                  disabled={polygonCoords.length < 3}
-                >
-                  <MaterialCommunityIcons name="radar" size={14} color="#000" />
-                  <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.consoleBtnDanger} onPress={() => setPolygonCoords([])}>
-                  <Text style={styles.consoleBtnDangerText}>LIMPIAR</Text>
-                </TouchableOpacity>
-              </View>
+              {polygonCoords.length >= 3 && areaLevel !== 'ok' && (
+                <Text style={[styles.consoleAreaNote, { color: areaColor }]}>
+                  {areaBlocked ? areaBlockMessage(areaHaNum) : AREA_WARN_MESSAGE}
+                </Text>
+              )}
             </View>
           ) : isAnalyzing ? (
             <View style={styles.consoleBar}>
@@ -1608,21 +1654,32 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           ) : resolvedPolygonCoords.length >= 3 && !showResults ? (
             <View style={[styles.consoleBar, { flexDirection: 'column', alignItems: 'stretch', maxHeight: undefined, minHeight: undefined, paddingVertical: 8 }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                <MaterialCommunityIcons name="ruler-square" size={18} color="#FFD700" />
-                <Text style={[styles.consoleAreaMain, { marginLeft: 6 }]} numberOfLines={1}>
-                  {areaHa} ha{parseFloat(areaHa) > 50_000 ? '  ⚠️' : ''}
+                <MaterialCommunityIcons name="ruler-square" size={18} color={areaColor} />
+                <Text style={[styles.consoleAreaMain, { marginLeft: 6, color: areaColor }]} numberOfLines={1}>
+                  {areaHa} ha{areaLevel !== 'ok' ? '  ⚠️' : ''}
                 </Text>
                 <Text style={[styles.consoleAreaSub, { marginLeft: 10, flexShrink: 1 }]} numberOfLines={1}>
                   Resolución ~{Math.round(computeAdaptiveCellSize(parseFloat(areaHa) || 0))} m/celda
                 </Text>
               </View>
+              {areaLevel !== 'ok' && (
+                <Text style={[styles.consoleAreaNote, { color: areaColor, marginBottom: 8 }]}>
+                  {areaBlocked ? areaBlockMessage(areaHaNum) : AREA_WARN_MESSAGE}
+                </Text>
+              )}
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
                 <TouchableOpacity style={styles.consoleBtnDanger} onPress={clearShapes}>
                   <Text style={styles.consoleBtnDangerText}>BORRAR</Text>
                 </TouchableOpacity>
-                <Pressable style={({ pressed }) => [styles.consoleBtnPrimary, pressed && { opacity: 0.75 }]} onPress={() => analyzeZone()} disabled={isAnalyzing}>
-                  <MaterialCommunityIcons name="brain" size={14} color="#000" />
-                  <Text style={styles.consoleBtnPrimaryText}> ANALIZAR</Text>
+                {/* Sobre el tope de hectáreas el botón se pinta bloqueado; al tocarlo
+                    explica por qué y no dispara el análisis (guarda en analyzeZone). */}
+                <Pressable
+                  style={({ pressed }) => [styles.consoleBtnPrimary, areaBlocked && styles.consoleBtnBlocked, pressed && { opacity: 0.75 }]}
+                  onPress={() => analyzeZone()}
+                  disabled={isAnalyzing}
+                >
+                  <MaterialCommunityIcons name="brain" size={14} color={areaBlocked ? '#FFF' : '#000'} />
+                  <Text style={[styles.consoleBtnPrimaryText, areaBlocked && { color: '#FFF' }]}> ANALIZAR</Text>
                 </Pressable>
               </View>
             </View>
@@ -2300,6 +2357,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     marginTop: 1,
+  },
+  consoleAreaNote: {
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 15,
+    marginTop: 4,
+  },
+  consoleBtnBlocked: {
+    backgroundColor: '#8A2622',
   },
   consoleBarHint: {
     flex: 1,
