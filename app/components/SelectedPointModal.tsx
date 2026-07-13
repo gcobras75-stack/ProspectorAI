@@ -7,6 +7,7 @@ import { findNearestCell, type MiningSpectralResult } from '../core/SatelliteEng
 import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct } from '../core/spectralHelpers';
 import { METAL_COLORS } from './ScoreCard';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from '../core/indexGlossary';
+import { isSaturated, hasSaturatedIndex, SATURATION_NOTICE } from '../core/saturation';
 import { buildPointInterpretationContext } from '../core/pointInterpretation';
 import { materialLabel, materialIcon, materialAiFrame } from '../core/materialsCatalog';
 
@@ -142,24 +143,30 @@ export default function SelectedPointModal({
                   const v = Math.max(0, Math.min(1, Number(idx[k]) || 0));
                   const open = openIdx === k;
                   const { level: vLevel, color: vColor } = anomalyFromPct(Math.round(v * 100));
+                  // Índice topado en 1.00: el sensor no distingue más allá; el valor
+                  // no se presenta como "el más alto", sino como saturado.
+                  const sat = isSaturated(idx[k]);
                   return (
                     <View key={k} style={styles.idxRow}>
                       <TouchableOpacity activeOpacity={0.7} onPress={() => setOpenIdx(open ? null : k)}>
                         <View style={styles.idxLabelRow}>
                           <Text style={styles.idxLabel}>{info?.label ?? k}  {open ? '▲' : 'ⓘ'}</Text>
                           <Text style={styles.idxVal}>
-                            <Text style={{ color: vColor, fontWeight: '900' }}>{vLevel}</Text>
+                            <Text style={{ color: sat ? '#FF9500' : vColor, fontWeight: '900' }}>{sat ? 'SATURADO' : vLevel}</Text>
                             <Text style={{ color: '#888' }}>  ({v.toFixed(2)})</Text>
                           </Text>
                         </View>
                         <View style={styles.idxTrack}>
-                          <View style={[styles.idxFill, { width: `${Math.round(v * 100)}%`, backgroundColor: vColor }]} />
+                          <View style={[styles.idxFill, { width: `${Math.round(v * 100)}%`, backgroundColor: sat ? '#FF9500' : vColor }]} />
                         </View>
                       </TouchableOpacity>
                       {open && <Text style={styles.idxDetail}>{info?.detail}</Text>}
                     </View>
                   );
                 })}
+                {hasSaturatedIndex(idx, measuredKeys) && (
+                  <Text style={styles.idxSaturated}>⚠️ {SATURATION_NOTICE}</Text>
+                )}
                 <Text style={styles.idxNote}>
                   Estos minerales necesitan análisis profundo (actívalo en Ajustes):{' '}
                   {NON_S2_INDEX_KEYS.map(k => INDEX_GLOSSARY[k]?.label).join(' · ')}
@@ -332,4 +339,7 @@ const styles = StyleSheet.create({
   idxFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: '#FFD700', borderRadius: 3, opacity: 0.85 },
   idxDetail: { color: '#AAA', fontSize: 10, lineHeight: 14, marginTop: 5, fontStyle: 'italic' },
   idxNote: { color: '#666', fontSize: 9, marginTop: 6, lineHeight: 13 },
+  // Aviso de saturación. En una sesión futura este texto será el botón que
+  // dispara el análisis de contraste regional (en construcción en el servidor).
+  idxSaturated: { color: '#FF9500', fontSize: 9, fontWeight: '700', marginTop: 6, lineHeight: 13 },
 });

@@ -3,6 +3,7 @@ import { AnalysisPoint } from './GeologicalEngine';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS } from './indexGlossary';
 import { materialAiFrame, materialLabel } from './materialsCatalog';
 import { logAICall } from './costTelemetry';
+import { hasSaturatedIndex } from './saturation';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from './supabase';
@@ -182,8 +183,11 @@ export async function analyzeSpectralCandidatesBatch(
   rockType: string
 ): Promise<SpectralAnalysisResult[]> {
 
+  // `saturado` viaja explícito para que el modelo no lea un 1.00 como la anomalía
+  // más fuerte del lote: es el techo del sensor (ver app/core/saturation.ts).
   const candidatesData = candidates.map(c => ({
-    id: c.id, rank: c.rank, base_score: c.base_score, indices: c.indices
+    id: c.id, rank: c.rank, base_score: c.base_score, indices: c.indices,
+    ...(hasSaturatedIndex(c.indices) ? { saturado: true } : {}),
   }));
 
   const frame = materialAiFrame(mineral);
@@ -193,8 +197,9 @@ Material objetivo: ${materialLabel(mineral).toUpperCase()}
 MARCO GEOLÓGICO (adáptate a él, NO asumas oro/alteración hidrotermal si no corresponde): ${frame.aiFrame}
 Contexto: Terreno "${terrain}", roca dominante "${rockType}".
 
-Interpreta los valores como anomalías espectrales reales de satélites hiperespectrales.
+Interpreta los valores como anomalías espectrales reales medidas por satélite: Sentinel-2 y ASTER son MULTIESPECTRALES (pocas bandas anchas); solo EMIT es HIPERESPECTRAL (cientos de bandas contiguas). No llames hiperespectral a Sentinel-2 ni a ASTER.
 Genera análisis PROFESIONAL y ESPECÍFICO basado en los valores numéricos.
+Un índice con "saturado": true está TOPADO en 1.00: es el techo del sensor, no "la máxima anomalía". En temporada seca el suelo desnudo eleva los índices de alteración de forma generalizada, así que un valor saturado o muy alto no confirma nada por sí solo: requiere contraste regional y campo. Trátalo con esa cautela.
 
 Datos:
 ${JSON.stringify(candidatesData, null, 2)}
@@ -319,8 +324,20 @@ ProspectorAI deriva información estructural REAL de Sentinel-1 (SAR) y del DEM 
 • OBRAS MINERAS: si hay rasgos lineales o labores antiguas sugeridas, coméntalo con cautela y recomienda verificar catastro minero y reconocimiento de obras; el satélite no confirma una obra.
 • HONESTIDAD ESTRUCTURAL: si NO hay señal estructural real en el análisis (sin lineamientos / sin "Estructura ✓"), dilo explícitamente — "no hay evidencia estructural suficiente en estos datos" — y recomienda mapeo estructural de campo (rumbo/echado de vetas y fallas). NUNCA inventes vetas ni fallas sin dato real.
 
+RIGOR TERMINOLÓGICO (no lo negocies, es credibilidad científica):
+• Sentinel-2 es MULTIESPECTRAL (13 bandas anchas). ASTER es MULTIESPECTRAL (14 bandas, incluidas las térmicas). NUNCA los llames hiperespectrales.
+• Solo EMIT (NASA/ISS) es HIPERESPECTRAL: cientos de bandas contiguas y angostas. Es la única fuente de la app que merece esa palabra.
+• "Ultraespectral" no existe como categoría de estos sensores: no la uses.
+• Si el usuario usa mal el término, corrígelo con amabilidad y explica la diferencia en una línea (pocas bandas anchas vs. cientos de bandas contiguas).
+
+VALORES SATURADOS Y MUY ALTOS (honestidad obligatoria):
+• Un índice marcado como "saturado" (topado en 1.00) NO es "la máxima anomalía": es el TECHO DEL SENSOR. Más allá de ese punto el satélite ya no distingue diferencias.
+• Di siempre esta verdad incómoda: en TEMPORADA SECA el suelo desnudo —sin vegetación que lo cubra— eleva de forma generalizada los índices de alteración (óxidos de hierro, arcillas). Un valor alto puede venir del suelo seco, no de un yacimiento.
+• Por eso un valor saturado o muy alto NO confirma nada por sí solo. La confirmación viene de dos lados: (1) el ANÁLISIS DE CONTRASTE REGIONAL —comparar el punto contra el fondo estadístico de la zona para ver si de verdad destaca—, que está EN CONSTRUCCIÓN y llegará a la app próximamente; y (2) la verificación de campo con muestreo.
+• Nunca vendas un 1.00 como hallazgo. Explícalo, baja la certeza y manda al usuario a lo que sí resuelve la duda.
+
 INVENTARIO TÉCNICO ACTUAL (lo que la app YA HACE hoy — conócelo antes de proponer nada):
-• 4 fuentes satelitales: Sentinel-2 (óptico), ASTER (archivo 2000–2008), EMIT (índices hiperespectrales) y Sentinel-1 SAR + DEM Copernicus GLO30 (estructural: lineamientos/fallas).
+• 4 fuentes satelitales: Sentinel-2 (multiespectral, óptico), ASTER (multiespectral, archivo 2000–2008), EMIT (hiperespectral, índices minerales) y Sentinel-1 SAR + DEM Copernicus GLO30 (estructural: lineamientos/fallas).
 • Fusión de consenso entre fuentes (niveles OBJETIVO / TRIPLE / CONFIRMADO / INDIVIDUAL).
 • Modo campo offline: pre-descarga del mapa para trabajar sin señal + navegación GPS con flecha de orientación.
 • Muestras con código QR y snapshot espectral congelado (los valores de la muestra quedan guardados tal como estaban al registrarla).
@@ -410,6 +427,14 @@ b) HIPÓTESIS GEOLÓGICA — qué sistema/depósito podría ser, SIGUIENDO EL MA
 c) POSIBILIDADES Y LIMITACIONES — qué NO se puede saber desde satélite (leyes, profundidad, tonelaje, continuidad) y qué datos faltan en este punto.
 d) RECOMENDACIÓN DE CAMPO — qué muestrear, dónde exactamente, y qué análisis de laboratorio pedir.
 e) NIVEL DE CONFIANZA HONESTO — cualitativo (bajo / medio / alto) según el consenso de fuentes entregado, y qué haría falta para subirlo. Sin inventar cifras.
+
+VALORES SATURADOS Y MUY ALTOS (regla de honestidad, aplícala siempre que aparezcan):
+• Un índice marcado "(saturado: true)" está TOPADO en 1.00: es el techo del sensor, no "la anomalía más fuerte". El satélite ya no distingue diferencias por encima de ese valor.
+• En el apartado a) repórtalo como saturado, no como máximo. En el apartado c) LIMITACIONES explica que en TEMPORADA SECA el suelo desnudo eleva de forma generalizada los índices de alteración (óxidos, arcillas), así que el valor alto puede venir del suelo, no de mineralización.
+• En e) NIVEL DE CONFIANZA, un punto que se sostiene sobre índices saturados NO puede llevar confianza alta.
+• Di siempre de dónde vendrá la confirmación: del ANÁLISIS DE CONTRASTE REGIONAL —comparar el punto contra el fondo estadístico de la zona—, que está EN CONSTRUCCIÓN y llegará próximamente a la app, y de la verificación de campo.
+
+RIGOR TERMINOLÓGICO: Sentinel-2 y ASTER son MULTIESPECTRALES (pocas bandas anchas). Solo EMIT es HIPERESPECTRAL (cientos de bandas contiguas). Nunca los confundas.
 
 CONTEXTO CULTURAL (si el punto llega acompañado de un relato local: "luces del dinero", entierros, tesoros, corazonadas, sueños):
 • NUNCA te burles ni descalifiques la creencia; es cultura viva de las comunidades mineras y muchas veces apunta a lugares con historia minera real.

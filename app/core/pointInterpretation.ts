@@ -7,6 +7,7 @@
  * SelectedPointModal y ResultsPanel (NIVEL 1) para no duplicar la lógica.
  */
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from './indexGlossary';
+import { isSaturated, saturatedKeys } from './saturation';
 import { anomalyFromPct } from './spectralHelpers';
 import { findNearestCell, type MiningSpectralResult } from './SatelliteEngine';
 import { materialLabel, materialAiFrame } from './materialsCatalog';
@@ -32,13 +33,25 @@ export function buildPointInterpretationContext(p: any, opts: PointInterpOptions
   const total = allPoints?.length ?? 0;
   const rank = p.rank ?? '—';
 
+  // Los índices topados en 1.00 viajan marcados como saturados: el modelo NO debe
+  // leerlos como "máxima anomalía", sino como techo del sensor pendiente de
+  // contraste regional (ver app/core/saturation.ts).
   const idxLines = measuredKeys.length
     ? measuredKeys.map(k => {
         const info = INDEX_GLOSSARY[k];
         const v = Math.max(0, Math.min(1, Number(idx[k]) || 0));
-        return `  • ${info?.label ?? k}: ${v.toFixed(2)}`;
+        const sat = isSaturated(idx[k]);
+        return `  • ${info?.label ?? k}: ${v.toFixed(2)}${sat ? '  (saturado: true)' : ''}`;
       }).join('\n')
     : '  (sin índices espectrales medidos en este punto)';
+
+  const satKeys = saturatedKeys(idx, measuredKeys);
+  const satNote = satKeys.length
+    ? `\nVALORES SATURADOS (topados en 1.00): ${satKeys.map(k => INDEX_GLOSSARY[k]?.label ?? k).join(', ')}. ` +
+      `Un índice saturado NO significa "máxima anomalía": significa que el sensor no distingue más allá de ese techo. ` +
+      `En temporada seca el suelo desnudo eleva los índices de alteración de forma generalizada. ` +
+      `La confirmación requiere análisis de contraste regional (en construcción) y verificación de campo. Dilo así, con honestidad.`
+    : '';
 
   const missing = NON_S2_INDEX_KEYS.map(k => INDEX_GLOSSARY[k]?.label).filter(Boolean).join(', ');
 
@@ -75,9 +88,9 @@ Intensidad de ${frame.signalWord} (índices reales S2): ${primLevel} (${realScor
 Nivel de consenso: ${consensusText}
 Fuentes que respaldan el punto: ${sources.join(', ')}
 
-Índices espectrales MEDIDOS (Sentinel-2, valores reales 0–1):
+Índices espectrales MEDIDOS (Sentinel-2 — multiespectral, valores reales 0–1):
 ${idxLines}
-Índices SIN dato directo en este punto (requieren ASTER/EMIT, no medidos): ${missing || 'ninguno'}${vegNote}
+Índices SIN dato directo en este punto (requieren ASTER/EMIT, no medidos): ${missing || 'ninguno'}${satNote}${vegNote}
 
 Contexto del proyecto:
 Fuente satelital: ${source}${imgDate ? ` · imagen ${imgDate}` : ''}${cellM ? ` · malla ${cellM} m/celda` : ''}${total ? ` · ${total} puntos en el análisis` : ''}

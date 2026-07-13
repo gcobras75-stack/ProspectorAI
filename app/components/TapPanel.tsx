@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-nati
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { findNearestCell, type MiningSpectralResult } from '../core/SatelliteEngine';
 import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct, tapMessage } from '../core/spectralHelpers';
+import { isSaturated, hasSaturatedIndex, SATURATION_NOTICE } from '../core/saturation';
 import { Colors, Radii } from '../core/theme';
 
 interface TapPanelProps {
@@ -90,16 +91,30 @@ export default function TapPanel({ tapPoint, satelliteData, onClose }: TapPanelP
                 DETALLE MINERALÓGICO (celda {nearestCell!.lat.toFixed(4)}, {nearestCell!.lng.toFixed(4)})
               </Text>
               {[
-                { label: 'Óxido de hierro',       value: nearestCell!.iron_oxide.toFixed(3) },
-                { label: 'Arcillas de alteración', value: nearestCell!.clay.toFixed(3)       },
-                { label: 'Minerales ferrosos',    value: nearestCell!.ferroso.toFixed(3)    },
-                { label: 'Vegetación (NDVI)',     value: nearestCell!.ndvi.toFixed(3)       },
-              ].map(({ label, value }) => (
-                <View key={label} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
-                  <Text style={{ color: Colors.textDim, fontSize: 10 }}>{label}</Text>
-                  <Text style={{ color: Colors.textSub, fontSize: 10, fontFamily: 'monospace' }}>{value}</Text>
-                </View>
-              ))}
+                // El NDVI queda fuera del chequeo de saturación: es vegetación, no
+                // un índice de alteración, y su techo no significa lo mismo.
+                { label: 'Óxido de hierro',        raw: nearestCell!.iron_oxide, checkSat: true  },
+                { label: 'Arcillas de alteración', raw: nearestCell!.clay,       checkSat: true  },
+                { label: 'Minerales ferrosos',     raw: nearestCell!.ferroso,    checkSat: true  },
+                { label: 'Vegetación (NDVI)',      raw: nearestCell!.ndvi,       checkSat: false },
+              ].map(({ label, raw, checkSat }) => {
+                const sat = checkSat && isSaturated(raw);
+                return (
+                  <View key={label} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                    <Text style={{ color: Colors.textDim, fontSize: 10 }}>{label}</Text>
+                    <Text style={{ color: sat ? Colors.warning : Colors.textSub, fontSize: 10, fontFamily: 'monospace' }}>
+                      {raw.toFixed(3)}{sat ? '  SATURADO' : ''}
+                    </Text>
+                  </View>
+                );
+              })}
+              {hasSaturatedIndex(
+                { iron_oxide: nearestCell!.iron_oxide, clay: nearestCell!.clay, ferroso: nearestCell!.ferroso },
+              ) && (
+                <Text style={{ color: Colors.warning, fontSize: 9, fontWeight: '700', marginTop: 4 }}>
+                  ⚠️ {SATURATION_NOTICE}
+                </Text>
+              )}
               {nearestCell!.masked_by_vegetation && (
                 <Text style={{ color: Colors.warning, fontSize: 9, marginTop: 4 }}>
                   ⚠️ Mucha vegetación — la señal mineral puede estar atenuada

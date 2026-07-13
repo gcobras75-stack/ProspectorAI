@@ -18,6 +18,7 @@ import { generateReportSection, generateSampleResena } from './ClaudeServices';
 import type { ZoneProspectivity } from './ConsensusFusion';
 import type { MetalScore } from './GeologicalEngine';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from './indexGlossary';
+import { isSaturated, hasSaturatedIndex, SATURATION_NOTICE } from './saturation';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -281,21 +282,27 @@ function buildTopPointsRows(analysisPoints: any[], metalName: string): string {
     const evidence = p.evidence || p.evidence_string || '—';
 
     // p.indices is an object {key: value} from GEE — e.g. {iron_oxide: 0.43, clay: 0.21}
+    // Un índice topado en 1.00 se reporta como saturado: no es "el máximo", es el
+    // techo del sensor, y necesita contraste regional para valer como anomalía.
     const indices = Object.entries(p.indices || {})
       .slice(0, 3)
       .map(([name, val]) => {
         const v = typeof val === 'number' ? (val as number).toFixed(3) : '';
-        return v ? `${name}: ${v}` : name;
+        if (!v) return name;
+        return isSaturated(val) ? `${name}: ${v} (saturado)` : `${name}: ${v}`;
       })
       .filter(Boolean)
       .join(', ') || metalName;
+    const satNote = hasSaturatedIndex(p.indices)
+      ? `<br/><span style="font-size:10px;color:#B26A00">⚠️ ${SATURATION_NOTICE}</span>`
+      : '';
 
     return `<tr>
       <td><strong>${i + 1}</strong></td>
       <td style="font-family:monospace;font-size:10px">${latLngToUTM(p.lat, p.lng)}</td>
       <td>${badge}<br/><span style="font-size:11px;color:#888">${scoreStr}</span></td>
       <td style="font-size:12px">${evidence}</td>
-      <td style="font-size:12px">${indices}</td>
+      <td style="font-size:12px">${indices}${satNote}</td>
     </tr>`;
   }).join('');
 }
