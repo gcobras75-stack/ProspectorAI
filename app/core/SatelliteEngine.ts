@@ -648,6 +648,165 @@ export async function fetchEmitGrid(
 }
 
 // ---------------------------------------------------------------------------
+// THERMAL — índice de sílice (emisividad ASTER GED)
+// ---------------------------------------------------------------------------
+// Solo se dispara para la familia sílice/roca (sílice, granito, cantera, pómez):
+// es la única para la que la firma térmica del cuarzo aporta algo.
+//
+// OJO al contrato: /api/mining/thermal-grid espera `coordinates` como array PLANO
+// de pares [lng, lat] — NO `coords` con objetos {lat,lng} como /api/emit/grid.
+
+export interface ThermalCell {
+  lat: number;
+  lng: number;
+  utm_zone: string;
+  epsg: string;
+  silica_index: number;
+  carbonate_index: number | null;
+  mafic_index: number | null;
+  ndvi: number | null;
+  /** true → la vegetación tapa la roca: el valor NO es concluyente (no es "sílice baja"). */
+  masked_by_vegetation: boolean;
+}
+
+export interface ThermalResult {
+  cells: ThermalCell[];
+  cell_size_m: number;
+  /** Gate del servidor: exige cobertura ≥40% Y roca expuesta ≥40%. */
+  quality_ok: boolean;
+  rock_pct: number;
+  rock_cells: number;
+  vegetated_cells: number;
+  coverage_pct: number;
+  note: string | null;
+  data_source: 'THERMAL_REAL' | 'THERMAL_CACHED' | 'NO_DATA_OFFLINE';
+  source_label: string;
+}
+
+function computeThermalCacheKey(coords: Array<{ lat: number; lng: number }>): string {
+  if (!coords || coords.length === 0) return 'invalid';
+  let sumLat = 0, sumLng = 0;
+  for (const c of coords) { sumLat += c.lat; sumLng += c.lng; }
+  const centLat = (sumLat / coords.length).toFixed(2);
+  const centLng = (sumLng / coords.length).toFixed(2);
+  const R = 6378137;
+  const avgLat = (sumLat / coords.length) * Math.PI / 180;
+  const pts = coords.map(c => ({
+    x: c.lng * Math.PI / 180 * R * Math.cos(avgLat),
+    y: c.lat * Math.PI / 180 * R,
+  }));
+  let area = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+    area += (p1.x * p2.y - p2.x * p1.y);
+  }
+  const areaHa = Math.round(Math.abs(area / 2) / 10000 / 10) * 10;
+  return `thermal_silica_${centLat}_${centLng}_${areaHa}ha`;
+}
+
+export async function fetchThermalGrid(
+  coords: Array<{ lat: number; lng: number }>,
+  options?: { cell_size_m?: number }
+): Promise<ThermalResult> {
+  const cacheKey  = computeThermalCacheKey(coords);
+  const serverUrl = getServerUrl();
+
+  // El servidor espera pares planos [lng, lat].
+  const coordinates = coords.map(c => [c.lng, c.lat]);
+  const body: Record<string, unknown> = { coordinates };
+  if (options?.cell_size_m) body.cell_size_m = options.cell_size_m;
+
+  // ── 1. Servidor ───────────────────────────────────────────────────────────
+  try {
+    const response = await fetchWithTimeout(
+      `${serverUrl}/api/mining/thermal-grid`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      90000
+    );
+    if (!response.ok) {
+      const errText = await response.text().catch(() => response.statusText);
+      throw new Error(`Server ${response.status}: ${errText}`);
+    }
+    const raw = await response.json();
+    if (raw.error && (!raw.cells || raw.cells.length === 0)) throw new Error(raw.error);
+
+    const cells: ThermalCell[] = raw.cells || [];
+
+    saveSpectralCache(cacheKey, {
+      cells_json:       JSON.stringify(cells),
+      // El gate viaja en la caché: sin él, una zona vegetada leída de caché
+      // volvería a parecer medición válida.
+      acquisition_date: JSON.stringify({
+        quality_ok:      !!raw.quality_ok,
+        rock_pct:        raw.rock_pct ?? 0,
+        rock_cells:      raw.rock_cells ?? 0,
+        vegetated_cells: raw.vegetated_cells ?? 0,
+        coverage_pct:    raw.coverage_pct ?? 0,
+        note:            raw.note ?? null,
+      }),
+      cloud_cover:      0,
+      coverage_pct:     raw.coverage_pct ?? 0,
+      images_used:      0,
+      cell_size_m:      raw.cell_size_m || options?.cell_size_m || 500,
+    }).catch(e => console.warn('[SatelliteEngine] thermal cache write failed:', e.message));
+
+    return {
+      cells,
+      cell_size_m:     raw.cell_size_m || options?.cell_size_m || 500,
+      quality_ok:      !!raw.quality_ok,
+      rock_pct:        raw.rock_pct ?? 0,
+      rock_cells:      raw.rock_cells ?? 0,
+      vegetated_cells: raw.vegetated_cells ?? 0,
+      coverage_pct:    raw.coverage_pct ?? 0,
+      note:            raw.note ?? null,
+      data_source:     'THERMAL_REAL',
+      source_label:    '🌡️ Sílice térmico · ASTER · tiempo real',
+    };
+  } catch (networkErr: any) {
+    console.warn('[SatelliteEngine] thermal server unreachable:', networkErr.message);
+  }
+
+  // ── 2. Caché SQLite ───────────────────────────────────────────────────────
+  try {
+    const cached = await loadSpectralCache(cacheKey);
+    if (cached) {
+      const cells: ThermalCell[] = JSON.parse(cached.cells_json);
+      let gate: any = {};
+      try { gate = JSON.parse(cached.acquisition_date || '{}'); } catch { /* caché antigua sin gate */ }
+      return {
+        cells,
+        cell_size_m:     cached.cell_size_m,
+        quality_ok:      !!gate.quality_ok,
+        rock_pct:        gate.rock_pct ?? 0,
+        rock_cells:      gate.rock_cells ?? 0,
+        vegetated_cells: gate.vegetated_cells ?? 0,
+        coverage_pct:    gate.coverage_pct ?? cached.coverage_pct ?? 0,
+        note:            gate.note ?? null,
+        data_source:     'THERMAL_CACHED',
+        source_label:    `📦 Sílice térmico · ASTER · caché (${cached.age_days}d)`,
+      };
+    }
+  } catch (cacheErr: any) {
+    console.warn('[SatelliteEngine] thermal cache read failed:', cacheErr.message);
+  }
+
+  // ── 3. Sin dato ───────────────────────────────────────────────────────────
+  // quality_ok=false: sin medición no se promete nada.
+  return {
+    cells:           [],
+    cell_size_m:     options?.cell_size_m || 500,
+    quality_ok:      false,
+    rock_pct:        0,
+    rock_cells:      0,
+    vegetated_cells: 0,
+    coverage_pct:    0,
+    note:            null,
+    data_source:     'NO_DATA_OFFLINE',
+    source_label:    '📵 Sílice térmico no disponible · sin conexión',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Utility: adaptive cell size based on polygon area
 // ---------------------------------------------------------------------------
 // Returns the appropriate spectral cell size in metres for a given area,

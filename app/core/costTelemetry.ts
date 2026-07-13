@@ -136,7 +136,9 @@ export function logAICall(
 export function logAnalisisZona(params: {
   analisisId: string;
   hectareas?: number;
-  fuentes: { s2?: boolean; emit?: boolean; aster?: boolean; s1?: boolean; dem?: boolean };
+  // `thermal` = índice de sílice térmico (ASTER GED). Se dispara solo para la familia
+  // sílice/roca, así que su frecuencia dice cuánto se usa esa familia de materiales.
+  fuentes: { s2?: boolean; emit?: boolean; aster?: boolean; s1?: boolean; dem?: boolean; thermal?: boolean };
   material?: string;
   nInterpretaciones?: number;
   nFotos?: number;

@@ -3,7 +3,7 @@ import { View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet } from 'rea
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import MapView from 'react-native-maps';
 import { openExternalNavigation } from '../core/externalNav';
-import { findNearestCell, type MiningSpectralResult } from '../core/SatelliteEngine';
+import { findNearestCell, type MiningSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
 import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct } from '../core/spectralHelpers';
 import { METAL_COLORS } from './ScoreCard';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from '../core/indexGlossary';
@@ -18,13 +18,15 @@ interface SelectedPointModalProps {
   terrainType: string;
   mapRef: React.RefObject<MapView | null>;
   allPoints?: any[];
+  /** Índice de sílice térmico. Solo llega para sílice/granito/cantera/pómez. */
+  thermalData?: ThermalResult | null;
   onClose: () => void;
   onSaveSample: () => void;
   onInterpret: (context: string) => void;
 }
 
 export default function SelectedPointModal({
-  selectedPoint, satelliteData, selectedMineral, terrainType, mapRef, allPoints, onClose, onSaveSample, onInterpret,
+  selectedPoint, satelliteData, selectedMineral, terrainType, mapRef, allPoints, thermalData, onClose, onSaveSample, onInterpret,
 }: SelectedPointModalProps) {
   const [openIdx, setOpenIdx] = useState<string | null>(null);
 
@@ -44,7 +46,7 @@ export default function SelectedPointModal({
   // carries ONLY real, measured values so the AI cannot hallucinate (see
   // INTERPRETACION_SYSTEM in ClaudeServices). Missing data is stated as missing.
   const buildInterpretationContext = (): string =>
-    buildPointInterpretationContext(selectedPoint, { selectedMineral, terrainType, allPoints, satelliteData });
+    buildPointInterpretationContext(selectedPoint, { selectedMineral, terrainType, allPoints, satelliteData, thermalData });
 
   return (
     <Modal visible={!!selectedPoint} transparent animationType="slide">

@@ -4,7 +4,7 @@ import MapView from 'react-native-maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ScoreCard, { METAL_COLORS } from './ScoreCard';
 import { MetalScore } from '../core/GeologicalEngine';
-import { computeAdaptiveCellSize, type MiningSpectralResult } from '../core/SatelliteEngine';
+import { computeAdaptiveCellSize, type MiningSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
 import { type ZoneProspectivity } from '../core/ConsensusFusion';
 import { type KnownOccurrencesResult } from '../core/mrdsService';
 import { Colors, Typography, Spacing, Radii, anomalyFromPct } from '../core/theme';
@@ -27,6 +27,8 @@ interface ResultsPanelProps {
   selectedMineral: string;
   terrainType: string;
   areaHa: string;
+  /** Índice de sílice térmico. Solo llega para sílice/granito/cantera/pómez. */
+  thermalData?: ThermalResult | null;
   mapRef: React.RefObject<MapView | null>;
   onClose: () => void;
   onNavigateTo?: (lat: number, lng: number) => void;
@@ -36,7 +38,7 @@ interface ResultsPanelProps {
 }
 
 export default function ResultsPanel({
-  satelliteData, metalScores, analysisPoints, zoneProspectivity, knownOccurrences, selectedMineral, terrainType, areaHa, mapRef, onClose, onNavigateTo, onInterpret, collapsed, onToggleCollapsed,
+  satelliteData, metalScores, analysisPoints, zoneProspectivity, knownOccurrences, selectedMineral, terrainType, areaHa, thermalData, mapRef, onClose, onNavigateTo, onInterpret, collapsed, onToggleCollapsed,
 }: ResultsPanelProps) {
   const [legendOpen, setLegendOpen] = useState(false);
   const [techOpen, setTechOpen] = useState(false);
@@ -101,7 +103,7 @@ export default function ResultsPanel({
     onNavigateTo?.(p.lat, p.lng);
   };
   const interpretPoint = (p: any) => {
-    onInterpret?.(buildPointInterpretationContext(p, { selectedMineral, terrainType, allPoints: analysisPoints, satelliteData }));
+    onInterpret?.(buildPointInterpretationContext(p, { selectedMineral, terrainType, allPoints: analysisPoints, satelliteData, thermalData }));
   };
   const verdictIcon = strongCount >= 1 ? '🎯' : vegPct > 50 ? '🌿' : '📊';
 
@@ -360,6 +362,11 @@ export default function ResultsPanel({
           const conf = resolveDisplayConfidence(selectedMineral, {
             requiresDeep: selMs?.requires_deep,
             syntheticWeightPct: selMs?.synthetic_weight_pct,
+            // Sube a "Media" solo con quality_ok (cobertura + roca expuesta). Si el
+            // térmico corrió y no es concluyente, la nota lo dice sin adornos.
+            thermal: thermalData
+              ? { quality_ok: thermalData.quality_ok, rock_pct: thermalData.rock_pct }
+              : null,
           });
           return (
             <View style={styles.confRow}>

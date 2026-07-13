@@ -44,12 +44,29 @@ export interface MaterialEntry {
   category: MaterialCategory; // agrupación de UI
   family: MaterialFamily;     // receta de detección
   confidenceBase: MaterialConfidence;
-  /** Detección real llega con recetas de Fase 2 (índice térmico de sílice).
-   *  Muestra "(mejora en camino)" junto a la etiqueta. */
-  pendingImprovement?: boolean;
   /** Pesos sobre los índices espectrales reales (claves de SpectralIndices). */
   weights: Record<string, number>;
 }
+
+/**
+ * Materiales cuya detección mejora con el índice de sílice térmico
+ * (POST /api/mining/thermal-grid, emisividad ASTER GED).
+ *
+ * Solo estos disparan la ruta y solo estos pueden SUBIR de "De contexto" a "Media".
+ * La condición es `quality_ok` del servidor: exige cobertura Y roca expuesta. Sobre
+ * vegetación la emisividad es plana y tapa la firma del cuarzo, así que ahí no se
+ * sube nada — se mide vegetación, no roca.
+ */
+export const THERMAL_MATERIALS = ['silice', 'granito', 'cantera', 'pomez'] as const;
+
+export function isThermalMaterial(id: string | null | undefined): boolean {
+  const norm = normalizeMaterialId(id);
+  return (THERMAL_MATERIALS as readonly string[]).includes(norm);
+}
+
+/** Mensaje honesto cuando el térmico corrió pero no es concluyente. */
+export const THERMAL_VEG_NOTE =
+  'La vegetación tapa la firma térmica del cuarzo — el índice de sílice no es concluyente aquí.';
 
 // ─── Metadata de familias (marco geológico para la IA) ───────────────────────
 
@@ -100,8 +117,9 @@ export const FAMILIES: Record<MaterialFamily, FamilyMeta> = {
     signalWord: 'firma de sílice/arcilla',
     aiFrame:
       'materias primas industriales: sílice (cuarzo, arena silícea), caolín y arcillas. ' +
-      'Interprétalas como recurso industrial no metálico. La detección de sílice pura ' +
-      'requiere banda térmica (mejora en camino), así que sé cauto con el sílice.',
+      'Interprétalas como recurso industrial no metálico. La sílice pura se detecta por su ' +
+      'firma térmica (reststrahlen del cuarzo, 8-9.5 µm): si el análisis trae índice de ' +
+      'sílice medido, úsalo; si viene marcado como no concluyente por vegetación, dilo.',
   },
   volcanicos: {
     label: 'Volcánicos / contexto',
@@ -156,7 +174,7 @@ export const MATERIALS_CATALOG: MaterialEntry[] = [
     weights: { carbonate: 0.40, clay: 0.30, iron_oxide: 0.30 } },
   { id: 'yeso',          label: 'Yeso',           icon: '🤍', category: 'industriales', family: 'sulfatos',             confidenceBase: 'media',
     weights: { clay: 0.40, argillic: 0.35, carbonate: 0.25 } },
-  { id: 'silice',        label: 'Sílice',         icon: '🪟', category: 'industriales', family: 'silice_arcillas',      confidenceBase: 'contexto', pendingImprovement: true,
+  { id: 'silice',        label: 'Sílice',         icon: '🪟', category: 'industriales', family: 'silice_arcillas',      confidenceBase: 'contexto',
     weights: { silica: 1.0 } },
   { id: 'arcillas_caolin', label: 'Arcillas / Caolín', icon: '🏺', category: 'industriales', family: 'silice_arcillas', confidenceBase: 'alta',
     weights: { clay: 0.45, argillic: 0.40, iron_oxide: 0.15 } },
@@ -166,9 +184,9 @@ export const MATERIALS_CATALOG: MaterialEntry[] = [
     weights: { carbonate: 1.0 } },
   { id: 'onix',          label: 'Ónix',           icon: '🖤', category: 'ornamental',   family: 'carbonatos',          confidenceBase: 'contexto',
     weights: { carbonate: 1.0 } },
-  { id: 'cantera',       label: 'Cantera',        icon: '🧱', category: 'ornamental',   family: 'volcanicos',          confidenceBase: 'contexto', pendingImprovement: true,
+  { id: 'cantera',       label: 'Cantera',        icon: '🧱', category: 'ornamental',   family: 'volcanicos',          confidenceBase: 'contexto',
     weights: { silica: 0.50, iron_oxide: 0.25, clay: 0.25 } },
-  { id: 'granito',       label: 'Granito',        icon: '🪨', category: 'ornamental',   family: 'silice_arcillas',     confidenceBase: 'contexto', pendingImprovement: true,
+  { id: 'granito',       label: 'Granito',        icon: '🪨', category: 'ornamental',   family: 'silice_arcillas',     confidenceBase: 'contexto',
     weights: { silica: 0.60, iron_oxide: 0.20, clay: 0.20 } },
   { id: 'laja',          label: 'Laja',           icon: '🪧', category: 'ornamental',   family: 'volcanicos',          confidenceBase: 'contexto',
     weights: { iron_oxide: 0.34, clay: 0.33, ferric_iron: 0.33 } },
@@ -239,13 +257,19 @@ export const CONFIDENCE_META: Record<MaterialConfidence, { label: string; color:
   contexto: { label: 'De contexto', color: '#78909C' },
 };
 
-/** Etiqueta para el SELECTOR (confianza intrínseca + "mejora en camino"). */
+/**
+ * Etiqueta para el SELECTOR (confianza intrínseca, antes de medir nada).
+ *
+ * Ya no dice "(mejora en camino)": la mejora llegó (índice de sílice térmico). Para
+ * los materiales térmicos se anuncia la condición REAL bajo la que suben, en vez de
+ * prometer una mejora futura indefinida.
+ */
 export function selectorConfidence(entry: MaterialEntry): { label: string; color: string } {
   const base = CONFIDENCE_META[entry.confidenceBase];
-  return {
-    color: base.color,
-    label: entry.pendingImprovement ? `${base.label} (mejora en camino)` : base.label,
-  };
+  if (entry.confidenceBase === 'contexto' && isThermalMaterial(entry.id)) {
+    return { color: base.color, label: `${base.label} · sube a Media con roca expuesta` };
+  }
+  return { color: base.color, label: base.label };
 }
 
 /**
@@ -255,7 +279,12 @@ export function selectorConfidence(entry: MaterialEntry): { label: string; color
  */
 export function resolveDisplayConfidence(
   id: string | null | undefined,
-  opts?: { requiresDeep?: boolean; syntheticWeightPct?: number },
+  opts?: {
+    requiresDeep?: boolean;
+    syntheticWeightPct?: number;
+    /** Gate del índice de sílice térmico, cuando la ruta se disparó para este material. */
+    thermal?: { quality_ok: boolean; rock_pct?: number } | null;
+  },
 ): { level: MaterialConfidence; label: string; color: string; note?: string } {
   const entry = getMaterial(id);
   let level: MaterialConfidence = entry?.confidenceBase ?? 'contexto';
@@ -271,6 +300,26 @@ export function resolveDisplayConfidence(
   } else if (synthPct > 0 && level === 'alta') {
     level = 'media';
     note = `${synthPct}% del modelo sin proxy óptico directo`;
+  }
+
+  // ── Índice de sílice térmico: la ÚNICA vía por la que un material sube de nivel.
+  // Sigue siendo min(): la confianza no supera a la evidencia que la sostiene. Con
+  // quality_ok el térmico ES evidencia medida sobre roca, así que sílice/granito/
+  // cantera/pómez pasan de "De contexto" a "Media". Sin quality_ok (típicamente por
+  // vegetación) no hay evidencia, y se quedan donde estaban con el motivo honesto.
+  if (opts?.thermal && isThermalMaterial(id)) {
+    if (opts.thermal.quality_ok) {
+      if (level === 'contexto') {
+        level = 'media';
+        const pct = opts.thermal.rock_pct;
+        note = pct != null
+          ? `índice de sílice medido sobre roca expuesta (${pct}% de la zona)`
+          : 'índice de sílice medido sobre roca expuesta';
+      }
+    } else {
+      level = 'contexto';
+      note = THERMAL_VEG_NOTE;
+    }
   }
 
   const meta = CONFIDENCE_META[level];

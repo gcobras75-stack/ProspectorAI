@@ -9,18 +9,20 @@
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from './indexGlossary';
 import { isSaturated, saturatedKeys } from './saturation';
 import { anomalyFromPct } from './spectralHelpers';
-import { findNearestCell, type MiningSpectralResult } from './SatelliteEngine';
-import { materialLabel, materialAiFrame } from './materialsCatalog';
+import { findNearestCell, type MiningSpectralResult, type ThermalResult } from './SatelliteEngine';
+import { materialLabel, materialAiFrame, isThermalMaterial, THERMAL_VEG_NOTE } from './materialsCatalog';
 
 export interface PointInterpOptions {
   selectedMineral: string;
   terrainType: string;
   allPoints?: any[];
   satelliteData: MiningSpectralResult | null;
+  /** Índice de sílice térmico. Solo existe para sílice/granito/cantera/pómez. */
+  thermalData?: ThermalResult | null;
 }
 
 export function buildPointInterpretationContext(p: any, opts: PointInterpOptions): string {
-  const { selectedMineral, terrainType, allPoints, satelliteData } = opts;
+  const { selectedMineral, terrainType, allPoints, satelliteData, thermalData } = opts;
 
   const realScore = Math.round(p.base_score || p.score || 0);
   const idx = p.indices ?? null;
@@ -79,6 +81,39 @@ export function buildPointInterpretationContext(p: any, opts: PointInterpOptions
 
   const frame = materialAiFrame(selectedMineral);
 
+  // ── Índice de sílice térmico (emisividad ASTER GED) ──────────────────────────
+  // Solo se inyecta si la ruta corrió para este material. Si el gate del servidor
+  // dice que no es concluyente (vegetación), se le ORDENA al modelo decirlo: no
+  // puede leer un índice tapado por árboles como si midiera roca.
+  let thermalBlock = '';
+  if (isThermalMaterial(selectedMineral) && thermalData && thermalData.cells.length > 0) {
+    const nearest = findNearestCell(p.lat, p.lng, thermalData.cells as any) as any;
+    if (nearest && nearest.silica_index != null) {
+      const fmt = (v: any) => (typeof v === 'number' ? v.toFixed(4) : 'sin dato');
+      const lines = [
+        `  • Índice de sílice (cuarzo, reststrahlen 8-9.5 µm): ${fmt(nearest.silica_index)}`,
+        `  • Índice de carbonato (descarta caliza/mármol): ${fmt(nearest.carbonate_index)}`,
+        `  • Índice máfico (roca pobre en sílice): ${fmt(nearest.mafic_index)}`,
+      ];
+      const body = lines.join('\n');
+      if (thermalData.quality_ok && nearest.masked_by_vegetation !== true) {
+        thermalBlock =
+          `\n\nÍNDICE DE SÍLICE TÉRMICO (ASTER, MEDIDO sobre roca expuesta — ` +
+          `${thermalData.rock_pct}% de la zona es roca):\n${body}\n` +
+          `Referencia medida: arena de cuarzo casi puro ≈ 1.042 · basalto (máfico) ≈ 0.997. ` +
+          `Úsalo como evidencia REAL para ${materialLabel(selectedMineral)}. ` +
+          `Un carbonato alto con sílice baja apunta a caliza/mármol, no a cuarzo.`;
+      } else {
+        thermalBlock =
+          `\n\nÍNDICE DE SÍLICE TÉRMICO (ASTER — NO CONCLUYENTE):\n${body}\n` +
+          `Solo ${thermalData.rock_pct}% de la zona es roca expuesta. ${THERMAL_VEG_NOTE} ` +
+          `OBLIGATORIO: NO uses estos números como evidencia de sílice y DI EXPLÍCITAMENTE que ` +
+          `la vegetación impide medir la firma térmica del cuarzo aquí. ` +
+          `Un valor bajo NO significa "poca sílice": significa "no medido".`;
+      }
+    }
+  }
+
   return `[INTERPRETACIÓN DE PUNTO — datos reales del análisis]
 Punto #${rank} de ${total} en el ranking del análisis.
 Coordenadas: Lat ${p.lat.toFixed(6)}, Lng ${p.lng.toFixed(6)}
@@ -86,7 +121,7 @@ Terreno: ${terrainType}  |  Material objetivo: ${materialLabel(selectedMineral)}
 MARCO GEOLÓGICO (interpreta según esto, NO asumas alteración de oro si no corresponde): ${frame.aiFrame}
 Intensidad de ${frame.signalWord} (índices reales S2): ${primLevel} (${realScore}%)
 Nivel de consenso: ${consensusText}
-Fuentes que respaldan el punto: ${sources.join(', ')}
+Fuentes que respaldan el punto: ${sources.join(', ')}${thermalBlock}
 
 Índices espectrales MEDIDOS (Sentinel-2 — multiespectral, valores reales 0–1):
 ${idxLines}

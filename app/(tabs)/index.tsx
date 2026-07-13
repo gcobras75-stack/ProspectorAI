@@ -12,7 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, enrichPointsWithDeepData, MetalScore } from '../core/GeologicalEngine';
 import { Colors, Typography, Spacing, Radii, Touch } from '../core/theme';
-import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult } from '../core/SatelliteEngine';
+import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, fetchThermalGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
 import { getAreaLevel, AREA_LEVEL_COLOR, areaBlockMessage, AREA_WARN_MESSAGE } from '../core/areaLimits';
 import { fuseAnalysisPoints, computeZoneProspectivity, type ZoneProspectivity } from '../core/ConsensusFusion';
 import FieldModeButton, { FieldModeButtonHandle } from '../components/FieldModeButton';
@@ -20,7 +20,7 @@ import HistoryModal from '../components/HistoryModal';
 import ConfigModal from '../components/ConfigModal';
 import MoreSheet from '../components/MoreSheet';
 import { TAP_METAL_META } from '../core/spectralHelpers';
-import { materialIcon, materialLabel, normalizeMaterialId } from '../core/materialsCatalog';
+import { materialIcon, materialLabel, normalizeMaterialId, isThermalMaterial } from '../core/materialsCatalog';
 import { newAnalisisId, setCurrentAnalisis, logAnalisisZona } from '../core/costTelemetry';
 import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
@@ -209,6 +209,7 @@ export default function ProspectorDashboard() {
   const [rectPointB, setRectPointB] = useState<Coordinate | null>(null);
 
   const [analysisPoints, setAnalysisPoints] = useState<any[]>([]);
+  const [thermalData, setThermalData] = useState<ThermalResult | null>(null);
   const [zoneProspectivity, setZoneProspectivity] = useState<ZoneProspectivity | null>(null);
   const [knownOccurrences, setKnownOccurrences] = useState<KnownOccurrencesResult | null>(null);
   // #7 — Ingresar coordenada de partida (decimal / GMS / UTM)
@@ -970,7 +971,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
       if (data.success && data.top_points) {
         let finalPoints = data.top_points;
         let wasAnalyzed = false;
-        let usedAster = false, usedEmit = false, usedStruct = false;   // fuentes disparadas (telemetría)
+        let usedAster = false, usedEmit = false, usedStruct = false, usedThermal = false;   // fuentes disparadas (telemetría)
         
         if (useAI && isConnected) {
            try {
@@ -1072,6 +1073,34 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           }
         }
 
+        // ── Índice de sílice térmico (ASTER GED) ────────────────────────────
+        // BAJO DEMANDA, por familia: solo para sílice/granito/cantera/pómez, que son
+        // los únicos a los que la firma térmica del cuarzo aporta algo.
+        //
+        // Va FUERA de `deepAnalysis` a propósito: para estos materiales el térmico no
+        // es un extra opcional, es LA evidencia. Esconderlo tras un toggle significaría
+        // que su confianza nunca sube para quien no lo active.
+        let thermalResult: ThermalResult | null = null;
+        if (isThermalMaterial(selectedMineral) && isConnected) {
+          try {
+            setAnalysisStep('Consultando índice de sílice térmico...');
+            const thermalCoords = coordsToUse.map(c => ({ lat: c.latitude, lng: c.longitude }));
+            const thermal = await fetchThermalGrid(thermalCoords, { cell_size_m: cellSizeM });
+            setThermalData(thermal);
+            if (thermal.data_source !== 'NO_DATA_OFFLINE') {
+              thermalResult = thermal;
+              usedThermal = true;
+            }
+          } catch (thermalErr: any) {
+            console.warn('[analyzeZone] thermal failed:', thermalErr.message);
+            setThermalData(null);
+          }
+        } else {
+          // Material no térmico (o sin red): no se arrastra el resultado de un análisis
+          // anterior, que hablaría de otra zona u otro material.
+          setThermalData(null);
+        }
+
         // Índice de Favorabilidad Exploratoria (SEÑAL + CONFIANZA) de la zona
         const zp = computeZoneProspectivity(finalPoints, satData, { metal: selectedMineral });
         setZoneProspectivity(zp);
@@ -1115,7 +1144,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         // Telemetría de costos: contexto del análisis (hectáreas + fuentes disparadas).
         logAnalisisZona({
           analisisId, hectareas: data.area_ha, material: selectedMineral,
-          fuentes: { s2: true, aster: usedAster, emit: usedEmit, s1: usedStruct, dem: usedStruct },
+          fuentes: { s2: true, aster: usedAster, emit: usedEmit, s1: usedStruct, dem: usedStruct, thermal: usedThermal },
         });
 
         setAnalysisPoints(finalPoints);
@@ -1719,6 +1748,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
 
       {showResults && (
         <ResultsPanel
+          thermalData={thermalData}
           satelliteData={satelliteData}
           metalScores={metalScores}
           analysisPoints={analysisPoints}
@@ -1754,6 +1784,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
       <SelectedPointModal
         selectedPoint={selectedPoint}
         satelliteData={satelliteData}
+        thermalData={thermalData}
         selectedMineral={selectedMineral}
         terrainType={terrainType}
         mapRef={mapRef}
