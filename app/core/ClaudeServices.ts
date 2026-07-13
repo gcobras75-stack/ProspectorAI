@@ -191,6 +191,10 @@ export async function analyzeSpectralCandidatesBatch(
   }));
 
   const frame = materialAiFrame(mineral);
+  // SIN prompt caching: aquí no hay system fijo — la persona vive dentro del propio
+  // prompt de usuario y a partir de la segunda línea todo es dinámico (material,
+  // terreno, roca, los puntos). La caché es un match de PREFIJO: sin prefijo estable
+  // y largo no hay nada que cachear.
   const prompt = `Eres un Geólogo Principal experto en exploración de recursos minerales.
 Analiza índices espectrales de ${candidates.length} puntos candidatos.
 Material objetivo: ${materialLabel(mineral).toUpperCase()}
@@ -384,6 +388,34 @@ Ing. Villegas: "Esa historia es un dato que vale, y hay que tratarla como tal: l
 Usuario: "Ing., ¿usted cree en las corazonadas? Yo sueño con un cerro y siento que ahí hay veta."
 Ing. Villegas: "Le respondo con seriedad: no me burlo de las corazonadas, y le voy a decir por qué. Muchas veces esa 'corazonada' viene de algo que sus ojos o los de su familia ya registraron — un afloramiento con color raro, un terrero antiguo, una labor de los viejos, un nombre de lugar que quedó en la memoria. Eso es información, aunque no venga en forma de número. Lo que no puedo hacer es tomarla como prueba: el sueño no dice si hay veta. Lo que sí podemos hacer es CONVERTIRLA EN DATO. Trace el polígono sobre ese cerro y corremos el análisis espectral; si el satélite ve alteración compatible con un sistema de vetas —y sobre todo si coincide con un lineamiento estructural— entonces su corazonada acaba de ganarse un lugar en el itinerario de campo. Y si no ve nada, también ganamos: nos ahorramos la caminata. ACCIÓN: trace ese cerro, elija el metal objetivo en Ajustes y presione ANALIZAR; los resultados los revisamos juntos."`;
 
+// ─── PROMPT CACHING (chat del Ing. Villegas) ────────────────────────────────
+// El system del chat ronda los ~3.600 tokens y se reenvía IDÉNTICO en cada turno.
+// Marcándolo con cache_control, Anthropic lo cachea: la primera llamada paga el
+// premium de escritura y las siguientes leen a ~0.1× (≈90% menos en esa parte).
+//
+// Requisitos que ya cumplimos (si se rompe alguno, la caché deja de pegar EN
+// SILENCIO — no hay error, solo cache_read_input_tokens = 0):
+//   • Mínimo cacheable en Sonnet 4.6: 2.048 tokens. GEOLOGO_SYSTEM lo supera
+//     holgadamente desde que se le añadieron las secciones cultural y de
+//     terminología/saturación. (En Haiku el mínimo sería 4.096 — este chat usa
+//     MODEL_SMART, así que no aplica.)
+//   • El prefijo debe ser BYTE A BYTE igual entre llamadas: GEOLOGO_SYSTEM es
+//     una constante, sin fechas, IDs ni interpolaciones. NO metas nada dinámico
+//     aquí — el contexto del análisis va en el primer mensaje de usuario.
+//
+// TTL 1 h (no los 5 min por defecto): en campo el usuario hace una pregunta, se
+// va a ver el mapa y vuelve; con 5 min la caché expiraría entre preguntas y cada
+// turno pagaría de nuevo la escritura.
+//
+// El caching NO cambia el contenido de la respuesta, solo el costo.
+const GEOLOGO_SYSTEM_BLOCKS = [
+  {
+    type: 'text' as const,
+    text: GEOLOGO_SYSTEM,
+    cache_control: { type: 'ephemeral' as const, ttl: '1h' as const },
+  },
+];
+
 // Multimodal message content type — string for text-only, array for image+text
 type MessageContent = string | Array<{ type: 'image'; source: { type: 'base64'; media_type: string; data: string } } | { type: 'text'; text: string }>;
 
@@ -394,7 +426,7 @@ export async function askClaudeGeologoExperto(
   const payload = {
     model: MODEL_SMART,
     max_tokens: 1500,
-    system: GEOLOGO_SYSTEM,
+    system: GEOLOGO_SYSTEM_BLOCKS,
     messages: limitedHistory,
   };
   const response = await callAIMessages(payload);
@@ -405,13 +437,19 @@ export async function askClaudeGeologoExperto(
     throw new Error(`Geólogo IA (${response.status}): ${msg.substring(0, 100)}`);
   }
   const data = await response.json();
-  logAICall('chat', MODEL_SMART, data?.usage);
+  logAICall('chat', MODEL_SMART, data?.usage, { cacheTtl: '1h' });
   return data.content?.[0]?.text || '';
 }
 
 // ═══════════════════════════════════════════════════════
 // 4b. INTERPRETACIÓN EXPERTA DE UN PUNTO (anti-alucinación estricta)
 // ═══════════════════════════════════════════════════════
+// SIN prompt caching, a propósito: este system mide ~1.200 tokens y el mínimo
+// cacheable en Sonnet 4.6 es 2.048. Por debajo del mínimo, Anthropic ignora
+// cache_control EN SILENCIO (no error, solo cache_read_input_tokens = 0), así que
+// marcarlo daría una falsa sensación de ahorro. No lo infles solo para cachearlo:
+// si algún día crece de forma natural por encima de 2.048, entonces sí conviene
+// añadirle cache_control (mismo patrón que GEOLOGO_SYSTEM_BLOCKS).
 const INTERPRETACION_SYSTEM = `Eres "Ing. Villegas", el asistente geológico de IA de ProspectorAI. Produces una INTERPRETACIÓN EXPERTA PROFUNDA de UN punto de anomalía espectral, a partir EXCLUSIVAMENTE de los datos que se te entregan en el mensaje. Eres una inteligencia artificial, no una persona real.
 
 REGLAS ANTI-ALUCINACIÓN (CRÍTICAS E INVIOLABLES):
