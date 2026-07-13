@@ -211,6 +211,16 @@ export interface ZoneProspectivityOpts {
   metal?: string;
   /** Señales de zonas previas del usuario, para el rango relativo ordinal. */
   previousSignals?: number[];
+  /**
+   * Gate del índice de sílice térmico, cuando corrió para este material.
+   *
+   * SOLO afecta a la REDACCIÓN de las razones, nunca al cálculo: el térmico es
+   * evidencia paralela que mueve la CONFIANZA, no el score. Sin esto, el desglose
+   * decía "el cálculo de sílice usa proxies sintéticos (100%)" a secas incluso
+   * cuando había una medición térmica real detrás — contradiciendo al badge que sí
+   * la reconocía y subía a "Media".
+   */
+  thermal?: { quality_ok: boolean; rock_pct?: number } | null;
 }
 
 export function computeZoneProspectivity(
@@ -331,7 +341,18 @@ export function computeZoneProspectivity(
 
   if (vegetation_pct > 20)        reasons_minus.push(`Parte cubierta de vegetación (${vegetation_pct}%)`);
   if (simulated_pct > 0)          reasons_minus.push(`${simulated_pct}% sin dato satelital directo (estimado)`);
-  if (synthetic_weight_pct > 0)   reasons_minus.push(`Parte del cálculo de ${metal} usa proxies sintéticos (${synthetic_weight_pct}%)`);
+  // El proxy ÓPTICO de sílice sigue siendo sintético (eso no cambia, y el score
+  // tampoco). Pero si el índice térmico midió de verdad sobre roca expuesta, decirlo
+  // "a secas" era engañoso: había medición real detrás. Se matiza la redacción; el
+  // número y el peso quedan intactos.
+  const thermalMeasured = opts.thermal?.quality_ok === true;
+  if (synthetic_weight_pct > 0) {
+    reasons_minus.push(
+      thermalMeasured
+        ? `El proxy óptico de ${metal} es sintético (${synthetic_weight_pct}%); la confianza se respalda con medición térmica real sobre roca expuesta (${opts.thermal?.rock_pct ?? 0}%)`
+        : `Parte del cálculo de ${metal} usa proxies sintéticos (${synthetic_weight_pct}%)`
+    );
+  }
   if (n_sensors === 1)            reasons_minus.push('Una sola fuente satelital');
   if (cloud_cover > 20)           reasons_minus.push(`Nubosidad ${Math.round(cloud_cover)}%`);
   if (data_source === 'SENTINEL2_CACHED' && (cache_age_days ?? 0) > CACHED_STALE_DAYS) reasons_minus.push(`Imagen de hace ${cache_age_days} días`);

@@ -1111,7 +1111,15 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         }
 
         // Índice de Favorabilidad Exploratoria (SEÑAL + CONFIANZA) de la zona
-        const zp = computeZoneProspectivity(finalPoints, satData, { metal: selectedMineral });
+        // `thermal` aquí SOLO matiza la redacción de las razones (ver
+        // ZoneProspectivityOpts). El térmico no entra al score: sigue siendo evidencia
+        // paralela que mueve la confianza, según la regla aprobada.
+        const zp = computeZoneProspectivity(finalPoints, satData, {
+          metal: selectedMineral,
+          thermal: thermalResult
+            ? { quality_ok: thermalResult.quality_ok, rock_pct: thermalResult.rock_pct }
+            : null,
+        });
         setZoneProspectivity(zp);
 
         // Caché local del polígono. OJO: `estado` describe CÓMO se analizó (con el
