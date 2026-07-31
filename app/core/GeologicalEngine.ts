@@ -1,6 +1,6 @@
 import type { MiningSpectralResult, AsterSpectralCell, EmitSpectralCell } from './SatelliteEngine';
 import { findNearestCell, computeAdaptiveCellSize } from './SatelliteEngine';
-import { CATALOG_WEIGHTS, getMaterial } from './materialsCatalog';
+import { CATALOG_WEIGHTS, getMaterial, normalizeMaterialId } from './materialsCatalog';
 
 /**
  * Pesos espectrales por material (fuente única, exportada para que otros módulos
@@ -439,9 +439,17 @@ export interface MetalScore {
  *  requires_deep (no medible honestamente con Sentinel-2). Constante tuneable. */
 export const SYNTHETIC_REQUIRES_DEEP_THRESHOLD = 0.5;
 
+/**
+ * Config de ADQUISICIÓN por metal y terreno: qué satélite, qué bandas y qué
+ * minerales guía buscar en campo.
+ *
+ * NO lleva `label` ni `icon` A PROPÓSITO. Los llevaba, y ganaban sobre el
+ * catálogo (`cfg?.label ?? cat?.label`): por eso `tierras_raras` seguía
+ * pintándose como "⚡ Litio" mucho después de que el litio saliera del catálogo.
+ * El nombre y el ícono de un material tienen UNA sola fuente —
+ * MATERIALS_CATALOG— y se leen con `getMaterial()`. Nunca al revés.
+ */
 interface MetalConfigEntry {
-  label: string;
-  icon: string;
   satellite: string;
   bands: string[];
   guideMineral: string[];
@@ -450,34 +458,44 @@ interface MetalConfigEntry {
 
 const METAL_CONFIG: Record<string, Record<string, MetalConfigEntry>> = {
   oro: {
-    sierra: { label: 'Oro',    icon: '🥇', satellite: 'LANDSAT8',  bands: ['IRON_OXIDE', 'CLAY_MINERALS', 'NDVI'],             guideMineral: ['Pirita', 'Cuarzo', 'Gossan'] },
-    playa:  { label: 'Oro',    icon: '🥇', satellite: 'SENTINEL2', bands: ['SWIR_MINERAL', 'FALSE_COLOR'],                     guideMineral: ['Arena negra', 'Magnetita', 'Placer'] },
+    sierra: { satellite: 'LANDSAT8',  bands: ['IRON_OXIDE', 'CLAY_MINERALS', 'NDVI'],          guideMineral: ['Pirita', 'Cuarzo', 'Gossan'] },
+    playa:  { satellite: 'SENTINEL2', bands: ['SWIR_MINERAL', 'FALSE_COLOR'],                  guideMineral: ['Arena negra', 'Magnetita', 'Placer'] },
   },
   plata: {
-    sierra: { label: 'Plata',  icon: '🥈', satellite: 'ASTER',     bands: ['ASTER_ALUNITE', 'CLAY_MINERALS'],                  guideMineral: ['Galena', 'Cerusita', 'Clorita'] },
-    playa:  { label: 'Plata',  icon: '🥈', satellite: 'SENTINEL2', bands: ['FALSE_COLOR', 'SWIR_MINERAL'],                     guideMineral: ['Calcita', 'Galena detrítica'],         warning: 'Baja probabilidad en costas planas' },
+    sierra: { satellite: 'ASTER',     bands: ['ASTER_ALUNITE', 'CLAY_MINERALS'],               guideMineral: ['Galena', 'Cerusita', 'Clorita'] },
+    playa:  { satellite: 'SENTINEL2', bands: ['FALSE_COLOR', 'SWIR_MINERAL'],                  guideMineral: ['Calcita', 'Galena detrítica'],          warning: 'Baja probabilidad en costas planas' },
   },
   cobre: {
-    sierra: { label: 'Cobre',  icon: '🟤', satellite: 'ASTER',     bands: ['FERROUS_IRON', 'ASTER_CHLORITE', 'IRON_OXIDE'],    guideMineral: ['Malaquita', 'Azurita', 'Calcopirita'] },
-    playa:  { label: 'Cobre',  icon: '🟤', satellite: 'SENTINEL2', bands: ['IRON_OXIDE', 'NDVI'],                              guideMineral: ['Calcopirita residual'],                warning: 'Muy baja probabilidad en playas' },
+    sierra: { satellite: 'ASTER',     bands: ['FERROUS_IRON', 'ASTER_CHLORITE', 'IRON_OXIDE'], guideMineral: ['Malaquita', 'Azurita', 'Calcopirita'] },
+    playa:  { satellite: 'SENTINEL2', bands: ['IRON_OXIDE', 'NDVI'],                           guideMineral: ['Calcopirita residual'],                 warning: 'Muy baja probabilidad en playas' },
   },
+  // Minerales guía de TIERRAS RARAS (bastnäsita/monacita/xenotima). Antes decían
+  // espodumena/petalita/lepidolita — menas de LITIO: el mismo fantasma, en los datos.
   tierras_raras: {
-    sierra: { label: 'Litio',  icon: '⚡', satellite: 'EMIT',      bands: ['EMIT_AL_CLAY', 'EMIT_MG_CLAY'],                   guideMineral: ['Espodumena', 'Petalita', 'Lepidolita'] },
-    playa:  { label: 'Litio',  icon: '⚡', satellite: 'EMIT',      bands: ['EMIT_AL_CLAY'],                                    guideMineral: ['Bischofita', 'Halita'],                warning: 'Solo en salares / playas salinas' },
+    sierra: { satellite: 'EMIT',      bands: ['EMIT_AL_CLAY', 'EMIT_MG_CLAY'],                 guideMineral: ['Bastnäsita', 'Monacita', 'Xenotima'] },
+    playa:  { satellite: 'EMIT',      bands: ['EMIT_AL_CLAY'],                                 guideMineral: ['Monacita detrítica', 'Xenotima'],       warning: 'Solo en placeres de arenas pesadas' },
   },
   hierro: {
-    sierra: { label: 'Hierro', icon: '⚙️', satellite: 'SENTINEL2', bands: ['IRON_OXIDE', 'FERROUS_IRON', 'FALSE_COLOR'],       guideMineral: ['Magnetita', 'Hematita', 'Limonita'] },
-    playa:  { label: 'Hierro', icon: '⚙️', satellite: 'LANDSAT8',  bands: ['IRON_OXIDE', 'FALSE_COLOR'],                       guideMineral: ['Arena ferrosa', 'Magnetita placer'] },
+    sierra: { satellite: 'SENTINEL2', bands: ['IRON_OXIDE', 'FERROUS_IRON', 'FALSE_COLOR'],    guideMineral: ['Magnetita', 'Hematita', 'Limonita'] },
+    playa:  { satellite: 'LANDSAT8',  bands: ['IRON_OXIDE', 'FALSE_COLOR'],                    guideMineral: ['Arena ferrosa', 'Magnetita placer'] },
   },
-  zinc: {
-    sierra: { label: 'Zinc',   icon: '🔩', satellite: 'ASTER',     bands: ['ASTER_CALCITE', 'EMIT_CARBONATE'],                 guideMineral: ['Esfalerita', 'Smithsonita', 'Calcita'], warning: 'Sulfuro sin firma óptica directa — requiere ASTER/EMIT' },
-    playa:  { label: 'Zinc',   icon: '🔩', satellite: 'ASTER',     bands: ['ASTER_CALCITE'],                                   guideMineral: ['Esfalerita', 'Smithsonita'],            warning: 'Sulfuro sin firma óptica directa — requiere ASTER/EMIT' },
+  // Id del catálogo. Antes esta config vivía bajo las claves heredadas `zinc` y
+  // `plomo`, que ya nadie consulta: el panel pedía `plomo_zinc` y se quedaba sin
+  // satélite, sin bandas y —lo grave— sin el aviso de "sulfuro sin firma óptica".
+  plomo_zinc: {
+    sierra: { satellite: 'ASTER',     bands: ['ASTER_CALCITE', 'EMIT_CARBONATE', 'IRON_OXIDE'], guideMineral: ['Galena', 'Esfalerita', 'Smithsonita'], warning: 'Sulfuro sin firma óptica directa — requiere ASTER/EMIT' },
+    playa:  { satellite: 'ASTER',     bands: ['ASTER_CALCITE'],                                 guideMineral: ['Galena detrítica', 'Esfalerita'],      warning: 'Sulfuro sin firma óptica directa — requiere ASTER/EMIT' },
   },
-  plomo: {
-    sierra: { label: 'Plomo',  icon: '🪨', satellite: 'ASTER',     bands: ['IRON_OXIDE', 'ASTER_CALCITE'],                     guideMineral: ['Galena', 'Cerusita', 'Anglesita'] },
-    playa:  { label: 'Plomo',  icon: '🪨', satellite: 'SENTINEL2', bands: ['IRON_OXIDE'],                                       guideMineral: ['Galena detrítica'],                    warning: 'Baja probabilidad en costas planas' },
+  manganeso: {
+    sierra: { satellite: 'SENTINEL2', bands: ['IRON_OXIDE', 'FERROUS_IRON'],                   guideMineral: ['Pirolusita', 'Psilomelana', 'Rodocrosita'], warning: 'Firma parecida a la de los óxidos de hierro — no son separables por óptico' },
+    playa:  { satellite: 'SENTINEL2', bands: ['IRON_OXIDE'],                                   guideMineral: ['Pirolusita detrítica'],                warning: 'Firma parecida a la de los óxidos de hierro — no son separables por óptico' },
   },
 };
+
+/** Config de adquisición del metal, aceptando ids heredados (zinc/plomo/litio). */
+function metalConfig(metal: string, terrainKey: string): MetalConfigEntry | undefined {
+  return METAL_CONFIG[metal]?.[terrainKey] ?? METAL_CONFIG[normalizeMaterialId(metal)]?.[terrainKey];
+}
 
 // ── Point Score (map tap) ─────────────────────────────────────────────────────
 
@@ -514,7 +532,8 @@ export function computePointScore(
 
   const scores: MetalScore[] = metals.map(metal => {
     const scoreMax = SCORE_MAXIMO_GLOBAL[metal]?.[terrainKey] ?? 100;
-    const cfg      = METAL_CONFIG[metal]?.[terrainKey];
+    const cfg      = metalConfig(metal, terrainKey);
+    const cat      = getMaterial(metal);
     const base     = METAL_SEED_BASE[metal] ?? 0;
 
     const ironOxide  = seededRandom(lat, lng, base + 1);
@@ -532,8 +551,9 @@ export function computePointScore(
 
     return {
       metal,
-      label:          cfg?.label       ?? metal,
-      icon:           cfg?.icon        ?? '⛏️',
+      // Nombre e ícono SIEMPRE desde el catálogo (fuente única).
+      label:          cat?.label       ?? metal,
+      icon:           cat?.icon        ?? '⛏️',
       score_maximo:   scoreMax,
       score_poligono: pointScore,
       score_percent:  pct,
@@ -590,7 +610,7 @@ export function computeAllMetalScores(points: AnalysisPoint[], terrain: string):
 
   return metals.map(metal => {
     const weights = METAL_WEIGHTS[metal] || {};
-    const cfg     = METAL_CONFIG[metal]?.[terrainKey];
+    const cfg     = metalConfig(metal, terrainKey);
     const cat     = getMaterial(metal);
     const scoreMax = SCORE_MAXIMO_GLOBAL[metal]?.[terrainKey] ?? 50;
 
@@ -621,8 +641,9 @@ export function computeAllMetalScores(points: AnalysisPoint[], terrain: string):
 
     return {
       metal,
-      label: cfg?.label ?? cat?.label ?? metal,
-      icon: cfg?.icon ?? cat?.icon ?? '⛏️',
+      // Nombre e ícono SIEMPRE desde el catálogo (fuente única).
+      label: cat?.label ?? metal,
+      icon: cat?.icon ?? '⛏️',
       score_maximo: scoreMax,
       score_poligono,
       score_percent,

@@ -798,7 +798,28 @@ async function supabaseProfile(uid) {
   return Array.isArray(rows) ? rows[0] : null;
 }
 
+// ── Límite de respaldo EN MEMORIA (fail-closed) ──────────────────────────────
+// Antes: `if (!r.ok) return true` — un rate limit que se abre solo cuando falla no
+// es un rate limit. Tumbando el RPC se conseguía IA ilimitada contra la clave del
+// dueño. Ahora, si el contador remoto no responde, manda este contador local, más
+// estricto. Es en memoria: se pierde al reiniciar, pero solo cubre el hueco.
+const LOCAL_FALLBACK_RATIO = 0.4;
+const localUsage = new Map(); // uid → { day, requests }
+
+function localUsageFor(uid) {
+  const day = new Date().toISOString().slice(0, 10);
+  const cur = localUsage.get(uid);
+  if (!cur || cur.day !== day) {
+    if (localUsage.size > 5000) localUsage.clear();
+    const fresh = { day, requests: 0 };
+    localUsage.set(uid, fresh);
+    return fresh;
+  }
+  return cur;
+}
+
 async function checkAiUsage(uid, max) {
+  let remoteOk = null;
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_and_increment_ai_usage`, {
       method: 'POST',
@@ -809,9 +830,19 @@ async function checkAiUsage(uid, max) {
       },
       body: JSON.stringify({ p_user: uid, p_max: max }),
     });
-    if (!r.ok) return true; // si el rate limit falla, no bloquees la IA
-    return await r.json();   // boolean
-  } catch { return true; }
+    if (r.ok) remoteOk = await r.json(); // boolean
+  } catch { /* remoteOk = null → respaldo local */ }
+
+  if (remoteOk === false) return false;
+
+  const local = localUsageFor(uid);
+  if (remoteOk === null) {
+    const localMax = Math.max(1, Math.floor(max * LOCAL_FALLBACK_RATIO));
+    console.warn(`[rate-limit] contador remoto caído; respaldo local (${local.requests}/${localMax}) uid=${uid}`);
+    if (local.requests >= localMax) return false;
+  }
+  local.requests += 1;
+  return true;
 }
 
 app.post('/api/ai/chat', async (req, res) => {

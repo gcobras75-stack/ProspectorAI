@@ -273,13 +273,36 @@ export default function ProspectorDashboard() {
   // De dónde salió el tipo de roca. 'default' = nadie lo eligió todavía.
   const [rockSource, setRockSource] = useState<RockSource>('default');
   const [rockProposal, setRockProposal] = useState<RockProposal | null>(null);
+  // ¿Ya se leyó la roca guardada del proyecto? Hasta que sea true, la propuesta por
+  // ubicación NO corre. En el arranque en frío se restaura `lastPolygon` ANTES de
+  // conocer el proyecto: sin esta compuerta, el efecto salía disparado con
+  // rockSource='default' y podía persistir la carta geológica encima de la
+  // corrección del usuario justo antes de que esta se cargara de la base.
+  const [rockHydrated, setRockHydrated] = useState(false);
+
+  // Espejo síncrono de `rockSource`. El estado de React se ve en el siguiente render;
+  // el guard de "no pisar al usuario" tiene que decidir JUSTO al volver de un await,
+  // antes de eso. El ref siempre está al día, así que la comprobación no depende de
+  // cuándo React haya decidido re-renderizar.
+  const rockSourceRef = useRef<RockSource>('default');
+  const applyRockSource = useCallback((v: RockSource) => {
+    rockSourceRef.current = v;
+    setRockSource(v);
+  }, []);
 
   // El usuario manda: si toca el selector, su elección NO se pisa por una propuesta
   // posterior (mover un vértice no debe deshacer lo que él corrigió a mano).
+  //
+  // Y se PERSISTE en el acto, junto con su origen. Antes solo vivía en memoria: al
+  // cerrar la app o cambiar de proyecto, `rockSource` volvía a 'default' y la carta
+  // geológica pisaba la corrección en el siguiente arranque. La roca y su origen son
+  // un solo dato y se guardan juntos, por proyecto.
   const handleSetRockType = useCallback((v: string) => {
     setRockType(v);
-    setRockSource('usuario');
-  }, []);
+    applyRockSource('usuario');
+    void saveProjectState(currentProjectId, { rock_type: v, rock_source: 'usuario' })
+      .catch(e => console.warn('[Roca] no se pudo persistir la corrección:', e));
+  }, [currentProjectId, applyRockSource]);
   
   // AI, Database & Hardware Configuration
   const [useAI, setUseAI] = useState(true);
@@ -534,6 +557,7 @@ export default function ProspectorDashboard() {
   // cacheada por celda de ~0.05° dentro de lithologyService.
   const proposedForRef = useRef<string>('');
   useEffect(() => {
+    if (!rockHydrated) return;                    // aún no sabemos qué eligió el usuario
     if (polygonCoords.length < 3) return;
     const c = centroidOf(polygonCoords as any);
     if (!c) return;
@@ -547,13 +571,16 @@ export default function ProspectorDashboard() {
       setRockProposal(proposal);
       // Si el usuario ya eligió a mano, se respeta: la propuesta solo se guarda para
       // poder medir después si acertaba (telemetría), pero NO pisa su decisión.
-      setRockSource(prev => {
-        if (prev === 'usuario') return prev;
-        setRockType(proposal.rock_type);
-        return proposal.source;
-      });
+      // Se comprueba DESPUÉS del await, contra el ref: durante la consulta a la carta
+      // el usuario pudo haber tocado el selector.
+      if (rockSourceRef.current === 'usuario') return;
+      setRockType(proposal.rock_type);
+      applyRockSource(proposal.source);
+      void saveProjectState(currentProjectId, {
+        rock_type: proposal.rock_type, rock_source: proposal.source,
+      }).catch(() => { /* la propuesta se recalcula sola en el próximo arranque */ });
     })();
-  }, [polygonCoords]);
+  }, [polygonCoords, currentProjectId, rockHydrated, applyRockSource]);
 
   // Proyecto actualmente cargado en el mapa (para no recargar en cada foco).
   const loadedProjectRef = useRef<string | null>(null);
@@ -563,7 +590,16 @@ export default function ProspectorDashboard() {
     loadedProjectRef.current = pid;
     setCurrentProjectId(pid);
     const proj = await loadProjectState(pid);
-    if (!proj) return;
+    setRockHydrated(true);   // se consultó la roca guardada (haya proyecto o no)
+    if (!proj) {
+      // Proyecto sin fila: no hay roca que restaurar. Se vuelve al default en vez de
+      // heredar —y bloquear— la elección manual del proyecto anterior.
+      setRockType('ignea');
+      applyRockSource('default');
+      setRockProposal(null);
+      proposedForRef.current = '';
+      return;
+    }
     // El nombre SIEMPRE se deriva del proyecto cargado: es una etiqueta, no una
     // identidad. La identidad es `currentProjectId` y solo esa.
     if (proj.nombre) setActiveProject(proj.nombre);
@@ -583,6 +619,16 @@ export default function ProspectorDashboard() {
     setZoneProspectivity((proj.prospectivity as any) ?? null);
     if (proj.mineral) setSelectedMineral(normalizeMaterialId(proj.mineral));
     if (proj.terrain) setTerrainType(proj.terrain);
+    // La ROCA y su ORIGEN se restauran aquí, con todo lo demás del proyecto. Faltaban:
+    // el proyecto guardaba `rock_type` pero nadie lo volvía a leer, así que al cambiar
+    // de proyecto la roca del ANTERIOR se quedaba en pantalla — y el siguiente guardado
+    // la escribía dentro del proyecto equivocado.
+    if (proj.rock_type) setRockType(proj.rock_type);
+    applyRockSource((proj.rock_source as RockSource) ?? 'default');
+    // La propuesta pertenece a la zona del proyecto que se abre, no al anterior. Se
+    // limpia y el efecto de arriba la vuelve a pedir (va cacheada por celda).
+    setRockProposal(null);
+    proposedForRef.current = '';
     setShowResults(pts.length > 0);
     if (proj.chat_history?.length) {
       const lastA = [...proj.chat_history].reverse().find((m: any) => m.role === 'assistant');
@@ -591,7 +637,7 @@ export default function ProspectorDashboard() {
     // Las muestras del mapa siguen al proyecto que se abre.
     const data = await getMuestras(pid);
     setWaypoints(data);
-  }, []);
+  }, [applyRockSource]);
 
   // Al enfocar Home: si el proyecto activo cambió (abriste uno desde Proyectos),
   // cárgalo en el mapa. Corrige "abrir proyecto → no lleva al mapa del proyecto".
@@ -627,6 +673,12 @@ export default function ProspectorDashboard() {
         // al reabrir. Restaurarlos aquí (datos reales persistidos por proyecto).
         if (proj?.analisis_resultado && proj.analisis_resultado.length > 0) setAnalysisPoints(proj.analisis_resultado);
         if (proj?.prospectivity) setZoneProspectivity(proj.prospectivity);
+        // Roca + origen del proyecto activo. Sin esto, el arranque en frío partía de
+        // 'ignea'/'default' y la restauración de `lastPolygon` (arriba) disparaba la
+        // propuesta automática, que pisaba en silencio la corrección de ayer.
+        if (proj?.rock_type) setRockType(proj.rock_type);
+        if (proj?.rock_source) applyRockSource(proj.rock_source as RockSource);
+        setRockHydrated(true);   // ya se puede proponer sin riesgo de pisar nada
         if (proj?.chat_history && proj.chat_history.length > 0) {
           // Use the last assistant message as the resumen
           const lastAssistant = [...proj.chat_history]
@@ -646,7 +698,12 @@ export default function ProspectorDashboard() {
         // Show tip 1 if not seen
         const seen1 = await AsyncStorage.getItem('hasSeenTip_1');
         if (!seen1) setActiveTip(1);
-      } catch (e) {}
+      } catch (e) {
+      } finally {
+        // Pase lo que pase, la compuerta se abre: si la carga falló no hay nada que
+        // pisar, y dejarla cerrada mataría la propuesta de roca para toda la sesión.
+        setRockHydrated(true);
+      }
     };
     loadSaved();
   }, []);
@@ -1183,6 +1240,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             terrain: terrainType,
             depth,
             rock_type: rockType,
+            rock_source: rockSource,   // la roca y su origen viajan juntos, siempre
             coordenadas: coordsToUse,
             analisis_resultado: finalPoints,
             area_ha: parseFloat(areaHa) || 0,
@@ -1935,6 +1993,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               terrain: terrainType,
               depth,
               rock_type: rockType,
+              rock_source: rockSource,   // la roca y su origen viajan juntos, siempre
               coordenadas: polygonCoords,
               analisis_resultado: analysisPoints,
               area_ha: parseFloat(areaHa) || 0,

@@ -94,6 +94,13 @@ export default function ConfigModal({
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncing, setSyncing] = useState(false);
 
+  // Resultado del último toque a "Sincronizar ahora". El botón era MUDO: si otro
+  // disparador (el latido, o el debounce tras guardar) ya tenía un ciclo en vuelo,
+  // flushQueue devolvía {synced:0, pending:-1} y aquí se descartaba en silencio. El
+  // usuario presionaba y no pasaba nada visible, que es justo lo que hace dudar de
+  // si sus datos están a salvo. Ahora cada salida dice lo suyo.
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
   const refreshSyncStatus = useCallback(async () => {
     try {
       setSyncStatus(await getSyncStatus());
@@ -102,16 +109,31 @@ export default function ConfigModal({
     }
   }, []);
 
-  // Se consulta al abrir el modal (no en cada render).
+  // Se consulta al abrir el modal (no en cada render). El mensaje del último intento
+  // se limpia al reabrir: si no, se leería como si acabara de pasar ahora.
   useEffect(() => {
-    if (visible) void refreshSyncStatus();
+    if (visible) { setSyncMsg(null); void refreshSyncStatus(); }
   }, [visible, refreshSyncStatus]);
 
   const handleSyncNow = useCallback(async () => {
     setSyncing(true);
+    setSyncMsg(null);
     try {
-      await flushQueue();
-    } catch (_) { /* flushQueue ya registra sus propios errores */ }
+      const r = await flushQueue();
+      if (r.skipped === 'busy') {
+        setSyncMsg('Ya se está sincronizando…');
+      } else if (r.skipped === 'no-session') {
+        setSyncMsg('Inicia sesión para subir a la nube.');
+      } else if (r.skipped === 'offline') {
+        setSyncMsg('Sin conexión — se subirá solo al recuperar señal.');
+      } else if (r.synced > 0) {
+        setSyncMsg(`✅ ${r.synced} subido${r.synced > 1 ? 's' : ''}.`);
+      } else {
+        setSyncMsg('Nada pendiente por subir.');
+      }
+    } catch (e: any) {
+      setSyncMsg(`No se pudo sincronizar: ${e?.message ?? 'error desconocido'}`);
+    }
     await refreshSyncStatus();
     setSyncing(false);
   }, [refreshSyncStatus]);
@@ -255,6 +277,10 @@ export default function ConfigModal({
                 <Text style={styles.syncBtnText}>{syncing ? 'Subiendo…' : 'Sincronizar ahora'}</Text>
               </TouchableOpacity>
             </View>
+
+            {syncMsg && (
+              <Text style={[styles.syncMsg, isFieldMode && { color: '#333' }]}>{syncMsg}</Text>
+            )}
 
             {syncStatus && syncStatus.failures.length > 0 && (
               <View style={{ marginTop: 8 }}>
@@ -578,6 +604,7 @@ const styles = StyleSheet.create({
   syncLabel: { color: '#EEE', fontSize: 12, fontWeight: '600', flex: 1 },
   syncBtn: { backgroundColor: '#FFD700', borderRadius: 6, paddingVertical: 7, paddingHorizontal: 10 },
   syncBtnText: { color: '#1a1a1a', fontSize: 11, fontWeight: 'bold' },
+  syncMsg: { color: '#AAA', fontSize: 11, lineHeight: 15, marginTop: 8 },
   syncFailHeader: { color: '#FF9800', fontSize: 11, fontWeight: 'bold', marginBottom: 3 },
   syncFailText: { color: '#999', fontSize: 10, lineHeight: 14 },
   rockHint: { color: '#888', fontSize: 10, lineHeight: 14, marginTop: 6 },

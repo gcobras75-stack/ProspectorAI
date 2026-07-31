@@ -89,6 +89,10 @@ function projectPayload(row: any, userId: string) {
     prospectivity: parse(row.prospectivity, null),
     data: {
       notas: row.notas ?? '',
+      // Origen del tipo de roca. Va en el blob para no exigir una migración remota;
+      // sin él, una reinstalación restauraba la roca pero olvidaba quién la eligió,
+      // y la carta geológica volvía a pisar la corrección del usuario.
+      rock_source: row.rock_source ?? 'default',
       satdata_source: row.satdata_source ?? '',
       acquisition_date: row.acquisition_date ?? '',
       chat_history: parse(row.chat_history, []),
@@ -199,18 +203,42 @@ async function processItem(item: { entity: string; entity_id: string; op: string
   return dequeue;
 }
 
-/** Vacía la cola. Silencioso: si no hay sesión/red, no hace nada y reintenta luego. */
-export async function flushQueue(): Promise<{ synced: number; pending: number }> {
-  if (flushing) return { synced: 0, pending: -1 };
-  const userId = await currentUserId();
-  if (!userId) return { synced: 0, pending: -1 };
-  const net = await NetInfo.fetch();
-  if (!(net.isConnected && net.isInternetReachable !== false)) return { synced: 0, pending: -1 };
+/** Por qué un flush no llegó a correr. `pending: -1` significa "no se midió". */
+export type FlushSkip = 'busy' | 'no-session' | 'offline';
 
+export interface FlushResult {
+  synced: number;
+  pending: number;
+  /** Ausente si el ciclo corrió de verdad. */
+  skipped?: FlushSkip;
+}
+
+/** Vacía la cola. Silencioso: si no hay sesión/red, no hace nada y reintenta luego.
+ *
+ *  El candado `flushing` se toma ANTES de cualquier `await`. Estaba después de dos
+ *  (currentUserId y NetInfo.fetch), así que era un TOCTOU de manual: dos disparadores
+ *  casi simultáneos —el latido y el botón "Sincronizar ahora", por ejemplo— pasaban
+ *  los dos el `if (flushing)` antes de que ninguno pusiera el flag, y acababan
+ *  subiendo LA MISMA FOTO dos veces. Las filas no se duplicaban (el upsert va contra
+ *  el índice único user_id+client_id), pero el binario sí viajaba dos veces, y esto
+ *  es una app de campo que gasta datos móviles.
+ *
+ *  Con el flag arriba, el `try/finally` cubre TODAS las salidas, incluidas las
+ *  tempranas por falta de sesión o de red. */
+export async function flushQueue(): Promise<FlushResult> {
+  if (flushing) return { synced: 0, pending: -1, skipped: 'busy' };
   flushing = true;
+
   let synced = 0;
   let failed = 0;
   try {
+    const userId = await currentUserId();
+    if (!userId) return { synced: 0, pending: -1, skipped: 'no-session' };
+    const net = await NetInfo.fetch();
+    if (!(net.isConnected && net.isInternetReachable !== false)) {
+      return { synced: 0, pending: -1, skipped: 'offline' };
+    }
+
     const queue = await getSyncQueue();
     for (const item of queue) {
       try {
@@ -293,11 +321,20 @@ export function scheduleFlush(delayMs: number = 2000): void {
   }, delayMs);
 }
 
-/** Vacía la cola automáticamente. Idempotente. Tres disparadores independientes,
- *  para que subir nunca dependa de un único evento frágil:
- *   1) reconexión de red,
- *   2) la app vuelve a primer plano,
- *   3) latido periódico (por si los otros dos no llegan a ocurrir). */
+/** Vacía la cola automáticamente. Idempotente.
+ *
+ *  En total hay CINCO disparadores de `flushQueue`, para que subir nunca dependa de
+ *  un único evento frágil. Tres los engancha esta función:
+ *   1) reconexión de red (NetInfo),
+ *   2) la app vuelve a primer plano (AppState),
+ *   3) latido periódico cada 60 s (por si los otros dos no llegan a ocurrir).
+ *  Y otros dos viven fuera:
+ *   4) `scheduleFlush()` tras cada escritura local (debounce de 2 s) — lo llaman
+ *      el guardado y el análisis en app/(tabs)/index.tsx,
+ *   5) el botón "Sincronizar ahora" de ConfigModal, que llama a `flushQueue()` directo.
+ *
+ *  Los cinco pueden coincidir: el candado de `flushQueue` es lo único que impide
+ *  que dos ciclos se pisen. Si añades un sexto, actualiza esta lista. */
 export function startAutoSync(): void {
   if (listenerBound) return;
   listenerBound = true;

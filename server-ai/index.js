@@ -11,7 +11,8 @@
  *   SUPABASE_URL               — https://kjprkyuaghzwjatcjnyx.supabase.co
  *   SUPABASE_ANON_KEY          — anon (pública), para validar el token de usuario
  *   SUPABASE_SERVICE_ROLE_KEY  — secreta, para leer profile + rate limit RPC
- *   AI_DAILY_LIMIT             — opcional, default 50 (admins nunca se bloquean)
+ *   AI_DAILY_LIMIT             — opcional, default 50 consultas/día (admins exentos)
+ *   AI_DAILY_TOKENS            — opcional, default 1.000.000 tokens/día por usuario
  *   ALLOWED_ORIGINS            — opcional, CSV de orígenes CORS (default: *)
  *   PORT                       — lo inyecta Railway
  */
@@ -26,6 +27,24 @@ const SUPABASE_ANON_KEY         = process.env.SUPABASE_ANON_KEY || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const ANTHROPIC_API_KEY         = process.env.ANTHROPIC_API_KEY || '';
 const AI_DAILY_LIMIT            = parseInt(process.env.AI_DAILY_LIMIT || '50', 10);
+// Presupuesto diario de TOKENS por usuario (entrada estimada + max_tokens de salida).
+// El límite por peticiones no acota el gasto: 50 peticiones pueden ser 50k tokens o
+// 10M. El default (1M) está calibrado para NO estorbar el uso normal —50 turnos de
+// chat a ~20k tokens dan justo 1M— y sí frenar el abuso: con `express.json` aceptando
+// hasta 25 MB, una sola petición inflada valdría millones de tokens y aquí se corta
+// antes de llegar a Anthropic. Súbelo por env si un usuario legítimo topa.
+const AI_DAILY_TOKENS           = parseInt(process.env.AI_DAILY_TOKENS || '1000000', 10);
+
+// ── Modelos permitidos ───────────────────────────────────────────────────────
+// El endpoint reenviaba `model` tal cual venía del cliente. Cualquier usuario
+// registrado podía pedir el modelo más caro del catálogo con max_tokens al tope,
+// contra la clave del dueño, y solo gastaba UNA de sus 50 consultas diarias.
+// Whitelist + tope de salida por modelo. Si añades un modelo a la app, va aquí.
+const ALLOWED_MODELS = {
+  'claude-sonnet-4-6':            { maxOutput: 8192 },
+  'claude-haiku-4-5-20251001':    { maxOutput: 4096 },
+};
+const DEFAULT_MAX_TOKENS = 1500;
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim())
@@ -52,7 +71,53 @@ async function supabaseProfile(uid) {
   return Array.isArray(rows) ? rows[0] : null;
 }
 
-async function checkAiUsage(uid, max) {
+// ── Límite de respaldo EN MEMORIA (fail-closed) ──────────────────────────────
+// El contador de verdad vive en Supabase. Si esa llamada falla, antes se devolvía
+// `true` ("déjalo pasar"): un rate limit que se abre solo cuando falla no es un
+// rate limit — basta con tumbar el RPC para tener IA ilimitada contra la clave del
+// dueño. Ahora, si el contador remoto no responde, se cae a este contador local:
+// más estricto (LOCAL_FALLBACK_RATIO del límite normal), por proceso y por día.
+//
+// Es en memoria a propósito: se pierde al reiniciar el contenedor, pero el contador
+// remoto es quien manda en cuanto vuelve. Su trabajo es aguantar el hueco, no
+// sustituirlo.
+const LOCAL_FALLBACK_RATIO = 0.4;
+const localUsage = new Map(); // uid → { day: 'YYYY-MM-DD', requests, tokens }
+
+function utcDay() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function localUsageFor(uid) {
+  const day = utcDay();
+  const cur = localUsage.get(uid);
+  if (!cur || cur.day !== day) {
+    // Poda perezosa: al cambiar el día se tira todo lo del día anterior.
+    if (localUsage.size > 5000) localUsage.clear();
+    const fresh = { day, requests: 0, tokens: 0 };
+    localUsage.set(uid, fresh);
+    return fresh;
+  }
+  return cur;
+}
+
+/**
+ * ¿Puede este usuario hacer una consulta más de `estTokens` tokens?
+ * Devuelve { ok, reason }. NUNCA devuelve ok:true por defecto ante un fallo.
+ */
+async function checkAiUsage(uid, maxRequests, maxTokens, estTokens) {
+  // El presupuesto de tokens se lleva SIEMPRE en local, incluso con el RPC sano: el
+  // contador remoto cuenta peticiones, y una petición puede valer 500 tokens o
+  // 200.000. Sin esto, el "límite diario" no acotaba el gasto real.
+  const local = localUsageFor(uid);
+  if (local.tokens + estTokens > maxTokens) {
+    const pretty = maxTokens >= 1_000_000
+      ? `${(maxTokens / 1_000_000).toFixed(maxTokens % 1_000_000 ? 1 : 0)} M`
+      : `${Math.round(maxTokens / 1000)} mil`;
+    return { ok: false, reason: `Alcanzaste el límite diario de IA (${pretty} tokens/día). Vuelve mañana.` };
+  }
+
+  let remoteOk = null;
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_and_increment_ai_usage`, {
       method: 'POST',
@@ -61,11 +126,28 @@ async function checkAiUsage(uid, max) {
         Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ p_user: uid, p_max: max }),
+      body: JSON.stringify({ p_user: uid, p_max: maxRequests }),
     });
-    if (!r.ok) return true; // si el rate limit falla, no bloquees la IA
-    return await r.json();   // boolean
-  } catch { return true; }
+    if (r.ok) remoteOk = await r.json(); // boolean
+  } catch { /* remoteOk se queda en null → respaldo local */ }
+
+  if (remoteOk === false) {
+    return { ok: false, reason: `Alcanzaste el límite diario de IA (${maxRequests} consultas/día). Vuelve mañana.` };
+  }
+
+  if (remoteOk === null) {
+    // Fail-closed: el contador remoto no contestó → manda el respaldo local, que es
+    // más apretado. Se registra para que el fallo no pase inadvertido.
+    const localMax = Math.max(1, Math.floor(maxRequests * LOCAL_FALLBACK_RATIO));
+    console.warn(`[rate-limit] contador remoto caído; usando respaldo local (${local.requests}/${localMax}) uid=${uid}`);
+    if (local.requests >= localMax) {
+      return { ok: false, reason: 'El servicio de IA está degradado y se aplicó un límite reducido. Intenta más tarde.' };
+    }
+  }
+
+  local.requests += 1;
+  local.tokens   += estTokens;
+  return { ok: true };
 }
 
 // ── Rutas ────────────────────────────────────────────────────────────────────
@@ -97,16 +179,35 @@ app.post('/api/ai/chat', async (req, res) => {
     }
     const isAdmin = !!profile && profile.role === 'admin';
 
-    if (!isAdmin) {
-      const allowed = await checkAiUsage(user.id, AI_DAILY_LIMIT);
-      if (allowed === false) {
-        return res.status(429).json({ error: `Alcanzaste el límite diario de IA (${AI_DAILY_LIMIT} consultas/día). Vuelve mañana.` });
-      }
+    const { model, max_tokens, system, messages } = req.body || {};
+    if (!model || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'Payload inválido: se requieren model y messages.' });
     }
 
-    const { model, max_tokens, system, messages } = req.body || {};
-    if (!model || !Array.isArray(messages)) {
-      return res.status(400).json({ error: 'Payload inválido: se requieren model y messages.' });
+    // ── Validación del payload (antes se reenviaba tal cual) ──────────────────
+    const modelCfg = ALLOWED_MODELS[model];
+    if (!modelCfg) {
+      return res.status(400).json({ error: `Modelo no permitido: ${String(model).slice(0, 60)}` });
+    }
+    const requested = Number.isFinite(max_tokens) ? Math.floor(max_tokens) : DEFAULT_MAX_TOKENS;
+    if (requested < 1) {
+      return res.status(400).json({ error: 'max_tokens inválido.' });
+    }
+    // Se recorta en vez de rechazar: un cliente viejo que pida de más sigue
+    // funcionando, solo que acotado.
+    const safeMaxTokens = Math.min(requested, modelCfg.maxOutput);
+
+    // Coste estimado de la llamada = entrada + techo de salida. La estimación de
+    // entrada es aproximada (~4 caracteres por token) y a propósito conservadora:
+    // el objetivo es acotar el gasto, no facturar al milímetro.
+    const payloadChars = JSON.stringify({ system: system ?? '', messages }).length;
+    const estTokens    = Math.ceil(payloadChars / 4) + safeMaxTokens;
+
+    if (!isAdmin) {
+      const usage = await checkAiUsage(user.id, AI_DAILY_LIMIT, AI_DAILY_TOKENS, estTokens);
+      if (!usage.ok) {
+        return res.status(429).json({ error: usage.reason });
+      }
     }
 
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
@@ -116,7 +217,7 @@ app.post('/api/ai/chat', async (req, res) => {
         'x-api-key': ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({ model, max_tokens, system, messages }),
+      body: JSON.stringify({ model, max_tokens: safeMaxTokens, system, messages }),
     });
     const body = await anthropicRes.text();
     res.status(anthropicRes.status).type('application/json').send(body);

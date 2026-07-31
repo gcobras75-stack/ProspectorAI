@@ -134,6 +134,11 @@ export const initDB = async () => {
     // reintentado. Sin esto, un fallo de push era invisible.
     `ALTER TABLE sync_queue ADD COLUMN attempts   INTEGER DEFAULT 0`,
     `ALTER TABLE sync_queue ADD COLUMN last_error TEXT    DEFAULT ''`,
+    // Origen del tipo de roca ('default' | 'usuario' | 'macrostrat' | 'glim' | 'sgm').
+    // Sin esto, `rock_type` se guardaba pero nadie sabía si lo había elegido el
+    // usuario o la carta geológica, así que al reabrir la app la propuesta
+    // automática volvía a pisar la corrección manual. Ver app/(tabs)/index.tsx.
+    `ALTER TABLE proyectos ADD COLUMN rock_source TEXT DEFAULT 'default'`,
   ];
   for (const sql of migrations) {
     try { await dbCache.execAsync(sql); } catch (_) { /* column already exists */ }
@@ -263,12 +268,15 @@ export const upsertProjectFromRemote = async (r: any): Promise<void> => {
   const now = new Date().toISOString();
   await db.runAsync(
     `INSERT INTO proyectos (id, nombre, fecha_creacion, ultimo_acceso, mineral, terrain, depth, rock_type,
-       coordenadas, analisis_resultado, satdata_source, acquisition_date, area_ha, chat_history, notas,
+       rock_source, coordenadas, analisis_resultado, satdata_source, acquisition_date, area_ha, chat_history, notas,
        prospectivity, reporte_geologo_texto)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id, r.name || 'Proyecto', now, now, r.mineral || 'oro', r.terrain || 'sierra',
       r.depth || '0-5m', r.rock_type || 'ignea',
+      // Viaja en el blob `data` (no hay columna propia en Supabase y no hacía falta
+      // una migración remota para esto).
+      d.rock_source || 'default',
       JSON.stringify(r.coordenadas ?? []), JSON.stringify(r.analisis_resultado ?? []),
       d.satdata_source || '', d.acquisition_date || '', Number(r.area_ha) || 0,
       JSON.stringify(d.chat_history ?? []), d.notas || '',
@@ -477,6 +485,8 @@ export const saveProjectState = async (
     terrain?: string;
     depth?: string;
     rock_type?: string;
+    /** Quién decidió `rock_type`. Viaja SIEMPRE junto a él: separarlos fue el bug. */
+    rock_source?: string;
     coordenadas?: any[];
     analisis_resultado?: any[];
     satdata_source?: string;
@@ -506,7 +516,7 @@ export const saveProjectState = async (
 
 export const loadProjectState = async (projectId: string): Promise<{
   id: string; nombre: string;
-  mineral: string; terrain: string; depth: string; rock_type: string;
+  mineral: string; terrain: string; depth: string; rock_type: string; rock_source: string;
   coordenadas: any[]; analisis_resultado: any[];
   satdata_source: string; acquisition_date: string; area_ha: number;
   chat_history: { role: string; content: any }[];
@@ -523,6 +533,7 @@ export const loadProjectState = async (projectId: string): Promise<{
     terrain: row.terrain || 'sierra',
     depth: row.depth || '0-5m',
     rock_type: row.rock_type || 'ignea',
+    rock_source: row.rock_source || 'default',
     coordenadas: safeJsonParse(row.coordenadas, [] as any[]),
     analisis_resultado: safeJsonParse(row.analisis_resultado, [] as any[]),
     satdata_source: row.satdata_source || '',
