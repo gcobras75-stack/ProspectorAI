@@ -10,6 +10,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
 import { getMuestras, loadProjectState } from './Database';
+import { applyEvidenceCeiling } from './ConsensusFusion';
 import { computeAllMetalScores } from './GeologicalEngine';
 import { INDEX_GLOSSARY, NON_S2_INDEX_KEYS, S2_REAL_INDEX_KEYS } from './indexGlossary';
 
@@ -23,7 +24,9 @@ export async function exportProjectToExcel(projectId: string, projectName?: stri
 
   const muestras = await getMuestras(projectId);
   const points: any[] = Array.isArray(proj.analisis_resultado) ? proj.analisis_resultado : [];
-  const prosp: any = proj.prospectivity;
+  // TECHO DE EVIDENCIA: el objeto viene de la base y puede ser de un análisis previo a
+  // esta versión, con la CONFIANZA sin capar. Misma función que pantalla y PDF.
+  const prosp: any = applyEvidenceCeiling(proj.prospectivity, proj.mineral);
   const metals = points.length && points[0]?.indices
     ? computeAllMetalScores(points as any, proj.terrain)
     : [];
@@ -47,6 +50,10 @@ export async function exportProjectToExcel(projectId: string, projectName?: stri
   if (prosp) {
     projRows.push(['Señal espectral (0-100)', prosp.signal]);
     projRows.push(['Confianza (0-100)', prosp.confidence, prosp.confidence_label || '']);
+    if (typeof prosp.acquisition_quality === 'number') {
+      // Se reporta aparte y con su nombre: es la calidad de la TOMA, no la confianza.
+      projRows.push(['Calidad de la toma satelital (0-100)', prosp.acquisition_quality]);
+    }
     projRows.push(['Favorabilidad', prosp.band_label || prosp.band || '']);
     if (Array.isArray(prosp.reasons_plus) && prosp.reasons_plus.length) {
       projRows.push(['A favor (+)', prosp.reasons_plus.join(' · ')]);

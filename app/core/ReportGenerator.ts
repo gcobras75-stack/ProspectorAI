@@ -15,7 +15,8 @@ import {
   saveSampleResena,
 } from './Database';
 import { generateReportSection, generateSampleResena } from './ClaudeServices';
-import type { ZoneProspectivity } from './ConsensusFusion';
+import { applyEvidenceCeiling, type ZoneProspectivity } from './ConsensusFusion';
+import { anomalyFromPct } from './spectralHelpers';
 import type { MetalScore } from './GeologicalEngine';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from './indexGlossary';
 import { isSaturated, hasSaturatedIndex, SATURATION_NOTICE } from './saturation';
@@ -359,9 +360,46 @@ function confidenceDots(label: string): string {
   return label === 'ALTA' ? '●●●○' : label === 'MEDIA' ? '●●○○' : '●○○○';
 }
 
-function buildFavorabilidadSection(zp?: ZoneProspectivity | null): string {
+/**
+ * Nivel de anomalía REAL en la ubicación de una muestra: el del punto analizado más
+ * cercano, si lo hay dentro de ~5 km (mismo corte que usa el chat del geólogo).
+ *
+ * Devuelve null cuando no hay punto cercano. Antes esta función no existía y el
+ * llamador pasaba 'MEDIA' fijo para TODAS las muestras: una anomalía inventada que la
+ * IA daba por medida al redactar la reseña del PDF.
+ */
+function sampleAnomalyLevel(
+  lat: number, lng: number, points: any[],
+): 'ALTA' | 'MEDIA' | 'BAJA' | null {
+  if (!Array.isArray(points) || points.length === 0) return null;
+  let best: any = null;
+  let bestDist = Infinity;
+  for (const p of points) {
+    const pLat = p?.lat, pLng = p?.lng;
+    if (!Number.isFinite(pLat) || !Number.isFinite(pLng)) continue;
+    const d = Math.hypot(lat - pLat, lng - pLng);
+    if (d < bestDist) { bestDist = d; best = p; }
+  }
+  // ~0.045° ≈ 5 km. Más lejos, ese punto no describe esta muestra.
+  if (!best || bestDist > 0.045) return null;
+  const score = Number.isFinite(best.base_score) ? best.base_score : best.score;
+  if (!Number.isFinite(score)) return null;
+  return anomalyFromPct(Math.max(0, Math.min(100, score))).level;
+}
+
+function buildFavorabilidadSection(zpRaw?: ZoneProspectivity | null, metalId?: string): string {
+  // TECHO DE EVIDENCIA antes de imprimir. Este documento va a clientes e
+  // inversionistas: es el último sitio donde puede quedar una CONFIANZA "ALTA" que la
+  // medición no respalda. El objeto puede venir leído de la base (análisis viejo, sin
+  // techo aplicado), así que no basta con haberlo capado al calcularlo.
+  const zp = applyEvidenceCeiling(zpRaw, metalId);
   if (!zp) return '';
   const clamp = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
+  // La calidad de la TOMA se reporta aparte y con su nombre. Es el número que antes se
+  // publicaba como "CONFIANZA": no se pierde, deja de estar mal rotulado.
+  const acqLine = (typeof zp.acquisition_quality === 'number' && zp.acquisition_quality !== zp.confidence)
+    ? `<p class="fav-rel">Calidad de la toma satelital: ${clamp(zp.acquisition_quality)}/100 — la confianza queda por debajo porque la evidencia disponible para este material no la respalda.</p>`
+    : '';
   const plus  = (zp.reasons_plus  || []).map(r => `<li class="why-plus">+ ${r}</li>`).join('');
   const minus = (zp.reasons_minus || []).map(r => `<li class="why-minus">− ${r}</li>`).join('');
   const relLine = (typeof zp.relative_percentile === 'number')
@@ -380,6 +418,7 @@ function buildFavorabilidadSection(zp?: ZoneProspectivity | null): string {
     <div class="meter-label"><span style="color:#333">CONFIANZA</span><span>${zp.confidence_label} ${confidenceDots(zp.confidence_label)}</span></div>
     <div class="meter-bar"><div class="meter-fill" style="width:${clamp(zp.confidence)}%;background:#888"></div></div>
   </div>
+  ${acqLine}
   ${relLine}
   <div class="why-cols">
     <div class="why-col"><h3 style="color:#2e7d32">Por qué suma</h3><ul>${plus || '<li class="why-none">—</li>'}</ul></div>
@@ -598,7 +637,7 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
           const resena = await generateSampleResena(
             rawB64,
             analisisStr,
-            'MEDIA',
+            sampleAnomalyLevel(m.lat, m.lng, input.analysisPoints),
             `${m.lat.toFixed(4)}, ${m.lng.toFixed(4)}`
           );
           await saveSampleResena(m.id, resena);
@@ -651,7 +690,7 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
   <p class="logo-line">Generado por ProspectorAI · Ing. Villegas — Asistente geológico de IA · ${fechaGeneracion}</p>
 </div>
 
-${buildFavorabilidadSection(input.zoneProspectivity)}
+${buildFavorabilidadSection(input.zoneProspectivity, input.metalName)}
 
 <!-- ══════ MAPA DE ANOMALÍAS ══════ -->
 <div class="page">

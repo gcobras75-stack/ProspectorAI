@@ -291,20 +291,36 @@ export function selectorConfidence(
   return { color: base.color, label: base.label };
 }
 
+/** Evidencia disponible para un material en una zona concreta. */
+export interface EvidenceInput {
+  requiresDeep?: boolean;
+  syntheticWeightPct?: number;
+  /** Gate del índice de sílice térmico, cuando la ruta se disparó para este material. */
+  thermal?: { quality_ok: boolean; rock_pct?: number } | null;
+}
+
 /**
- * Confianza REAL para RESULTADOS = min(intrínseca, cobertura medida).
- * Si el modelo del material depende de índices sin dato real (requires_deep /
- * alta fracción sintética no enriquecida por ASTER/EMIT), baja a "De contexto".
+ * TECHO DE EVIDENCIA — fuente ÚNICA de "hasta dónde puede llegar la confianza de
+ * este material en esta zona".
+ *
+ * Existía ya, pero enterrada dentro de resolveDisplayConfidence y por tanto visible
+ * solo para el badge de la pantalla. Mientras tanto computeZoneProspectivity
+ * publicaba su propia CONFIANZA por promedio ponderado, sin techo: la sílice sobre
+ * bosque —cero medición real— salía "ALTA 85" en la tarjeta héroe, en el PDF del
+ * cliente y en el Excel, mientras el badge de dos dedos más abajo decía "De contexto".
+ *
+ * La causa de fondo: un promedio ponderado NO PUEDE EXPRESAR UN VETO. Con cobertura,
+ * sensores, consenso y nubes perfectos se llega a 85 sobre un umbral de ALTA de 66,
+ * así que ningún reajuste de pesos arregla el caso. Hace falta un min(), y esta
+ * función es quien lo define. Todo el que etiquete confianza pasa por aquí.
+ *
+ * Se extrae a materialsCatalog (módulo hoja) a propósito: así ConsensusFusion puede
+ * importarla sin crear un ciclo.
  */
-export function resolveDisplayConfidence(
+export function evidenceCeiling(
   id: string | null | undefined,
-  opts?: {
-    requiresDeep?: boolean;
-    syntheticWeightPct?: number;
-    /** Gate del índice de sílice térmico, cuando la ruta se disparó para este material. */
-    thermal?: { quality_ok: boolean; rock_pct?: number } | null;
-  },
-): { level: MaterialConfidence; label: string; color: string; note?: string } {
+  opts?: EvidenceInput,
+): { level: MaterialConfidence; note?: string } {
   const entry = getMaterial(id);
   let level: MaterialConfidence = entry?.confidenceBase ?? 'contexto';
   let note: string | undefined;
@@ -341,6 +357,18 @@ export function resolveDisplayConfidence(
     }
   }
 
+  return { level, note };
+}
+
+/**
+ * Confianza REAL para RESULTADOS = min(intrínseca, cobertura medida).
+ * Envoltorio delgado sobre `evidenceCeiling()` que le añade etiqueta y color.
+ */
+export function resolveDisplayConfidence(
+  id: string | null | undefined,
+  opts?: EvidenceInput,
+): { level: MaterialConfidence; label: string; color: string; note?: string } {
+  const { level, note } = evidenceCeiling(id, opts);
   const meta = CONFIDENCE_META[level];
   return { level, label: meta.label, color: meta.color, note };
 }

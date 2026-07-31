@@ -1,6 +1,7 @@
 import { MiningSpectralResult, AsterSpectralResult, AsterSpectralCell, StructuralResult, StructuralCell, EmitSpectralResult, EmitSpectralCell, findNearestCell } from './SatelliteEngine';
 import { cellAnomalyScore } from './spectralHelpers';
-import { METAL_WEIGHTS, SYNTHETIC_INDEX_KEYS } from './GeologicalEngine';
+import { METAL_WEIGHTS, SYNTHETIC_INDEX_KEYS, SYNTHETIC_REQUIRES_DEEP_THRESHOLD } from './GeologicalEngine';
+import { evidenceCeiling } from './materialsCatalog';
 import { prospectivityFromSignal } from './theme';
 
 export type ConsensusLevel = 'PRIORITY_TARGET' | 'TRIPLE_SPECTRAL' | 'CONFIRMED' | 'SINGLE' | 'VEGETATION' | 'NO_DATA';
@@ -175,8 +176,28 @@ export function fuseAnalysisPoints(
 export interface ZoneProspectivity {
   // Salidas separadas (NUNCA un solo % combinado)
   signal: number;            // 0-100 SEÑAL espectral (sin boost de consenso)
-  confidence: number;        // 0-100 CONFIANZA (fiabilidad de la lectura)
+  /** 0-100 CONFIANZA ya CAPADA por el techo de evidencia del material. */
+  confidence: number;
   confidence_label: 'ALTA' | 'MEDIA' | 'BAJA';
+  /**
+   * 0-100 calidad de la ADQUISICIÓN (cobertura, sensores, consenso, limpieza, nubes)
+   * antes de aplicar el techo. NO es confianza y no debe rotularse como tal: mide si
+   * la imagen fue buena, no si el material se puede ver con ella. Se conserva porque
+   * explica el "por qué" — cuando confidence < acquisition_quality, el problema es el
+   * material, no la toma.
+   */
+  acquisition_quality: number;
+  /** Material para el que se calculó. Necesario para re-aplicar el techo al mostrar. */
+  metal?: string;
+  /** Nivel del techo aplicado ('alta' | 'media' | 'contexto') y su motivo. */
+  ceiling_level?: 'alta' | 'media' | 'contexto';
+  ceiling_note?: string;
+  /**
+   * Gate térmico con el que se calculó. Se PERSISTE junto al resto del objeto para
+   * que al reabrir un análisis no haya que recalcularlo (y para no perder una subida
+   * legítima). Ausente = análisis viejo o sin térmico → se trata como "sin evidencia".
+   */
+  thermal_gate?: { quality_ok: boolean; rock_pct?: number } | null;
   band: 'FUERTE' | 'MODERADA' | 'DEBIL';
   band_label: string;        // p.ej. "FAVORABILIDAD FUERTE"
   band_color: string;        // color invertido (alto = verde)
@@ -201,6 +222,28 @@ export interface ZoneProspectivity {
 // Aprobadas por el dueño como ajustables/documentadas. No son tasas de éxito.
 export const PROSPECTIVITY_SIGNAL_THRESHOLDS = { strong: 65, moderate: 35 } as const;
 export const CONFIDENCE_LABEL_THRESHOLDS = { alta: 66, media: 40 } as const;
+
+/**
+ * Traducción del techo de evidencia (nivel del catálogo) a tope NUMÉRICO de confianza.
+ *
+ * Se capa el NÚMERO, no la etiqueta, y la etiqueta se deriva del número como siempre.
+ * Así no pueden discrepar: capar solo la etiqueta dejaría una barra al 85% rotulada
+ * BAJA, que es otra contradicción distinta.
+ *
+ * Los valores salen de CONFIDENCE_LABEL_THRESHOLDS (un punto por debajo del umbral
+ * siguiente), de modo que mover un umbral mueve el tope solo.
+ */
+export const CEILING_MAX_CONFIDENCE: Record<'alta' | 'media' | 'contexto', number> = {
+  alta:     100,
+  media:    CONFIDENCE_LABEL_THRESHOLDS.alta  - 1,   // 65 → etiqueta MEDIA
+  contexto: CONFIDENCE_LABEL_THRESHOLDS.media - 1,   // 39 → etiqueta BAJA
+};
+
+function labelFor(confidence: number): 'ALTA' | 'MEDIA' | 'BAJA' {
+  return confidence >= CONFIDENCE_LABEL_THRESHOLDS.alta  ? 'ALTA'
+       : confidence >= CONFIDENCE_LABEL_THRESHOLDS.media ? 'MEDIA'
+       : 'BAJA';
+}
 export const CONFIDENCE_WEIGHTS = { coverage: 0.30, sensors: 0.25, consensus: 0.20, cleanliness: 0.15, clouds: 0.10 } as const;
 export const SENSOR_CONFIDENCE_SCORE: Record<number, number> = { 0: 0, 1: 40, 2: 70, 3: 90, 4: 100 };
 export const CACHED_STALE_DAYS = 90;
@@ -235,11 +278,24 @@ export function computeZoneProspectivity(
   const clampPct = (v: number) => Math.max(0, Math.min(100, v));
   const metal = (opts.metal || 'oro').toLowerCase();
 
-  // Fracción del peso del metal que recae en índices sintéticos (no medición real)
+  // Fracción del peso del metal que recae en índices sintéticos (no medición real).
+  //
+  // EXCLUYE los índices que ASTER/EMIT ya enriqueció con dato real, igual que hace
+  // computeAllMetalScores. Antes aquí se sumaban en crudo, así que para la MISMA zona
+  // los dos módulos daban un % sintético distinto —p. ej. el carbonato del zinc medido
+  // por EMIT contaba como sintético aquí y como real allá— y el techo se habría
+  // aplicado con un número que no era el que ve el usuario en la tarjeta del metal.
+  const enrichedKeys = new Set<string>();
+  for (const p of points) for (const k of ((p as any).enriched_indices || [])) enrichedKeys.add(k);
+
   const w = METAL_WEIGHTS[metal] || {};
   let syntheticWeight = 0;
-  for (const k of SYNTHETIC_INDEX_KEYS) syntheticWeight += (w as any)[k] || 0;
+  for (const k of SYNTHETIC_INDEX_KEYS) {
+    if (enrichedKeys.has(k)) continue;   // ya tiene dato real medido → no es sintético
+    syntheticWeight += (w as any)[k] || 0;
+  }
   const synthetic_weight_pct = Math.round(syntheticWeight * 100);
+  const requires_deep = syntheticWeight > SYNTHETIC_REQUIRES_DEEP_THRESHOLD;
 
   const coverage_pct = clampPct(satData?.coverage_pct ?? 0);
   const cloud_cover  = clampPct(satData?.cloud_cover ?? 0);
@@ -252,7 +308,8 @@ export function computeZoneProspectivity(
   if (n_points === 0) {
     const b0 = prospectivityFromSignal(0);
     return {
-      signal: 0, confidence: 0, confidence_label: 'BAJA',
+      signal: 0, confidence: 0, confidence_label: 'BAJA', acquisition_quality: 0,
+      metal, thermal_gate: opts.thermal ?? null,
       band: b0.band, band_label: b0.label, band_color: b0.color,
       n_points: 0, top_score: 0, consensus_breakdown: {}, n_sensors: 1,
       vegetation_pct: 0, simulated_pct: 0, synthetic_weight_pct,
@@ -306,7 +363,7 @@ export function computeZoneProspectivity(
   const consensoScore  = hasConsensusField ? clampPct(100 * (strongConsensus / n_points)) : 0;
   const limpiezaScore  = clampPct(100 - vegetation_pct - simulated_pct - synthetic_weight_pct);
   const nubesScore     = clampPct(100 - cloud_cover);
-  let confidence = Math.round(
+  let acquisition_quality = Math.round(
     CONFIDENCE_WEIGHTS.coverage    * coberturaScore +
     CONFIDENCE_WEIGHTS.sensors     * sensoresScore +
     CONFIDENCE_WEIGHTS.consensus   * consensoScore +
@@ -314,12 +371,23 @@ export function computeZoneProspectivity(
     CONFIDENCE_WEIGHTS.clouds      * nubesScore
   );
   if (data_source === 'SENTINEL2_CACHED' && (cache_age_days ?? 0) > CACHED_STALE_DAYS) {
-    confidence -= CACHED_STALE_PENALTY;
+    acquisition_quality -= CACHED_STALE_PENALTY;
   }
-  confidence = clampPct(confidence);
-  const confidence_label: 'ALTA' | 'MEDIA' | 'BAJA' =
-    confidence >= CONFIDENCE_LABEL_THRESHOLDS.alta  ? 'ALTA' :
-    confidence >= CONFIDENCE_LABEL_THRESHOLDS.media ? 'MEDIA' : 'BAJA';
+  acquisition_quality = clampPct(acquisition_quality);
+
+  // ── TECHO DE EVIDENCIA ──────────────────────────────────────────────────────
+  // Hasta aquí solo se ha medido la calidad de la TOMA. Un promedio ponderado no
+  // puede vetar: con cobertura, sensores, consenso y nubes perfectos se llega a 85
+  // sobre un umbral de ALTA de 66, así que la sílice sin una sola medición real
+  // salía "ALTA". El techo del material —la misma función que gobierna el badge de
+  // la pantalla— es quien pone el min().
+  const ceiling = evidenceCeiling(metal, {
+    requiresDeep: requires_deep,
+    syntheticWeightPct: synthetic_weight_pct,
+    thermal: opts.thermal ?? null,
+  });
+  const confidence = Math.min(acquisition_quality, CEILING_MAX_CONFIDENCE[ceiling.level]);
+  const confidence_label = labelFor(confidence);
 
   const bandInfo = prospectivityFromSignal(signal);
 
@@ -353,13 +421,24 @@ export function computeZoneProspectivity(
         : `Parte del cálculo de ${metal} usa proxies sintéticos (${synthetic_weight_pct}%)`
     );
   }
+  // Cuando el techo MUERDE, se dice por qué. Sin esta línea el usuario vería una
+  // adquisición impecable etiquetada BAJA sin explicación, que es la queja legítima:
+  // el problema no fue la imagen, fue que el material no se puede ver con ella.
+  if (confidence < acquisition_quality) {
+    reasons_minus.push(
+      `Toma de buena calidad (${acquisition_quality}/100), pero la confianza queda limitada por la evidencia disponible para ${metal}` +
+      (ceiling.note ? `: ${ceiling.note}` : '')
+    );
+  }
   if (n_sensors === 1)            reasons_minus.push('Una sola fuente satelital');
   if (cloud_cover > 20)           reasons_minus.push(`Nubosidad ${Math.round(cloud_cover)}%`);
   if (data_source === 'SENTINEL2_CACHED' && (cache_age_days ?? 0) > CACHED_STALE_DAYS) reasons_minus.push(`Imagen de hace ${cache_age_days} días`);
   reasons_minus.push('Sin verificación de campo aún');
 
   return {
-    signal, confidence, confidence_label,
+    signal, confidence, confidence_label, acquisition_quality,
+    metal, ceiling_level: ceiling.level, ceiling_note: ceiling.note,
+    thermal_gate: opts.thermal ?? null,
     band: bandInfo.band, band_label: bandInfo.label, band_color: bandInfo.color,
     relative_percentile,
     n_points, top_score: Math.round(top_score),
@@ -367,5 +446,70 @@ export function computeZoneProspectivity(
     vegetation_pct, simulated_pct, synthetic_weight_pct,
     coverage_pct, cloud_cover, data_source, cache_age_days,
     reasons_plus, reasons_minus,
+  };
+}
+
+/**
+ * Re-aplica el techo de evidencia a un ZoneProspectivity YA CALCULADO.
+ *
+ * Por qué hace falta si computeZoneProspectivity ya lo aplica: el objeto se PERSISTE
+ * serializado (columna `prospectivity` en SQLite y en Supabase), y tanto la pantalla
+ * como el PDF y el Excel leen el valor guardado tal cual. Los análisis hechos antes de
+ * este cambio llevan grabado `confidence_label: 'ALTA'` sin techo; arreglar solo el
+ * cálculo los dejaría mintiendo igual al reabrirlos, y el PDF se regenera desde ahí.
+ *
+ * Es IDEMPOTENTE: aplicarla a un objeto ya capado no lo cambia. Por eso puede ir en
+ * todos los puntos de despliegue sin coordinar quién la llamó antes.
+ *
+ * Registros VIEJOS: no guardaban `thermal_gate`, así que aquí se trata como "sin
+ * evidencia térmica". Consecuencia deliberada y aprobada: un análisis de sílice cuyo
+ * térmico sí midió sobre roca en su día bajará de ALTA a BAJA, porque ese dato no se
+ * conservó y no se puede reconstruir. Preferimos perder una subida legítima antes que
+ * mantener una afirmación que ya no podemos respaldar. Los análisis nuevos sí
+ * persisten el gate y conservan su nivel.
+ */
+export function applyEvidenceCeiling(
+  zp: ZoneProspectivity | null | undefined,
+  fallbackMetal?: string,
+): ZoneProspectivity | null {
+  if (!zp) return null;
+
+  const metal = (zp.metal || fallbackMetal || 'oro').toLowerCase();
+  // `acquisition_quality` no existe en los registros viejos: allí `confidence` ES la
+  // calidad de la toma sin capar, así que sirve de origen.
+  const acquisition_quality = typeof zp.acquisition_quality === 'number'
+    ? zp.acquisition_quality
+    : zp.confidence;
+
+  const synthetic_weight_pct = zp.synthetic_weight_pct ?? 0;
+  const ceiling = evidenceCeiling(metal, {
+    requiresDeep: synthetic_weight_pct > SYNTHETIC_REQUIRES_DEEP_THRESHOLD * 100,
+    syntheticWeightPct: synthetic_weight_pct,
+    thermal: zp.thermal_gate ?? null,
+  });
+
+  const confidence = Math.min(acquisition_quality, CEILING_MAX_CONFIDENCE[ceiling.level]);
+  if (confidence === zp.confidence && zp.acquisition_quality === acquisition_quality) {
+    return zp;   // ya estaba capado: no se toca (idempotencia sin copia inútil)
+  }
+
+  const reasons_minus = [...(zp.reasons_minus ?? [])];
+  const alreadyExplained = reasons_minus.some(r => r.startsWith('Toma de buena calidad'));
+  if (confidence < acquisition_quality && !alreadyExplained) {
+    reasons_minus.push(
+      `Toma de buena calidad (${acquisition_quality}/100), pero la confianza queda limitada por la evidencia disponible para ${metal}` +
+      (ceiling.note ? `: ${ceiling.note}` : '')
+    );
+  }
+
+  return {
+    ...zp,
+    metal,
+    acquisition_quality,
+    confidence,
+    confidence_label: labelFor(confidence),
+    ceiling_level: ceiling.level,
+    ceiling_note: ceiling.note,
+    reasons_minus,
   };
 }

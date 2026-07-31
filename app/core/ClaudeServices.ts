@@ -596,12 +596,25 @@ NO uses markdown, NO uses asteriscos, NO uses #. Solo texto plano y la separaci�
 // ═══════════════════════════════════════════════════════
 // 6. RESEÑA DE FOTO DE MUESTRA DE CAMPO
 // ═══════════════════════════════════════════════════════
+/**
+ * Reseña de una muestra para el PDF.
+ *
+ * `anomalyLevel` acepta null a propósito. Antes el llamador pasaba 'MEDIA' fijo, así
+ * que a la IA se le AFIRMABA que había una anomalía media medida en esas coordenadas
+ * y ella escribía 2-3 líneas relacionando la roca con esa anomalía — un dato
+ * inventado, lavado a través del modelo, dentro de un documento que ve el cliente.
+ * Con null se le dice la verdad: que ahí no hay lectura satelital que relacionar.
+ */
 export async function generateSampleResena(
   fotoBase64: string,
   analisisTexto: string,
-  anomalyLevel: string,
+  anomalyLevel: 'ALTA' | 'MEDIA' | 'BAJA' | null,
   coordText: string
 ): Promise<string> {
+
+  const anomalyClause = anomalyLevel
+    ? `y su relación con la anomalía satelital ${anomalyLevel} detectada en las coordenadas ${coordText}`
+    : `en las coordenadas ${coordText}. NO hay lectura satelital para ese punto: no menciones ninguna anomalía ni la relaciones con nada medido, limítate a describir lo que se ve en la foto`;
 
   const payload = {
     model: MODEL_FAST,
@@ -615,7 +628,7 @@ export async function generateSampleResena(
         },
         {
           type: 'text',
-          text: `Describe en 2-3 líneas qué se observa en esta roca/muestra de campo y su relación con la anomalía satelital ${anomalyLevel} detectada en las coordenadas ${coordText}. Análisis previo: ${analisisTexto}. Responde en español, sin markdown.`,
+          text: `Describe en 2-3 líneas qué se observa en esta roca/muestra de campo ${anomalyClause}. Análisis previo: ${analisisTexto}. Responde en español, sin markdown.`,
         },
       ],
     }],

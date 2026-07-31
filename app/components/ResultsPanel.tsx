@@ -1,17 +1,17 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Animated } from 'react-native';
 import MapView from 'react-native-maps';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ScoreCard, { METAL_COLORS } from './ScoreCard';
 import { MetalScore } from '../core/GeologicalEngine';
 import { computeAdaptiveCellSize, type MiningSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
-import { type ZoneProspectivity } from '../core/ConsensusFusion';
+import { type ZoneProspectivity, applyEvidenceCeiling } from '../core/ConsensusFusion';
 import { type KnownOccurrencesResult } from '../core/mrdsService';
 import { Colors, Typography, Spacing, Radii, anomalyFromPct } from '../core/theme';
 import { buildPointInterpretationContext } from '../core/pointInterpretation';
 import { type RockProposal, type RockSource } from '../core/lithologyService';
 import { openExternalNavigation } from '../core/externalNav';
-import { materialLabel, resolveDisplayConfidence } from '../core/materialsCatalog';
+import { materialLabel, resolveDisplayConfidence, CONFIDENCE_META } from '../core/materialsCatalog';
 
 // Puntos de confianza: ●●●○ etc. — independientes del color (color = favorabilidad)
 const confidenceDots = (label: 'ALTA' | 'MEDIA' | 'BAJA') => {
@@ -42,8 +42,18 @@ interface ResultsPanelProps {
 }
 
 export default function ResultsPanel({
-  satelliteData, metalScores, analysisPoints, zoneProspectivity, knownOccurrences, selectedMineral, terrainType, areaHa, thermalData, rockType, rockSource, rockProposal, mapRef, onClose, onNavigateTo, onInterpret, collapsed, onToggleCollapsed,
+  satelliteData, metalScores, analysisPoints, zoneProspectivity: zoneProspectivityRaw, knownOccurrences, selectedMineral, terrainType, areaHa, thermalData, rockType, rockSource, rockProposal, mapRef, onClose, onNavigateTo, onInterpret, collapsed, onToggleCollapsed,
 }: ResultsPanelProps) {
+  // TECHO DE EVIDENCIA antes de pintar nada. El objeto puede venir RECIÉN CALCULADO
+  // (ya capado, y entonces esto no hace nada) o LEÍDO DE LA BASE — y los análisis
+  // guardados antes de esta versión traen `confidence_label: 'ALTA'` sin techo.
+  // Aplicarlo aquí evita que la tarjeta héroe siga diciendo ALTA mientras el badge de
+  // más abajo dice "De contexto": el mismo panel afirmaba las dos cosas a la vez.
+  const zoneProspectivity = useMemo(
+    () => applyEvidenceCeiling(zoneProspectivityRaw, selectedMineral),
+    [zoneProspectivityRaw, selectedMineral],
+  );
+
   const [legendOpen, setLegendOpen] = useState(false);
   const [techOpen, setTechOpen] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -363,15 +373,23 @@ export default function ResultsPanel({
 
         {/* Confianza honesta del material = min(intrínseca, cobertura real) */}
         {(() => {
-          const conf = resolveDisplayConfidence(selectedMineral, {
-            requiresDeep: selMs?.requires_deep,
-            syntheticWeightPct: selMs?.synthetic_weight_pct,
-            // Sube a "Media" solo con quality_ok (cobertura + roca expuesta). Si el
-            // térmico corrió y no es concluyente, la nota lo dice sin adornos.
-            thermal: thermalData
-              ? { quality_ok: thermalData.quality_ok, rock_pct: thermalData.rock_pct }
-              : null,
-          });
+          // MISMO techo que la tarjeta héroe de arriba: se lee el que `zp` ya calculó,
+          // no se recalcula. Recalcularlo aquí con `selMs` los desincronizaba, porque
+          // computeAllMetalScores solo cubre los 7 metales del panel: para mármol,
+          // caliza y demás no metálicos `selMs` es undefined, el % sintético llegaba
+          // como 0 y el badge decía "Media" mientras el héroe —que sí lo veía al
+          // 100%— decía BAJA. Exactamente la contradicción que este cambio elimina.
+          const level = zoneProspectivity?.ceiling_level;
+          const conf = level
+            ? { ...CONFIDENCE_META[level], note: zoneProspectivity?.ceiling_note }
+            : resolveDisplayConfidence(selectedMineral, {
+                // Sin análisis de zona todavía: se cae al cálculo directo.
+                requiresDeep: selMs?.requires_deep,
+                syntheticWeightPct: selMs?.synthetic_weight_pct,
+                thermal: thermalData
+                  ? { quality_ok: thermalData.quality_ok, rock_pct: thermalData.rock_pct }
+                  : null,
+              });
           return (
             <View style={styles.confRow}>
               <Text style={styles.confRowLabel}>CONFIANZA DE DETECCIÓN</Text>
