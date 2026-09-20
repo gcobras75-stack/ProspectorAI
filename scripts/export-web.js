@@ -47,6 +47,7 @@ replaceOnce(
     '<meta name="apple-mobile-web-app-status-bar-style" content="black" />',
     '<link rel="stylesheet" href="/vendor/leaflet.css" />',
     '<link rel="stylesheet" href="/vendor/leaflet-geoman.css" />',
+    '<link rel="stylesheet" href="/vendor/pwa-map.css" />',
     '<style>html,body{background:#000;overscroll-behavior:none}</style>',
     '</head>',
   ].join('\n  '),

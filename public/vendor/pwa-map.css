@@ -1,0 +1,175 @@
+/*
+ * pwa-map.css — estilo de los mapas de la PWA (dibujo y detalle): tema oscuro con acentos amarillos,
+ * igual que el resto de la app, y controles GRANDES para el dedo. Se carga DESPUÉS de leaflet.css y
+ * leaflet-geoman.css (ver scripts/export-web.js), por eso puede sobreescribirlos.
+ *
+ * El texto de cada herramienta (Rectángulo, Polígono, Editar, Mover, Borrar) y el tinte de sus íconos
+ * lo agrega web-lib/DrawMap.tsx (clases .pm-tool-label y .pm-tinted).
+ */
+
+/* ── Tokens ─────────────────────────────────────────────────────────────── */
+.leaflet-container {
+  --pm-bg: rgba(14, 14, 14, 0.95);
+  --pm-line: #2a2a2a;
+  --pm-gold: #ffd700;
+  --pm-text: #e8e8e8;
+  --pm-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--pm-font);
+}
+
+/* ── Zoom (+/−) ─────────────────────────────────────────────────────────── */
+.leaflet-control-zoom.leaflet-bar {
+  border: 1px solid var(--pm-line) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6) !important;
+  overflow: hidden;
+}
+.leaflet-touch .leaflet-control-zoom a,
+.leaflet-control-zoom a {
+  width: 46px !important;
+  height: 46px !important;
+  line-height: 44px !important;
+  font-size: 26px !important;
+  font-weight: 700;
+  background: var(--pm-bg) !important;
+  color: var(--pm-gold) !important;
+  border-bottom: 1px solid var(--pm-line) !important;
+}
+.leaflet-control-zoom a:last-child { border-bottom: 0 !important; }
+.leaflet-control-zoom a.leaflet-disabled { color: #6b6b6b !important; }
+
+/* ── Atribución y popups ────────────────────────────────────────────────── */
+.leaflet-container .leaflet-control-attribution {
+  background: rgba(0, 0, 0, 0.7) !important;
+  color: #b5b5b5 !important;
+  font-size: 10px;
+}
+.leaflet-container .leaflet-control-attribution a { color: var(--pm-gold) !important; }
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #141414 !important;
+  color: #eee !important;
+  border: 1px solid var(--pm-line);
+}
+.leaflet-popup-content { font-size: 13px; line-height: 1.45; }
+
+/* ── Barra de herramientas de dibujo (Geoman) ───────────────────────────── */
+.leaflet-pm-toolbar.leaflet-bar {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  margin-top: 10px;
+}
+.leaflet-pm-toolbar .button-container { margin-bottom: 6px; }
+.leaflet-pm-toolbar .button-container:last-child { margin-bottom: 0; }
+
+/* Cada herramienta: baldosa oscura de 68×64 con el ícono arriba y el texto abajo. */
+.leaflet-pm-toolbar .button-container a.leaflet-buttons-control-button {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 68px !important;
+  height: 64px !important;
+  padding: 6px 2px 5px !important;
+  line-height: normal !important;
+  background: var(--pm-bg) !important;
+  border: 1px solid var(--pm-line) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55) !important;
+  -webkit-tap-highlight-color: transparent;
+}
+.leaflet-pm-toolbar .button-container a.leaflet-buttons-control-button:hover,
+.leaflet-pm-toolbar .button-container a.leaflet-buttons-control-button:focus {
+  background: var(--pm-bg) !important;
+}
+.leaflet-pm-toolbar .button-container a.leaflet-buttons-control-button.pm-disabled { opacity: 0.45; }
+
+/* Ícono: la imagen gris de Geoman pasó a ser máscara → se pinta con color de texto. */
+.leaflet-pm-toolbar .control-icon.pm-tinted {
+  flex: none;
+  width: 28px !important;
+  height: 28px !important;
+  background-color: var(--pm-gold) !important;
+  background-image: none !important;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  filter: none !important;
+}
+.leaflet-pm-toolbar .pm-tool-label {
+  margin-top: 4px;
+  font: 700 11px/1.1 var(--pm-font);
+  letter-spacing: 0.2px;
+  color: var(--pm-text);
+  white-space: nowrap;
+}
+
+/* Herramienta activa: amarillo sólido, ícono y texto en negro. */
+.leaflet-pm-toolbar .button-container.active > a.leaflet-buttons-control-button {
+  background: var(--pm-gold) !important;
+  border-color: var(--pm-gold) !important;
+  box-shadow: none !important;
+}
+.leaflet-pm-toolbar .button-container.active .control-icon.pm-tinted { background-color: #000 !important; }
+.leaflet-pm-toolbar .button-container.active .pm-tool-label { color: #000; }
+
+/* Acciones de la herramienta activa (Finalizar / Cancelar / Eliminar último vértice):
+   fichas apiladas junto a la barra, con altura de dedo. */
+.button-container .leaflet-pm-actions-container {
+  left: calc(100% + 6px) !important;
+  top: 0 !important;
+  z-index: 5 !important;
+}
+.button-container.active .leaflet-pm-actions-container {
+  display: flex !important;
+  flex-direction: column;
+  gap: 6px;
+}
+.button-container .leaflet-pm-actions-container .leaflet-pm-action {
+  display: flex !important;
+  align-items: center;
+  width: auto !important;
+  height: 46px !important;
+  min-height: 46px;
+  padding: 0 16px !important;
+  border: 1px solid var(--pm-gold) !important;
+  border-radius: 12px !important;
+  background: var(--pm-bg) !important;
+  color: var(--pm-gold) !important;
+  font: 700 14px/1 var(--pm-font);
+  white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+  -webkit-tap-highlight-color: transparent;
+}
+.button-container .leaflet-pm-actions-container .leaflet-pm-action:hover,
+.button-container .leaflet-pm-actions-container .leaflet-pm-action:focus,
+.button-container .leaflet-pm-actions-container .leaflet-pm-action.active-action {
+  background: #2a2410 !important;
+}
+
+/* ── Vértices: zona táctil más grande (el punto se ve igual; el toque "atrapa" 38 px) ── */
+.marker-icon { position: absolute; border: 2px solid var(--pm-gold) !important; }
+.marker-icon::before,
+.marker-icon-middle::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+}
+/* Primer vértice mientras se traza un polígono: pulsa para indicar "toca aquí para cerrar". */
+.marker-icon.pm-first-vertex {
+  background: var(--pm-gold) !important;
+  border-color: #000 !important;
+  animation: pm-pulse 1.1s ease-out infinite;
+}
+@keyframes pm-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.8); }
+  100% { box-shadow: 0 0 0 18px rgba(255, 215, 0, 0); }
+}
+
+/* ── "Tu posición" (botón 📍) ────────────────────────────────────────────── */
+.pm-user-dot { background: transparent !important; border: 0 !important; }

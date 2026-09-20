@@ -14,7 +14,7 @@ import {
   View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Switch, StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import DrawMap, { type DrawHandle } from '../../web-lib/DrawMap';
+import DrawMap, { type DrawHandle, type LocateStatus } from '../../web-lib/DrawMap';
 import MaterialPicker from '../../web-lib/MaterialPicker';
 import { polygonAreaHa, type Coordinate } from '../../web-lib/geo';
 import { runAnalysis, AnalysisError, type AnalysisOutput } from '../../web-lib/runAnalysis';
@@ -53,6 +53,9 @@ export default function NuevoAnalisis() {
   const [coords, setCoords] = useState<Coordinate[] | null>(null);
   const [jump, setJump] = useState('');
   const [jumpError, setJumpError] = useState('');
+  // Trazo en curso (Geoman) y resultado del botón 📍: se muestran como avisos sobre el mapa.
+  const [drawingShape, setDrawingShape] = useState<string | null>(null);
+  const [locateStatus, setLocateStatus] = useState<LocateStatus | null>(null);
 
   const [mineral, setMineral] = useState(prefs.mineral);
   const [terrain, setTerrain] = useState(prefs.terrain);
@@ -99,6 +102,13 @@ export default function NuevoAnalisis() {
       setRockSource(proposal.source);
     })();
   }, [coords]);
+
+  // El aviso de "ubicación encontrada" se va solo; los errores se quedan más tiempo (o hasta cerrarlos).
+  useEffect(() => {
+    if (!locateStatus || locateStatus.state === 'searching') return;
+    const t = setTimeout(() => setLocateStatus(null), locateStatus.state === 'found' ? 4000 : 12000);
+    return () => clearTimeout(t);
+  }, [locateStatus]);
 
   const goJump = () => {
     const r = parseCoordinate(jump);
@@ -181,13 +191,36 @@ export default function NuevoAnalisis() {
             autoCapitalize="none" autoCorrect={false}
           />
           <TouchableOpacity style={s.jumpBtn} onPress={goJump}><Text style={s.jumpBtnText}>Ir</Text></TouchableOpacity>
-          <TouchableOpacity style={[s.jumpBtn, { marginLeft: 6 }]} onPress={() => drawRef.current?.locate()}><Text style={s.jumpBtnText}>📍</Text></TouchableOpacity>
+          <TouchableOpacity style={[s.jumpBtn, { marginLeft: 6 }]} onPress={() => drawRef.current?.locate()} accessibilityLabel="Mi ubicación"><Text style={s.jumpBtnText}>📍</Text></TouchableOpacity>
         </View>
         {!!jumpError && <Text style={s.jumpError}>{jumpError}</Text>}
 
         <View style={s.mapWrap}>
           <View style={[StyleSheet.absoluteFill, { zIndex: 0 }]}>
-            <DrawMap ref={drawRef} areaColor={areaColor} onChange={setCoords} />
+            <DrawMap ref={drawRef} areaColor={areaColor} onChange={setCoords} onDrawing={setDrawingShape} onLocate={setLocateStatus} />
+          </View>
+
+          {/* Avisos sobre el mapa (no capturan toques, salvo el de error, que se puede cerrar) */}
+          <View style={s.notices} pointerEvents="box-none">
+            {drawingShape === 'Polygon' && (
+              <View style={[s.notice, s.noticeDraw]} pointerEvents="none">
+                <Text style={s.noticeDrawText}>Toca el primer punto para cerrar la figura</Text>
+              </View>
+            )}
+            {locateStatus?.state === 'searching' && (
+              <View style={s.notice} pointerEvents="none"><Text style={s.noticeText}>📍 Buscando tu ubicación…</Text></View>
+            )}
+            {locateStatus?.state === 'found' && (
+              <View style={s.notice} pointerEvents="none">
+                <Text style={s.noticeText}>📍 Tu ubicación{locateStatus.accuracy > 0 ? ` (±${locateStatus.accuracy} m)` : ''}</Text>
+              </View>
+            )}
+            {locateStatus?.state === 'error' && (
+              <TouchableOpacity style={[s.notice, s.noticeError]} onPress={() => setLocateStatus(null)} activeOpacity={0.85}>
+                <Text style={s.noticeErrorText}>{locateStatus.message}</Text>
+                <Text style={s.noticeClose}>Toca para cerrar</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -305,6 +338,14 @@ const s = StyleSheet.create({
   jumpBtnText: { color: '#FFD700', fontWeight: '700' },
   jumpError: { color: '#FF6B6B', fontSize: 12, paddingHorizontal: 10, paddingBottom: 6, backgroundColor: '#0A0A0A' },
   mapWrap: { flex: 1 },
+  notices: { position: 'absolute', top: 10, left: 84, right: 66, zIndex: 300, alignItems: 'center' },
+  notice: { backgroundColor: 'rgba(14,14,14,0.95)', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 8, maxWidth: 420 },
+  noticeText: { color: '#EEE', fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  noticeDraw: { borderColor: '#FFD700', backgroundColor: '#FFD700' },
+  noticeDrawText: { color: '#000', fontSize: 15, fontWeight: '800', textAlign: 'center' },
+  noticeError: { borderColor: '#FF6B6B' },
+  noticeErrorText: { color: '#FF9B9B', fontSize: 13, lineHeight: 19, textAlign: 'center' },
+  noticeClose: { color: '#888', fontSize: 11, textAlign: 'center', marginTop: 6 },
   bar: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.94)', borderTopColor: '#FFD700', borderTopWidth: 2, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 14, zIndex: 100 },
   hint: { color: '#BBB', fontSize: 13, lineHeight: 19 },
   area: { fontSize: 18, fontWeight: '800' },
