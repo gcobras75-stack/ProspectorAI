@@ -8,6 +8,10 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { AuthProvider, useAuth } from '../app/core/AuthContext';
+import { installGeeAuth } from '../web-lib/geeAuth';
+
+// Envoltorio de fetch para el servidor GEE (token de app + motivo real de un 401/429). Ver geeAuth.ts.
+installGeeAuth();
 
 function RootNavigation() {
   const { session, loading } = useAuth();
@@ -33,6 +37,7 @@ function RootNavigation() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="proyecto/[id]" />
+      <Stack.Screen name="analisis/nuevo" />
       <Stack.Screen name="login" />
     </Stack>
   );

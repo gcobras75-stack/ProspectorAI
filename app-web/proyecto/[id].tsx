@@ -79,7 +79,7 @@ export default function ProyectoWeb() {
           <Text style={s.title} numberOfLines={1}>{project?.nombre ?? 'Proyecto'}</Text>
           {project && (
             <Text style={s.sub} numberOfLines={1}>
-              {[project.mineral, project.terrain, project.area_ha ? `${project.area_ha} ha` : '', project.acquisition_date].filter(Boolean).join(' · ')}
+              {[project.mineral, project.terrain, project.area_ha ? `${project.area_ha} ha` : '', project.acquisition_date, project.analysis_meta?.ranking_ia === false ? 'análisis web · sin ranking IA' : ''].filter(Boolean).join(' · ')}
             </Text>
           )}
         </View>

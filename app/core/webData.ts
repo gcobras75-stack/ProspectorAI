@@ -1,10 +1,17 @@
 /**
- * webData.ts — capa de datos de SOLO LECTURA para la PWA (demo/consulta).
+ * webData.ts — capa de datos de la PWA: lectura de proyectos/muestras y CREACIÓN de
+ * proyectos nuevos desde un análisis.
  *
  * La app nativa lee de SQLite local y sincroniza con Supabase; la PWA NO tiene
- * SQLite ni cola de sync: lee directo de Supabase con la sesión del usuario (RLS
- * `projects_own` / `samples_own` aísla por user_id). Aquí NO hay escrituras: ni
- * insert, ni update, ni delete, ni enqueueSync.
+ * SQLite ni cola de sync: habla directo con Supabase con la sesión del usuario (RLS
+ * `projects_own` / `samples_own` aísla por user_id).
+ *
+ * ESCRITURA: solo `createWebProject`, y es un INSERT de una fila nueva con client_id
+ * `web_…`. Nunca update/upsert/delete. Motivo: la app nativa solo INSERTA en su pull lo
+ * que le falta (no actualiza proyectos que ya tiene) y sube la fila completa cuando edita
+ * un proyecto, así que escribir sobre un proyecto existente se perdería o pisaría datos
+ * (chat_history, notas). Un proyecto nuevo lo recibe la app en su siguiente inicio de
+ * sesión y ya no lo pisa nadie.
  *
  * El mapeo remoto → modelo replica el de `upsertProjectFromRemote` /
  * `upsertSampleFromRemote` (Database.ts) para que la PWA vea exactamente lo mismo
@@ -37,6 +44,8 @@ export type WebProject = WebProjectSummary & {
   notas: string;
   chat_history: { role: string; content: any }[];
   reporte_geologo_texto: string;
+  /** Metadatos honestos del análisis hecho en la PWA (ranking_ia, fuentes que respondieron…). null si vino de la app. */
+  analysis_meta: any | null;
 };
 
 export type WebSample = {
@@ -121,6 +130,7 @@ export async function loadWebProject(clientId: string): Promise<WebProject | nul
     notas: d.notas || '',
     chat_history: asArray(d.chat_history),
     reporte_geologo_texto: d.reporte_geologo_texto || '',
+    analysis_meta: asObject(d.analysis_meta),
   };
 }
 
@@ -157,4 +167,66 @@ export async function loadWebSamples(projectClientId: string): Promise<WebSample
       validation_comment: d.validation_comment || '',
     };
   });
+}
+
+// ─── Escritura: proyecto nuevo desde un análisis de la PWA ───────────────────
+
+export type NewWebProject = {
+  name: string;
+  mineral: string;
+  terrain: string;
+  depth: string;
+  rock_type: string;
+  rock_source: string;
+  coordenadas: { latitude: number; longitude: number }[];
+  analisis_resultado: any[];
+  prospectivity: any;
+  area_ha: number;
+  satdata_source: string;
+  acquisition_date: string;
+  analysis_meta: any;
+};
+
+/** Id local estable con prefijo web_ (mismo estilo que los proj_… de la app nativa). */
+export function newWebClientId(): string {
+  return 'web_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+/**
+ * Crea un proyecto NUEVO. Devuelve su client_id. Es INSERT: si el id existiera (no debería),
+ * el índice único (user_id, client_id) rechaza la operación en vez de sobrescribir.
+ * La forma de la fila es la misma que SyncEngine.projectPayload, así que la app nativa la
+ * restaura con upsertProjectFromRemote sin cambios (analysis_meta va en el blob `data`,
+ * que la app ignora).
+ */
+export async function createWebProject(p: NewWebProject): Promise<string> {
+  const { data: sess } = await supabase.auth.getSession();
+  const userId = sess.session?.user?.id;
+  if (!userId) throw new Error('Tu sesión expiró. Inicia sesión de nuevo.');
+
+  const clientId = newWebClientId();
+  const { error } = await supabase.from('projects').insert({
+    user_id: userId,
+    client_id: clientId,
+    name: p.name,
+    mineral: p.mineral,
+    terrain: p.terrain,
+    rock_type: p.rock_type,
+    depth: p.depth,
+    area_ha: p.area_ha,
+    coordenadas: p.coordenadas,
+    analisis_resultado: p.analisis_resultado,
+    prospectivity: p.prospectivity,
+    data: {
+      notas: '',
+      rock_source: p.rock_source,
+      satdata_source: p.satdata_source,
+      acquisition_date: p.acquisition_date,
+      chat_history: [],
+      reporte_geologo_texto: '',
+      analysis_meta: p.analysis_meta,
+    },
+  });
+  if (error) throw new Error(error.message);
+  return clientId;
 }
