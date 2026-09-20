@@ -5,7 +5,7 @@
  * La sesión se restaura automáticamente al abrir la app (persistSession).
  */
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
@@ -49,7 +49,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (p && (p.deleted || p.active === false)) {
       setProfile(null);
       await supabase.auth.signOut();
-      Alert.alert('Cuenta suspendida', 'Tu cuenta fue suspendida. Contacta al administrador.');
+      // Alert.alert de react-native-web es un no-op: en web el aviso se perdería.
+      if (Platform.OS === 'web') window.alert('Tu cuenta fue suspendida. Contacta al administrador.');
+      else Alert.alert('Cuenta suspendida', 'Tu cuenta fue suspendida. Contacta al administrador.');
       return;
     }
     setProfile(p);
