@@ -15,7 +15,8 @@ import { useFocusEffect } from 'expo-router';
 import { listWebProjects, loadWebProject, loadWebSamples, type WebProjectSummary } from '../../app/core/webData';
 import { askVillegas, type ChatMsg } from '../../web-lib/villegasClient';
 import { buildProjectContext } from '../../web-lib/projectContext';
-import { getSelectedProjectId, setSelectedProjectId } from '../../web-lib/selection';
+import { getSelectedProjectId, setSelectedProjectId, takePendingInterpretation } from '../../web-lib/selection';
+import Markdown from '../../web-lib/Markdown';
 
 type UiMsg = ChatMsg & { error?: boolean; truncated?: boolean };
 
@@ -50,6 +51,25 @@ export default function GeologoWeb() {
     }
   }, []);
 
+  // Interpretación de UN punto (botón del panel de resultados): modo 'punto' del servidor, que
+  // usa el prompt de interpretación estricta. Solo manda los datos reales del punto.
+  const runPunto = useCallback(async (ctx: string) => {
+    const epoch = epochRef.current;
+    setMessages((m) => [...m.filter((x) => !x.error), { role: 'user', content: 'Interpretación del punto que elegí en el mapa.' }]);
+    setBusy(true);
+    try {
+      const { reply, truncated } = await askVillegas([{ role: 'user', content: ctx }], null, 'punto');
+      if (epoch !== epochRef.current) return;
+      setMessages((m) => [...m, { role: 'assistant', content: reply, truncated }]);
+    } catch (e: any) {
+      if (epoch === epochRef.current) {
+        setMessages((m) => [...m, { role: 'assistant', content: e?.message || 'No se pudo interpretar el punto.', error: true }]);
+      }
+    } finally {
+      if (epoch === epochRef.current) setBusy(false);
+    }
+  }, []);
+
   // Al enfocar la pestaña: refresca la lista y respeta el proyecto elegido en "Proyectos".
   useFocusEffect(useCallback(() => {
     let alive = true;
@@ -59,13 +79,15 @@ export default function GeologoWeb() {
         if (!alive) return;
         setProjects(list);
         const want = getSelectedProjectId();
-        if (want && want !== selId && list.some((p) => p.id === want)) selectProject(want);
+        if (want && want !== selId && list.some((p) => p.id === want)) await selectProject(want);
+        const pending = takePendingInterpretation();
+        if (pending && alive) runPunto(pending);
       } catch (e: any) {
         if (alive) { setProjects([]); setLoadError(e?.message || 'No se pudieron cargar los proyectos.'); }
       }
     })();
     return () => { alive = false; };
-  }, [selId, selectProject]));
+  }, [selId, selectProject, runPunto]));
 
   useEffect(() => { scrollRef.current?.scrollToEnd({ animated: true }); }, [messages, busy]);
 
@@ -141,7 +163,9 @@ export default function GeologoWeb() {
 
         {messages.map((m, i) => (
           <View key={i} style={[s.bubble, m.role === 'user' ? s.user : s.bot, m.error && s.err]}>
-            <Text selectable style={[s.bubbleText, m.error && { color: '#FF9B9B' }]}>{m.content}</Text>
+            {m.role === 'assistant' && !m.error
+              ? <Markdown>{m.content}</Markdown>
+              : <Text selectable style={[s.bubbleText, m.error && { color: '#FF9B9B' }]}>{m.content}</Text>}
             {m.truncated && (
               <Text style={s.trunc}>⚠ Respuesta recortada por longitud. Escribe «continúa» para que siga.</Text>
             )}

@@ -19,3 +19,16 @@ export function setSelectedProjectId(id: string | null): void {
     else window.localStorage.removeItem(KEY);
   } catch { /* storage bloqueado */ }
 }
+
+// ── Interpretación de un punto pendiente (ResultsPanel → pestaña Geólogo) ────────────────
+// Solo en memoria y de un solo uso: el detalle del proyecto la deja aquí, cambia de pestaña y
+// el chat la toma al enfocarse. Contiene los datos reales del punto (no es un prompt).
+let pendingInterpretation: string | null = null;
+
+export function setPendingInterpretation(ctx: string | null): void { pendingInterpretation = ctx; }
+
+export function takePendingInterpretation(): string | null {
+  const c = pendingInterpretation;
+  pendingInterpretation = null;
+  return c;
+}

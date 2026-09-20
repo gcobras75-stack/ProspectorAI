@@ -32,12 +32,24 @@ function RootNavigation() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="proyecto/[id]" />
       <Stack.Screen name="login" />
     </Stack>
   );
 }
 
+// Service worker (instalable + estáticos cacheados). Solo con HTTPS o localhost; si falla, la app sigue igual.
+function useServiceWorker() {
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const secure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+    if (!secure) return;
+    navigator.serviceWorker.register('/sw.js').catch(() => { /* sin SW no pasa nada */ });
+  }, []);
+}
+
 export default function RootLayout() {
+  useServiceWorker();
   return (
     <AuthProvider>
       <RootNavigation />

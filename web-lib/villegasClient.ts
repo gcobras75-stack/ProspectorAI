@@ -22,13 +22,15 @@ export type VillegasUsage = {
 export async function askVillegas(
   messages: ChatMsg[],
   context?: string | null,
+  mode: 'chat' | 'punto' = 'chat',
 ): Promise<{ reply: string; usage: VillegasUsage; truncated: boolean }> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('Tu sesión expiró. Inicia sesión de nuevo.');
 
-  const body: { messages: ChatMsg[]; context?: string } = { messages };
-  if (context) body.context = context;
+  const body: { messages: ChatMsg[]; context?: string; mode?: 'punto' } = { messages };
+  if (context && mode === 'chat') body.context = context;
+  if (mode === 'punto') body.mode = 'punto';
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
