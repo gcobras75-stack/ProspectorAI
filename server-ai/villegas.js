@@ -1,7 +1,7 @@
 'use strict';
 /**
  * villegas.js — lógica pura del endpoint POST /api/ai/villegas (chat del Ing. Villegas
- * para la PWA de consulta). Sin red ni Express: valida el body y arma el payload de
+ * para la PWA). Sin red ni Express: valida el body y arma el payload de
  * Anthropic, para poder probarlo aislado. index.js pone la auth, el rate limit y el fetch.
  *
  * DIFERENCIA CLAVE con /api/ai/chat: aquí el cliente NO manda `system`, `model` ni
@@ -44,10 +44,10 @@ Responde con:
 2. Significado geologico: que sistema mineral es compatible?
 3. Plan de campo: donde caminar primero y que buscar?`;
 
-// Canal web: el prompt base habla de "Botón Trazar", "Analizar", cámara, etc. Desde la
-// PWA nada de eso existe. Va en un SEGUNDO bloque de system, después del bloque cacheado,
+// Canal web: el prompt base describe el flujo de la app nativa ("Botón Trazar", cámara, modo
+// campo…). La PWA dibuja y analiza a su manera y no tiene cámara ni modo campo. Va en un SEGUNDO bloque de system, después del bloque cacheado,
 // así el prefijo cacheado sigue idéntico al de la app nativa.
-const WEB_CHANNEL_NOTE = `CANAL ACTUAL: el usuario te consulta desde la versión WEB de solo consulta de ProspectorAI (PWA). Ahí puede ver sus proyectos, resultados y mapa, pero NO puede trazar polígonos, correr análisis nuevos, tomar fotos ni registrar muestras: eso solo se hace en la app nativa (iPhone/Android). Cuando tu respuesta sugiera una de esas acciones, dile que se hace en la app nativa. Solo cuentas con los datos que se te entregan en la conversación; no inventes nada más.`;
+const WEB_CHANNEL_NOTE = `CANAL ACTUAL: el usuario te consulta desde la versión WEB (PWA) de ProspectorAI. Ahí puede ver sus proyectos, resultados y mapa, dibujar una zona y correr análisis nuevos (Proyectos → "＋ Nuevo análisis"; cada análisis crea un proyecto NUEVO y no lleva ranking por IA). NO puede tomar fotos, registrar muestras ni usar el modo campo o sin conexión: eso solo se hace en la app nativa (iPhone/Android). Cuando tu respuesta sugiera trazar o analizar, indícale el flujo web; para fotos, muestras o trabajo en campo, la app nativa. Solo cuentas con los datos que se te entregan en la conversación; no inventes nada más.`;
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
