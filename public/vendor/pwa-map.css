@@ -39,11 +39,19 @@
 .leaflet-control-zoom a.leaflet-disabled { color: #6b6b6b !important; }
 
 /* ── Atribución y popups ────────────────────────────────────────────────── */
+/* Atribución de Esri: OBLIGATORIA y visible (su licencia). Con ajuste de línea para que quepa en un teléfono. */
 .leaflet-container .leaflet-control-attribution {
-  background: rgba(0, 0, 0, 0.7) !important;
-  color: #b5b5b5 !important;
-  font-size: 10px;
+  background: rgba(0, 0, 0, 0.78) !important;
+  color: #dcdcdc !important;
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 3px 8px;
+  max-width: min(80vw, 440px);
+  white-space: normal;
+  text-align: right;
+  border-radius: 8px 0 0 0;
 }
+.leaflet-top.leaflet-right .leaflet-control-attribution { border-radius: 0 0 0 8px; margin-top: 0; }
 .leaflet-container .leaflet-control-attribution a { color: var(--pm-gold) !important; }
 .leaflet-popup-content-wrapper,
 .leaflet-popup-tip {

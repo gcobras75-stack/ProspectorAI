@@ -346,7 +346,8 @@ const s = StyleSheet.create({
   noticeError: { borderColor: '#FF6B6B' },
   noticeErrorText: { color: '#FF9B9B', fontSize: 13, lineHeight: 19, textAlign: 'center' },
   noticeClose: { color: '#888', fontSize: 11, textAlign: 'center', marginTop: 6 },
-  bar: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.94)', borderTopColor: '#FFD700', borderTopWidth: 2, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 14, zIndex: 100 },
+  // En flujo (NO superpuesta al mapa): así el borde inferior del mapa, donde va la atribución de Esri, siempre se ve.
+  bar: { backgroundColor: '#0A0A0A', borderTopColor: '#FFD700', borderTopWidth: 2, padding: 14 },
   hint: { color: '#BBB', fontSize: 13, lineHeight: 19 },
   area: { fontSize: 18, fontWeight: '800' },
   areaMsg: { fontSize: 12, marginTop: 4, lineHeight: 17 },

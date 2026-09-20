@@ -3,7 +3,7 @@
  *
  * Capas, con el mismo criterio que el mapa nativo: polígono dorado (borde #FFD700, relleno
  * 30 %), vértices numerados en azul claro, celdas analizadas como círculos dorados con su
- * rank, y muestras de campo. Tiles de OpenStreetMap (el mismo proveedor que la app nativa).
+ * rank, y muestras de campo. Base satelital: Esri World Imagery (ver baseLayer.ts).
  * El CSS de Leaflet se sirve desde /vendor/leaflet.css (ver +html.tsx).
  *
  * Todo texto de popups se arma con textContent (nada de innerHTML): los datos vienen de la
@@ -13,6 +13,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react
 import L from 'leaflet';
 import type { WebSample } from '../app/core/webData';
 import type { KnownOccurrence } from '../app/core/mrdsService';
+import { addBaseLayer } from './baseLayer';
 
 export type MapHandle = { flyTo: (lat: number, lng: number, zoom?: number) => void };
 
@@ -64,11 +65,10 @@ const LeafletMap = forwardRef<MapHandle, Props>(function LeafletMap({ vertices, 
   // Mapa: se crea una sola vez.
   useEffect(() => {
     if (!elRef.current || mapRef.current) return;
-    const map = L.map(elRef.current, { preferCanvas: true, zoomControl: true, worldCopyJump: true }).setView([23.5, -103], 5);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
-    }).addTo(map);
+    // Atribución ARRIBA a la derecha: el panel de resultados tapa el borde inferior del mapa y Esri exige que se vea.
+    const map = L.map(elRef.current, { preferCanvas: true, zoomControl: true, worldCopyJump: true, attributionControl: false }).setView([23.5, -103], 5);
+    L.control.attribution({ position: 'topright' }).addTo(map);
+    addBaseLayer(map); // Esri World Imagery
     layerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
 

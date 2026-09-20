@@ -24,3 +24,15 @@ Pendientes anotados, sin investigar todavía. Cada uno se revisa en una sesión 
 - **Síntoma (2026-09-20):** `POST /api/structural/grid` devuelve 500 `{"cells":[],"error":"Image.load: Asset 'COPERNICUS/DEM/GLO30' is not an Image."}` para cualquier zona (probado en 3 ha y en 822 ha). Con el análisis profundo, la fuente estructural nunca aporta: sin `structuralScore`, sin "Estructura ✓" y sin `PRIORITY_TARGET` (que exige S2+ASTER+estructura). Afecta a la app nativa igual que a la PWA (ambas caen en silencio a "sin datos").
 - **Causa localizada (sin tocar):** `index.js:468` de `prospector-gee-server` hace `ee.Image('COPERNICUS/DEM/GLO30')`, pero ese asset es una `ImageCollection`. Arreglo probable: `ee.ImageCollection('COPERNICUS/DEM/GLO30').select('DSM').mosaic().clip(region)`.
 - **Ojo:** el servidor lo comparten AgroCrop y ProspectorAI; cambiarlo va por `develop` (staging) y merge a `master` solo con OK humano (regla de la casa del repo del servidor). Verificar también que el resto del handler (ventana S1, pendiente) funciona una vez cargado el DEM.
+
+## Mapas de la PWA
+
+### Esri World Imagery (gratuito) como base satelital — riesgo de continuidad
+- **Esri World Imagery gratuito puede desactivarse sin aviso — evaluar migrar a ArcGIS Location Platform con clave antes de tráfico real sostenido.**
+- **Estado (2026-09-20):** los dos mapas de la PWA (dibujo y detalle) usan `https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}` sin clave (servicio "legacy"). Punto único de cambio: `web-lib/baseLayer.ts`.
+- **Atribución obligatoria** (licencia Esri Master License Agreement): visible en ambos mapas ("Powered by Esri · Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community"). En el detalle va arriba a la derecha porque el panel de resultados tapa el borde inferior. Si se cambia el layout, mantenerla visible.
+- **No usar para descarga/uso sin conexión** (la ficha del servicio lo excluye): el service worker no cachea teselas y no hay pre-descarga.
+- **Zoom:** en zonas rurales de México hay imagen real hasta z18; desde z19 Esri devuelve un mosaico gris "Map data not yet available" (verificado en Sinaloa y BCS). Por eso `maxNativeZoom: 18` (se amplía z18 en 19–20).
+- **No es idéntica a la app nativa:** la nativa usa el mapa satelital/híbrido de la plataforma (`react-native-maps` sin `provider`: Apple Maps en iPhone). Igualarla exigiría Apple MapKit JS (Apple Developer Program + JWT firmado en servidor) y reemplazar Leaflet/Geoman. Decisión del usuario: "parecida y satelital de verdad".
+- **Sin etiquetas** (calles/poblados) a diferencia del modo "híbrido" nativo. Si se necesitan: capas de referencia de Esri (p. ej. `World_Boundaries_and_Places`), con su propia atribución; evaluar junto con la migración a ArcGIS Location Platform.
+- **OpenStreetMap** ya no se usa en la PWA (su política no garantiza servicio ni permite uso intensivo). La app nativa sigue con su overlay OSM opcional.

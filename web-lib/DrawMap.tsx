@@ -17,6 +17,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react
 import L from 'leaflet';
 import type {} from '@geoman-io/leaflet-geoman-free';
 import type { Coordinate } from './geo';
+import { addBaseLayer } from './baseLayer';
 
 if (typeof window !== 'undefined') {
   (window as any).L = L;
@@ -186,10 +187,7 @@ const DrawMap = forwardRef<DrawHandle, Props>(function DrawMap({ areaColor, onCh
     // Zoom arriba a la derecha: la izquierda queda libre para la barra de herramientas grande.
     const map = L.map(elRef.current, { zoomControl: false, worldCopyJump: true }).setView([23.5, -103], 5);
     L.control.zoom({ position: 'topright', zoomInTitle: 'Acercar', zoomOutTitle: 'Alejar' }).addTo(map);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
-    }).addTo(map);
+    addBaseLayer(map); // Esri World Imagery + su atribución obligatoria (visible abajo a la derecha)
     mapRef.current = map;
 
     // Capa propia (por encima del polígono y sin capturar toques) para "tu posición".
