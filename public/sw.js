@@ -9,7 +9,7 @@
  *
  * Subir VERSION invalida los cachés anteriores (se borran en `activate`).
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const STATIC_CACHE = `prospector-static-${VERSION}`;
 const SHELL_CACHE = `prospector-shell-${VERSION}`;
 const SHELL_URLS = ['/', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png', '/vendor/leaflet.css'];
