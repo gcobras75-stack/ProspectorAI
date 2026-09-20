@@ -155,8 +155,13 @@ function buildAnthropicPayload({ mode, context, messages }) {
     { type: 'text', text: GEOLOGO_SYSTEM, cache_control: { type: 'ephemeral', ttl: '1h' } },
     { type: 'text', text: WEB_CHANNEL_NOTE },
   ];
+  // Las instrucciones "Responde con: 1. 2. 3." solo van cuando el contexto es el ÚNICO turno de
+  // usuario (petición inicial: sin mensajes, o historial que arranca con la respuesta del
+  // asistente, como en la app nativa). Si el usuario ya trae su propia pregunta, la cola la
+  // desplazaba: el modelo devolvía la interpretación completa e ignoraba lo preguntado.
+  const contextIsOnlyUserTurn = messages.length === 0 || messages[0].role === 'assistant';
   const finalMessages = context
-    ? [{ role: 'user', content: context + CONTEXT_TAIL }, ...messages]
+    ? [{ role: 'user', content: context + (contextIsOnlyUserTurn ? CONTEXT_TAIL : '') }, ...messages]
     : messages;
   return { model: MODEL, max_tokens: maxTokens, system, messages: finalMessages };
 }
