@@ -5,6 +5,8 @@
  * NO tiene nada de GEE/AgroCrop. Solo:
  *   GET  /health          → status
  *   POST /api/ai/chat     → valida token Supabase → rate limit → Anthropic
+ *   POST /api/ai/villegas → chat del Ing. Villegas para la PWA: el cliente manda SOLO
+ *                           mensajes; el system prompt se arma aquí (ver villegas.js)
  *
  * Variables de entorno (se configuran en Railway, nunca en el cliente):
  *   ANTHROPIC_API_KEY          — clave del servidor (NUEVA, no la vieja expuesta)
@@ -18,6 +20,7 @@
  */
 const express = require('express');
 const cors    = require('cors');
+const { validateBody, buildAnthropicPayload, estimateTokens } = require('./villegas');
 
 const app  = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -52,7 +55,10 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 app.use(cors({ origin: allowedOrigins, methods: ['GET', 'POST', 'OPTIONS'] }));
 // Las consultas de IA pueden traer imágenes en base64 (foto de roca / chat) → límite alto.
-app.use(express.json({ limit: '25mb' }));
+const jsonBig = express.json({ limit: '25mb' });
+// /api/ai/villegas (PWA) solo recibe texto: lleva su propio parser con tope de 256 KB.
+// Sin este desvío el parser global de 25 MB correría primero y anularía ese tope.
+app.use((req, res, next) => (req.path === '/api/ai/villegas' ? next() : jsonBig(req, res, next)));
 
 // ── Helpers Supabase ─────────────────────────────────────────────────────────
 async function supabaseUser(token) {
@@ -225,6 +231,92 @@ app.post('/api/ai/chat', async (req, res) => {
     console.error('[/api/ai/chat]', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Chat del Ing. Villegas para la PWA ───────────────────────────────────────
+// El bundle web NUNCA lleva el system prompt: el cliente manda solo mensajes (y
+// opcionalmente un bloque de datos `context`); aquí se valida, se arma el prompt,
+// se aplica el mismo rate limit/presupuesto de tokens que /api/ai/chat y se llama a
+// Anthropic. Respuesta: { reply, usage }. Errores: { error } (mismo formato que /chat).
+app.post('/api/ai/villegas', express.json({ limit: '256kb' }), async (req, res) => {
+  try {
+    if (!ANTHROPIC_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      return res.status(500).json({ error: 'Servidor IA no configurado (faltan variables de entorno).' });
+    }
+
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (!token) return res.status(401).json({ error: 'Falta el token de sesión.' });
+
+    const user = await supabaseUser(token);
+    if (!user || !user.id) return res.status(403).json({ error: 'Sesión inválida. Inicia sesión de nuevo.' });
+
+    const profile = await supabaseProfile(user.id);
+    if (profile && (profile.deleted === true || profile.active === false)) {
+      return res.status(403).json({ error: 'Cuenta suspendida.' });
+    }
+    const isAdmin = !!profile && profile.role === 'admin';
+
+    // Se valida DESPUÉS de autenticar: un anónimo no puede ni sondear el formato.
+    const parsed = validateBody(req.body);
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const payload = buildAnthropicPayload(parsed.value);
+
+    if (!isAdmin) {
+      const usage = await checkAiUsage(user.id, AI_DAILY_LIMIT, AI_DAILY_TOKENS, estimateTokens(payload));
+      if (!usage.ok) return res.status(429).json({ error: usage.reason });
+    }
+
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(80_000),
+    });
+    const raw = await anthropicRes.text();
+    let data = null;
+    try { data = JSON.parse(raw); } catch { /* cuerpo no JSON */ }
+
+    if (!anthropicRes.ok || !data) {
+      // Detalle solo en logs del servidor; al cliente, un mensaje genérico.
+      console.error(`[/api/ai/villegas] Anthropic ${anthropicRes.status}: ${raw.slice(0, 300)}`);
+      const status = anthropicRes.status === 429 ? 429 : anthropicRes.status === 529 ? 503 : 502;
+      return res.status(status).json({ error: 'El Ing. Villegas no pudo responder ahora. Intenta de nuevo en un momento.' });
+    }
+
+    const reply = (Array.isArray(data.content) ? data.content : [])
+      .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text)
+      .join('');
+    if (!reply) return res.status(502).json({ error: 'El Ing. Villegas devolvió una respuesta vacía. Intenta de nuevo.' });
+
+    const u = data.usage || {};
+    const usageOut = {
+      input_tokens: u.input_tokens ?? 0,
+      output_tokens: u.output_tokens ?? 0,
+      cache_creation_input_tokens: u.cache_creation_input_tokens ?? 0,
+      cache_read_input_tokens: u.cache_read_input_tokens ?? 0,
+    };
+    // Telemetría mínima (sin contenido de mensajes): tokens reales por llamada.
+    console.log(`[villegas] mode=${parsed.value.mode} uid=${user.id} in=${usageOut.input_tokens} out=${usageOut.output_tokens} cache_w=${usageOut.cache_creation_input_tokens} cache_r=${usageOut.cache_read_input_tokens}`);
+    res.json({ reply, usage: usageOut });
+  } catch (err) {
+    console.error('[/api/ai/villegas]', err.message);
+    res.status(500).json({ error: 'Error interno del servidor de IA.' });
+  }
+});
+
+// JSON mal formado / cuerpo demasiado grande en /villegas → 400/413 en JSON (no HTML de Express).
+app.use('/api/ai/villegas', (err, _req, res, _next) => {
+  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'La petición es demasiado grande.' });
+  if (err && (err.type === 'entity.parse.failed' || err instanceof SyntaxError)) return res.status(400).json({ error: 'JSON mal formado.' });
+  console.error('[/api/ai/villegas] middleware:', err && err.message);
+  res.status(500).json({ error: 'Error interno del servidor de IA.' });
 });
 
 // ── Redirecciones de invitación (los links exp:// no son clicables en WhatsApp) ──
