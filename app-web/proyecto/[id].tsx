@@ -1,9 +1,9 @@
 /**
- * proyecto/[id].tsx — detalle de un proyecto (solo lectura): mapa Leaflet + ResultsPanel.
+ * proyecto/[id].tsx — detalle de un proyecto (lectura): mapa Leaflet + ResultsPanel.
  *
  * ResultsPanel y ScoreCard son los MISMOS componentes de la app nativa (mismo techo de
  * evidencia, mismas etiquetas de confianza): no se reimplementa ninguna lógica de score.
- * Lo que la PWA no tiene (satelliteData crudo, yacimientos MRDS en vivo, térmico) se pasa
+ * Lo que la PWA no guarda (satelliteData crudo, térmico) se pasa
  * como null y el panel ya lo maneja; nada se inventa para rellenarlo.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -13,6 +13,7 @@ import ResultsPanel from '../../app/components/ResultsPanel';
 import { computeAllMetalScores, type MetalScore } from '../../app/core/GeologicalEngine';
 import { loadWebProject, loadWebSamples, type WebProject, type WebSample } from '../../app/core/webData';
 import LeafletMap, { type MapHandle } from '../../web-lib/LeafletMap';
+import { fetchKnownOccurrences, type KnownOccurrencesResult } from '../../app/core/mrdsService';
 import { setSelectedProjectId, setPendingInterpretation } from '../../web-lib/selection';
 
 export default function ProyectoWeb() {
@@ -25,6 +26,7 @@ export default function ProyectoWeb() {
   const [error, setError] = useState('');
   const [collapsed, setCollapsed] = useState(width < 700); // en móvil el mapa manda; el panel se abre con un toque
   const mapHandle = useRef<MapHandle>(null);
+  const [occurrences, setOccurrences] = useState<KnownOccurrencesResult | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -45,6 +47,20 @@ export default function ProyectoWeb() {
   }, [id]);
 
   const points = project?.analisis_resultado ?? [];
+
+  // Yacimientos conocidos (USGS MRDS) alrededor de la zona. En segundo plano: nunca bloquea ni rompe
+  // el detalle (si falla, el panel lo dice; no se confunde con "0 yacimientos").
+  useEffect(() => {
+    setOccurrences(null);
+    const vs = (project?.coordenadas ?? []).filter((v: any) => Number.isFinite(v?.latitude) && Number.isFinite(v?.longitude));
+    if (vs.length === 0) return;
+    let alive = true;
+    const lats = vs.map((v: any) => v.latitude), lngs = vs.map((v: any) => v.longitude);
+    fetchKnownOccurrences({ latMin: Math.min(...lats), latMax: Math.max(...lats), lngMin: Math.min(...lngs), lngMax: Math.max(...lngs) })
+      .then((r) => { if (alive) setOccurrences(r); })
+      .catch(() => { /* MRDS no debe romper el detalle */ });
+    return () => { alive = false; };
+  }, [project?.id]);
 
   // Mismo cálculo que la app nativa sobre los puntos guardados. Si un análisis viejo no trae
   // índices, no hay tarjetas de metal (no se fabrican).
@@ -79,7 +95,17 @@ export default function ProyectoWeb() {
           <Text style={s.title} numberOfLines={1}>{project?.nombre ?? 'Proyecto'}</Text>
           {project && (
             <Text style={s.sub} numberOfLines={1}>
-              {[project.mineral, project.terrain, project.area_ha ? `${project.area_ha} ha` : '', project.acquisition_date].filter(Boolean).join(' · ')}
+              {[project.mineral, project.terrain, project.area_ha ? `${project.area_ha} ha` : '', project.acquisition_date, project.analysis_meta?.ranking_ia === false ? 'análisis web · sin ranking IA' : ''].filter(Boolean).join(' · ')}
+            </Text>
+          )}
+          {project?.analysis_meta?.origen === 'pwa' && (
+            <Text style={s.src} numberOfLines={2}>
+              Fuentes: {[
+                project.analysis_meta.fuentes?.s2 && 'Sentinel-2', project.analysis_meta.fuentes?.aster && 'ASTER',
+                project.analysis_meta.fuentes?.emit && 'EMIT', project.analysis_meta.fuentes?.s1 && 'Sentinel-1/DEM',
+                project.analysis_meta.fuentes?.thermal && 'Térmico',
+              ].filter(Boolean).join(' · ')}
+              {(project.analysis_meta.notas ?? []).length > 0 ? `  ·  ${project.analysis_meta.notas.join(' ')}` : ''}
             </Text>
           )}
         </View>
@@ -93,13 +119,13 @@ export default function ProyectoWeb() {
         <View style={s.body}>
           {/* zIndex 0 aísla los panes de Leaflet (z-index hasta 1000) para que el panel quede encima */}
           <View style={[StyleSheet.absoluteFill, { zIndex: 0 }]}>
-            <LeafletMap ref={mapHandle} vertices={project.coordenadas} points={points} samples={samples} />
+            <LeafletMap ref={mapHandle} vertices={project.coordenadas} points={points} samples={samples} occurrences={occurrences?.occurrences} />
           </View>
 
           {points.length === 0 ? (
             <View style={s.banner}>
               <Text style={s.bannerText}>
-                Este proyecto no tiene celdas analizadas. Los análisis se corren en la app nativa.
+                Este proyecto no tiene celdas analizadas. Para correr un análisis, dibuja una zona en Proyectos → ＋ Nuevo análisis (crea un proyecto nuevo).
               </Text>
             </View>
           ) : (
@@ -108,7 +134,7 @@ export default function ProyectoWeb() {
               metalScores={metalScores}
               analysisPoints={points}
               zoneProspectivity={project.prospectivity}
-              knownOccurrences={null}
+              knownOccurrences={occurrences}
               selectedMineral={project.mineral}
               terrainType={project.terrain}
               areaHa={String(project.area_ha || '')}
@@ -136,6 +162,7 @@ const s = StyleSheet.create({
   backText: { color: '#FFD700', fontSize: 16, fontWeight: '700' },
   title: { color: '#FFF', fontSize: 17, fontWeight: '800' },
   sub: { color: '#888', fontSize: 12, marginTop: 1 },
+  src: { color: '#6F6F6F', fontSize: 11, marginTop: 2 },
   msg: { color: '#AAA', padding: 20, fontSize: 14 },
   body: { flex: 1 },
   banner: { position: 'absolute', left: 12, right: 12, bottom: 16, backgroundColor: 'rgba(0,0,0,0.9)', borderColor: '#FFD70066', borderWidth: 1, borderRadius: 12, padding: 12, zIndex: 100 },

@@ -12,6 +12,7 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import L from 'leaflet';
 import type { WebSample } from '../app/core/webData';
+import type { KnownOccurrence } from '../app/core/mrdsService';
 
 export type MapHandle = { flyTo: (lat: number, lng: number, zoom?: number) => void };
 
@@ -19,6 +20,8 @@ type Props = {
   vertices: { latitude: number; longitude: number }[];
   points: any[];
   samples: WebSample[];
+  /** Yacimientos conocidos (USGS MRDS), marcadores azules como en la app nativa. */
+  occurrences?: KnownOccurrence[];
 };
 
 const GOLD = '#FFD700';
@@ -48,7 +51,7 @@ function numberedIcon(rawLabel: string, bg: string, size: number, fontSize: numb
   });
 }
 
-const LeafletMap = forwardRef<MapHandle, Props>(function LeafletMap({ vertices, points, samples }, ref) {
+const LeafletMap = forwardRef<MapHandle, Props>(function LeafletMap({ vertices, points, samples, occurrences }, ref) {
   const elRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
@@ -120,11 +123,17 @@ const LeafletMap = forwardRef<MapHandle, Props>(function LeafletMap({ vertices, 
       bounds.push([s.lat, s.lng]);
     });
 
+    // MRDS: dibujado al final y SIN sumar al encuadre (no deben alejar el zoom del polígono).
+    (occurrences ?? []).filter((o) => isNum(o.lat) && isNum(o.lng)).forEach((o) => {
+      L.circleMarker([o.lat, o.lng], { radius: 7, color: '#0A0A0A', weight: 1.5, fillColor: '#4FC3F7', fillOpacity: 1 })
+        .bindPopup(popupEl([o.name || 'Yacimiento', [o.commodity, o.status].filter(Boolean).join(' · ') || 'USGS MRDS'])).addTo(group);
+    });
+
     if (bounds.length > 0 && !fittedRef.current) {
       map.fitBounds(L.latLngBounds(bounds), { padding: [30, 30], maxZoom: 17 });
       fittedRef.current = true;
     }
-  }, [vertices, points, samples]);
+  }, [vertices, points, samples, occurrences]);
 
   return <div ref={elRef} style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, background: '#111' }} />;
 });

@@ -1,13 +1,17 @@
 /**
  * _layout.web.tsx — layout raíz de la PWA (solo web; la app nativa usa _layout.tsx).
  *
- * Sin SyncEngine, sin reanimated, sin BadgeContext: la PWA es de solo lectura.
+ * Sin SyncEngine, sin reanimated, sin BadgeContext: la PWA no sincroniza: lee y escribe directo en Supabase (proyectos nuevos web_…).
  * Guard de sesión: sin sesión → /login; con sesión estando en /login → app.
  */
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { AuthProvider, useAuth } from '../app/core/AuthContext';
+import { installGeeAuth } from '../web-lib/geeAuth';
+
+// Envoltorio de fetch para el servidor GEE (token de app + motivo real de un 401/429). Ver geeAuth.ts.
+installGeeAuth();
 
 function RootNavigation() {
   const { session, loading } = useAuth();
@@ -33,6 +37,7 @@ function RootNavigation() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="proyecto/[id]" />
+      <Stack.Screen name="analisis/nuevo" />
       <Stack.Screen name="login" />
     </Stack>
   );

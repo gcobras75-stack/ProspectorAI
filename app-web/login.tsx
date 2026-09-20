@@ -1,5 +1,5 @@
 /**
- * login.web.tsx — acceso a la PWA. SOLO inicio de sesión de cuentas existentes:
+ * login.tsx — acceso a la PWA. SOLO inicio de sesión de cuentas existentes:
  * sin registro, sin código de invitación (decisión de producto para el demo).
  */
 import React, { useState } from 'react';
@@ -32,7 +32,7 @@ export default function LoginWeb() {
     <View style={s.root}>
       <View style={s.card}>
         <Text style={s.brand}>ProspectorAI</Text>
-        <Text style={s.sub}>Consulta de proyectos</Text>
+        <Text style={s.sub}>Análisis y consulta de proyectos</Text>
 
         <Text style={s.label}>Correo</Text>
         <TextInput
@@ -55,7 +55,7 @@ export default function LoginWeb() {
         <TouchableOpacity style={[s.btn, busy && { opacity: 0.6 }]} onPress={submit} disabled={busy}>
           {busy ? <ActivityIndicator color="#000" /> : <Text style={s.btnText}>Entrar</Text>}
         </TouchableOpacity>
-        <Text style={s.hint}>Versión de consulta. La captura de campo y los análisis nuevos se hacen en la app.</Text>
+        <Text style={s.hint}>Versión web: dibuja zonas, corre análisis y consulta tus proyectos. La captura de campo (fotos, muestras, modo sin conexión) es solo de la app nativa.</Text>
       </View>
     </View>
   );

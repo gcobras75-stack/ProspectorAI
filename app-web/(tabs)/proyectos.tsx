@@ -1,5 +1,5 @@
 /**
- * proyectos.tsx (PWA) — lista de proyectos de la cuenta (solo lectura). Al tocar uno abre
+ * proyectos.tsx (PWA) — lista de proyectos de la cuenta y acceso a "Nuevo análisis". Al tocar uno abre
  * el detalle (mapa + resultados) en /proyecto/[id]. La lista es ligera: no descarga las
  * celdas analizadas; eso lo hace el detalle.
  */
@@ -42,6 +42,10 @@ export default function ProyectosWeb() {
       </View>
       <Text style={s.muted}>{session?.user?.email}</Text>
 
+      <TouchableOpacity style={s.newBtn} onPress={() => router.push('/analisis/nuevo' as any)} activeOpacity={0.85}>
+        <Text style={s.newBtnText}>＋ Nuevo análisis</Text>
+      </TouchableOpacity>
+
       {!!error && <Text style={s.error}>{error}</Text>}
       {projects === null && <ActivityIndicator color="#FFD700" style={{ marginTop: 24 }} />}
       {projects?.length === 0 && !error && <Text style={s.muted}>Sin proyectos sincronizados en esta cuenta.</Text>}
@@ -71,4 +75,6 @@ const s = StyleSheet.create({
   card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 12, padding: 14, marginTop: 12 },
   cardTitle: { color: '#FFF', fontSize: 16, fontWeight: '700' },
   chev: { color: '#FFD700', fontSize: 26, marginLeft: 8 },
+  newBtn: { backgroundColor: '#FFD700', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 14 },
+  newBtnText: { color: '#000', fontWeight: '800', fontSize: 16 },
 });

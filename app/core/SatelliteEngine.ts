@@ -11,6 +11,7 @@
  */
 
 import { saveSpectralCache, loadSpectralCache } from './Database';
+import { geeAuthHeaders } from './geeAuth';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -147,10 +148,17 @@ function getServerUrl(): string {
   return 'https://prospector-gee-server-production.up.railway.app';
 }
 
-function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  // JWT de la sesión de Supabase (identidad por usuario en las rutas de minería del servidor). Se lee
+  // ANTES de armar el temporizador para que no consuma el timeout de la petición. Sin sesión: sin cabecera.
+  const auth = await geeAuthHeaders();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+  return fetch(url, {
+    ...options,
+    headers: { ...(options.headers as Record<string, string> | undefined), ...auth },
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timer));
 }
 
 function toGeoJSONCoords(coords: Array<{ latitude: number; longitude: number }>): number[][] {
