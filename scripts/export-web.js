@@ -1,5 +1,5 @@
 /**
- * export-web.js — build de la PWA de consulta:  node scripts/export-web.js
+ * export-web.js — build de la PWA:  node scripts/export-web.js
  *
  * 1) `expo export -p web` con PROSPECTOR_WEB=1 (raíz del router = app-web/, ver app.config.js
  *    y metro.config.js) hacia dist-web/.
@@ -34,7 +34,7 @@ replaceOnce(
   '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, shrink-to-fit=no" />',
   'meta viewport',
 );
-replaceOnce('<title>ProspectorAI</title>', '<title>ProspectorAI</title>\n    <meta name="description" content="Consulta de proyectos, mapa y chat con el Ing. Villegas." />', '<title>');
+replaceOnce('<title>ProspectorAI</title>', '<title>ProspectorAI</title>\n    <meta name="description" content="Dibuja zonas, corre análisis satelitales, consulta tus proyectos y chatea con el Ing. Villegas." />', '<title>');
 replaceOnce(
   '</head>',
   [

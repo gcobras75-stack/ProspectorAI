@@ -133,6 +133,7 @@ export async function runAnalysis(
       if (coverage.coverage_ok) {
         const aster = await fetchMiningAsterGrid(coords, { cell_size_m: cellSizeM });
         if (aster.has_coverage && aster.data_source !== 'NO_DATA_OFFLINE') asterResult = aster;
+        else notas.push('ASTER: sin datos utilizables en esta zona.');
       } else {
         notas.push('ASTER: sin cobertura en esta zona; análisis con Sentinel-2 y las demás fuentes.');
       }
@@ -143,6 +144,7 @@ export async function runAnalysis(
       onStep('Consultando EMIT hiperespectral…');
       const emit = await fetchEmitGrid(coords.map(c => ({ lat: c.latitude, lng: c.longitude })), { cell_size_m: cellSizeM });
       if (emit.data_source !== 'NO_DATA_OFFLINE') emitResult = emit;
+      else notas.push('EMIT: sin datos para esta zona.');
     } catch { notas.push('EMIT: no respondió.'); }
     check();
 
@@ -150,6 +152,7 @@ export async function runAnalysis(
       onStep('Consultando Sentinel-1 + DEM…');
       const structural = await fetchStructuralGrid(coords.map(c => ({ lat: c.latitude, lng: c.longitude })), { cell_size_m: cellSizeM });
       if (structural.data_source !== 'NO_DATA_OFFLINE') structuralResult = structural;
+      else notas.push('Sentinel-1/DEM: sin datos para esta zona.');
     } catch { notas.push('Sentinel-1/DEM: no respondió.'); }
     check();
 

@@ -1,7 +1,7 @@
 /**
  * _layout.web.tsx — layout raíz de la PWA (solo web; la app nativa usa _layout.tsx).
  *
- * Sin SyncEngine, sin reanimated, sin BadgeContext: la PWA es de solo lectura.
+ * Sin SyncEngine, sin reanimated, sin BadgeContext: la PWA no sincroniza: lee y escribe directo en Supabase (proyectos nuevos web_…).
  * Guard de sesión: sin sesión → /login; con sesión estando en /login → app.
  */
 import { Stack, useRouter, useSegments } from 'expo-router';

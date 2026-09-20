@@ -2,7 +2,7 @@
   "id": "/",
   "name": "ProspectorAI",
   "short_name": "Prospector",
-  "description": "Consulta de proyectos, mapa y chat con el Ing. Villegas. La captura de campo se hace en la app nativa.",
+  "description": "Dibuja zonas, corre análisis satelitales, consulta tus proyectos y chatea con el Ing. Villegas. La captura de campo (fotos y muestras) es de la app nativa.",
   "lang": "es",
   "start_url": "/",
   "scope": "/",

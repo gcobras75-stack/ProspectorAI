@@ -1,5 +1,5 @@
 /**
- * proyectos.tsx (PWA) — lista de proyectos de la cuenta (solo lectura). Al tocar uno abre
+ * proyectos.tsx (PWA) — lista de proyectos de la cuenta y acceso a "Nuevo análisis". Al tocar uno abre
  * el detalle (mapa + resultados) en /proyecto/[id]. La lista es ligera: no descarga las
  * celdas analizadas; eso lo hace el detalle.
  */

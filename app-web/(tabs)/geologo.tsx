@@ -1,5 +1,5 @@
 /**
- * geologo.tsx (PWA) — chat con el Ing. Villegas, de solo consulta.
+ * geologo.tsx (PWA) — chat con el Ing. Villegas.
  *
  * Consume POST /api/ai/villegas: el cliente manda mensajes + un bloque de DATOS del
  * proyecto elegido; el prompt vive en el servidor. La conversación es solo de esta
@@ -117,7 +117,7 @@ export default function GeologoWeb() {
     <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={s.head}>
         <Text style={s.title}>Ing. Villegas</Text>
-        <Text style={s.muted}>Asistente geológico de IA · versión de consulta</Text>
+        <Text style={s.muted}>Asistente geológico de IA · versión web</Text>
       </View>
 
       {projects === null && <ActivityIndicator color="#FFD700" style={{ marginTop: 24 }} />}
@@ -152,7 +152,7 @@ export default function GeologoWeb() {
               </>
             ) : (
               <Text style={s.muted}>
-                Este proyecto no tiene celdas analizadas todavía. Los análisis se corren en la app nativa; aquí puedes hacerme preguntas generales de geología.
+                Este proyecto no tiene celdas analizadas todavía. Puedes correr uno desde Proyectos → ＋ Nuevo análisis; mientras tanto, pregúntame lo que quieras de geología.
               </Text>
             )}
           </View>
