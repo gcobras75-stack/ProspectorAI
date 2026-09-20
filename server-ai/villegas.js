@@ -21,7 +21,7 @@ const { GEOLOGO_SYSTEM, INTERPRETACION_SYSTEM } = require('./villegas-prompts');
 const MODEL = 'claude-sonnet-4-6';
 
 const MODES = {
-  chat:  { maxTokens: 1500 },
+  chat:  { maxTokens: 2200 },
   punto: { maxTokens: 3000 },
 };
 
