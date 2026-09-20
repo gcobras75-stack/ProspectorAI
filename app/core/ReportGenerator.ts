@@ -15,6 +15,7 @@ import {
   saveSampleResena,
 } from './Database';
 import { generateReportSection, generateSampleResena } from './ClaudeServices';
+import { geeAuthHeaders } from './geeAuth';
 import { applyEvidenceCeiling, type ZoneProspectivity } from './ConsensusFusion';
 import { anomalyFromPct } from './spectralHelpers';
 import type { MetalScore } from './GeologicalEngine';
@@ -587,7 +588,7 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
 
     const mapResp = await fetch(mapUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await geeAuthHeaders()) },
       body: JSON.stringify(mapBody),
     });
     console.log('[PDF Map] (b) HTTP status:', mapResp.status, mapResp.ok ? 'OK' : 'FAIL');

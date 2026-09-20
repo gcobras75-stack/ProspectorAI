@@ -63,7 +63,7 @@ export type AnalysisOutput = {
   meta: AnalysisMeta;
 };
 
-export type AnalysisErrorCode = 'AREA_BLOCK' | 'NO_DATA' | 'NO_POINTS' | 'GEE_UNAUTHORIZED' | 'GEE_RATE_LIMIT' | 'CANCELLED';
+export type AnalysisErrorCode = 'AREA_BLOCK' | 'NO_DATA' | 'NO_POINTS' | 'GEE_UNAUTHORIZED' | 'GEE_RATE_LIMIT' | 'GEE_UNAVAILABLE' | 'CANCELLED';
 export class AnalysisError extends Error {
   constructor(public code: AnalysisErrorCode, message: string) { super(message); this.name = 'AnalysisError'; }
 }
@@ -101,10 +101,11 @@ export async function runAnalysis(
 
   if (satData.data_source === 'NO_DATA_OFFLINE') {
     // SatelliteEngine convierte TODO fallo en "sin datos"; el envoltorio de fetch sabe si fue
-    // el servidor quien rechazó (límite de cuota / token) para no culpar al internet del usuario.
+    // el servidor quien rechazó (cuota, sesión o verificación) para no culpar al internet del usuario.
     const fail = getGeeFailure();
     if (fail?.status === 429) throw new AnalysisError('GEE_RATE_LIMIT', 'El servidor de satélites recibió demasiadas peticiones. Espera un minuto e intenta de nuevo.');
-    if (fail?.status === 401) throw new AnalysisError('GEE_UNAUTHORIZED', 'El servidor de satélites rechazó esta versión de la app (acceso no autorizado). Avisa al administrador.');
+    if (fail?.status === 401) throw new AnalysisError('GEE_UNAUTHORIZED', 'Tu sesión no es válida o expiró. Cierra sesión, vuelve a entrar e intenta de nuevo.');
+    if (fail?.status === 503) throw new AnalysisError('GEE_UNAVAILABLE', 'No se pudo verificar tu sesión en el servidor de satélites en este momento. Intenta de nuevo en un minuto.');
     throw new AnalysisError('NO_DATA', 'No se obtuvieron datos satelitales reales para esta zona. Revisa tu conexión e intenta de nuevo. No se muestran datos simulados.');
   }
 
