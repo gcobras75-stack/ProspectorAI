@@ -9,6 +9,7 @@ import { useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { AuthProvider, useAuth } from '../app/core/AuthContext';
 import { installGeeAuth } from '../web-lib/geeAuth';
+import { SAFE_TOP } from '../web-lib/safeArea';
 
 // Envoltorio de fetch para el servidor GEE (token de app + motivo real de un 401/429). Ver geeAuth.ts.
 installGeeAuth();
@@ -55,9 +56,14 @@ function useServiceWorker() {
 
 export default function RootLayout() {
   useServiceWorker();
+  // Contenedor único para TODAS las pantallas: reserva el hueco de la barra de estado de iOS (env() vale 0 donde no hay).
+  // Va fuera de cada ScrollView, así lo que se desplaza se recorta aquí abajo y no se asoma bajo la barra. Fondo negro:
+  // sin él se vería el gris del tema claro de react-navigation en esa franja.
   return (
-    <AuthProvider>
-      <RootNavigation />
-    </AuthProvider>
+    <View style={{ flex: 1, backgroundColor: '#000', paddingTop: SAFE_TOP as any }}>
+      <AuthProvider>
+        <RootNavigation />
+      </AuthProvider>
+    </View>
   );
 }

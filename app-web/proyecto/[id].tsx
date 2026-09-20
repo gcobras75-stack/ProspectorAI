@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import ResultsPanel from '../../app/components/ResultsPanel';
+import { SAFE_BOTTOM } from '../../web-lib/safeArea';
 import { computeAllMetalScores, type MetalScore } from '../../app/core/GeologicalEngine';
 import { loadWebProject, loadWebSamples, type WebProject, type WebSample } from '../../app/core/webData';
 import LeafletMap, { type MapHandle } from '../../web-lib/LeafletMap';
@@ -156,7 +157,7 @@ export default function ProyectoWeb() {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#000' },
+  root: { flex: 1, backgroundColor: '#000', paddingBottom: SAFE_BOTTOM as any },
   head: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomColor: '#1E1E1E', borderBottomWidth: 1 },
   back: { paddingVertical: 4, paddingRight: 6 },
   backText: { color: '#FFD700', fontSize: 16, fontWeight: '700' },
