@@ -125,38 +125,20 @@
 .leaflet-pm-toolbar .button-container.active .control-icon.pm-tinted { background-color: #000 !important; }
 .leaflet-pm-toolbar .button-container.active .pm-tool-label { color: #000; }
 
-/* Acciones de la herramienta activa (Finalizar / Cancelar / Eliminar último vértice):
-   fichas apiladas junto a la barra, con altura de dedo. */
-.button-container .leaflet-pm-actions-container {
-  left: calc(100% + 6px) !important;
-  top: 0 !important;
-  z-index: 5 !important;
-}
-.button-container.active .leaflet-pm-actions-container {
-  display: flex !important;
-  flex-direction: column;
-  gap: 6px;
-}
-.button-container .leaflet-pm-actions-container .leaflet-pm-action {
-  display: flex !important;
-  align-items: center;
-  width: auto !important;
-  height: 46px !important;
-  min-height: 46px;
-  padding: 0 16px !important;
-  border: 1px solid var(--pm-gold) !important;
-  border-radius: 12px !important;
-  background: var(--pm-bg) !important;
-  color: var(--pm-gold) !important;
-  font: 700 14px/1 var(--pm-font);
-  white-space: nowrap;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
-  -webkit-tap-highlight-color: transparent;
-}
-.button-container .leaflet-pm-actions-container .leaflet-pm-action:hover,
-.button-container .leaflet-pm-actions-container .leaflet-pm-action:focus,
-.button-container .leaflet-pm-actions-container .leaflet-pm-action.active-action {
-  background: #2a2410 !important;
+/* Acciones de la herramienta activa (Finalizar / Eliminar último vértice / Cancelar): Geoman las pinta como fichas
+   apiladas SOBRE el mapa y tapaban ~40 % de la zona de trazo. Se ocultan: la pantalla (app-web/analisis/nuevo.tsx) las
+   ofrece en su barra inferior, fuera del mapa, y llaman a DrawHandle.finish/undoVertex/cancel. */
+.leaflet-pm-actions-container { display: none !important; }
+
+/* Mientras una herramienta está activa, la barra izquierda se recoge a ese único botón: libera la franja para tocar. */
+/* (Geoman separa dibujo y edición en dos barras: se mira el contenedor común.) */
+.leaflet-top.leaflet-left:has(.leaflet-pm-toolbar .button-container.active) .leaflet-pm-toolbar .button-container:not(.active) { display: none !important; }
+
+/* Teléfonos angostos: baldosas un poco más chicas (siguen ≥ 48 px de toque). */
+@media (max-width: 480px) {
+  .leaflet-pm-toolbar .button-container a.leaflet-buttons-control-button { width: 58px !important; height: 54px !important; }
+  .leaflet-pm-toolbar .control-icon.pm-tinted { width: 24px !important; height: 24px !important; }
+  .leaflet-pm-toolbar .pm-tool-label { font-size: 10px; margin-top: 2px; }
 }
 
 /* ── Vértices: zona táctil más grande (el punto se ve igual; el toque "atrapa" 38 px) ── */

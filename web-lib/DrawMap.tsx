@@ -30,6 +30,10 @@ export type DrawHandle = {
   /** Pide la ubicación del usuario, la marca en el mapa y centra ahí. Reporta el resultado por onLocate. */
   locate: () => void;
   clear: () => void;
+  /** Acciones del trazo en curso (antes eran fichas de Geoman sobre el mapa; ahora las pinta la pantalla en su barra). */
+  finish: () => void;       // cierra la figura con los puntos puestos (polígono: mínimo 3)
+  undoVertex: () => void;   // quita el último punto puesto
+  cancel: () => void;       // aborta el trazo, o sale del modo Editar/Mover/Borrar
 };
 
 /** Resultado del botón 📍 (para que la pantalla lo muestre; antes fallaba en silencio). */
@@ -45,6 +49,8 @@ type Props = {
   onChange: (coords: Coordinate[] | null) => void;
   /** Forma que se está trazando ('Polygon', 'Rectangle'…) o null al terminar/cancelar. */
   onDrawing?: (shape: string | null) => void;
+  /** Modo global activo de Geoman: 'edit' | 'drag' | 'remove' | null. */
+  onEditMode?: (mode: string | null) => void;
   onLocate?: (status: LocateStatus) => void;
 };
 
@@ -113,7 +119,7 @@ const GEO_ERRORS: Record<number, string> = {
   3: 'Tu ubicación tardó demasiado en llegar. Sal a cielo abierto e intenta de nuevo.',
 };
 
-const DrawMap = forwardRef<DrawHandle, Props>(function DrawMap({ areaColor, onChange, onDrawing, onLocate }, ref) {
+const DrawMap = forwardRef<DrawHandle, Props>(function DrawMap({ areaColor, onChange, onDrawing, onEditMode, onLocate }, ref) {
   const elRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.Polygon | null>(null);
@@ -122,6 +128,8 @@ const DrawMap = forwardRef<DrawHandle, Props>(function DrawMap({ areaColor, onCh
   onChangeRef.current = onChange;
   const onDrawingRef = useRef(onDrawing);
   onDrawingRef.current = onDrawing;
+  const onEditModeRef = useRef(onEditMode);
+  onEditModeRef.current = onEditMode;
   const onLocateRef = useRef(onLocate);
   onLocateRef.current = onLocate;
   const colorRef = useRef(areaColor);
@@ -173,6 +181,12 @@ const DrawMap = forwardRef<DrawHandle, Props>(function DrawMap({ areaColor, onCh
   };
 
   useImperativeHandle(ref, () => ({
+    finish: () => { const m = mapRef.current as any; const sh = drawingShapeRef.current; if (m && sh) m.pm.Draw[sh]?._finishShape?.(); },
+    undoVertex: () => { const m = mapRef.current as any; const sh = drawingShapeRef.current; if (m && sh) m.pm.Draw[sh]?._removeLastVertex?.(); },
+    cancel: () => {
+      const m = mapRef.current as any; if (!m) return;
+      m.pm.disableDraw(); m.pm.disableGlobalEditMode(); m.pm.disableGlobalDragMode(); m.pm.disableGlobalRemovalMode();
+    },
     flyTo: (lat, lng, zoom = 16) => { mapRef.current?.flyTo([lat, lng], zoom, { duration: 0.6 }); },
     locate,
     clear: () => {
@@ -229,6 +243,9 @@ const DrawMap = forwardRef<DrawHandle, Props>(function DrawMap({ areaColor, onCh
       drawingShapeRef.current = e.shape || null;
       onDrawingRef.current?.(e.shape || null);
     });
+    for (const [ev, mode] of [['pm:globaleditmodetoggled', 'edit'], ['pm:globaldragmodetoggled', 'drag'], ['pm:globalremovalmodetoggled', 'remove']] as const) {
+      map.on(ev as any, (e: any) => onEditModeRef.current?.(e.enabled ? mode : null));
+    }
     map.on('pm:drawend', () => {
       drawingShapeRef.current = null;
       onDrawingRef.current?.(null);

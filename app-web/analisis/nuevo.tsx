@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import DrawMap, { type DrawHandle, type LocateStatus } from '../../web-lib/DrawMap';
+import { bottomPad } from '../../web-lib/safeArea';
 import MaterialPicker from '../../web-lib/MaterialPicker';
 import { polygonAreaHa, type Coordinate } from '../../web-lib/geo';
 import { runAnalysis, AnalysisError, type AnalysisOutput } from '../../web-lib/runAnalysis';
@@ -55,6 +56,7 @@ export default function NuevoAnalisis() {
   const [jumpError, setJumpError] = useState('');
   // Trazo en curso (Geoman) y resultado del botón 📍: se muestran como avisos sobre el mapa.
   const [drawingShape, setDrawingShape] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState<string | null>(null); // 'edit' | 'drag' | 'remove'
   const [locateStatus, setLocateStatus] = useState<LocateStatus | null>(null);
 
   const [mineral, setMineral] = useState(prefs.mineral);
@@ -197,16 +199,11 @@ export default function NuevoAnalisis() {
 
         <View style={s.mapWrap}>
           <View style={[StyleSheet.absoluteFill, { zIndex: 0 }]}>
-            <DrawMap ref={drawRef} areaColor={areaColor} onChange={setCoords} onDrawing={setDrawingShape} onLocate={setLocateStatus} />
+            <DrawMap ref={drawRef} areaColor={areaColor} onChange={setCoords} onDrawing={setDrawingShape} onEditMode={setEditMode} onLocate={setLocateStatus} />
           </View>
 
           {/* Avisos sobre el mapa (no capturan toques, salvo el de error, que se puede cerrar) */}
           <View style={s.notices} pointerEvents="box-none">
-            {drawingShape === 'Polygon' && (
-              <View style={[s.notice, s.noticeDraw]} pointerEvents="none">
-                <Text style={s.noticeDrawText}>Toca el primer punto para cerrar la figura</Text>
-              </View>
-            )}
             {locateStatus?.state === 'searching' && (
               <View style={s.notice} pointerEvents="none"><Text style={s.noticeText}>📍 Buscando tu ubicación…</Text></View>
             )}
@@ -226,7 +223,40 @@ export default function NuevoAnalisis() {
 
         {stage === 'draw' && (
           <View style={s.bar}>
-            {!coords ? (
+            {(drawingShape || editMode) ? (
+              // Trazando o editando: UNA fila compacta bajo el mapa (no encima). El aviso es una línea; los botones, de dedo (44 px).
+              <>
+                <Text style={s.drawHint} numberOfLines={1}>
+                  {drawingShape === 'Polygon' ? 'Toca el punto que late para cerrar la figura'
+                    : drawingShape ? 'Toca dos esquinas opuestas'
+                    : editMode === 'edit' ? 'Arrastra los vértices para ajustar la zona'
+                    : editMode === 'drag' ? 'Arrastra la zona para moverla'
+                    : 'Toca la zona para borrarla'}
+                </Text>
+                <View style={s.actRow}>
+                  {drawingShape === 'Polygon' && (
+                    <>
+                      <TouchableOpacity style={[s.act, s.actMain]} onPress={() => drawRef.current?.finish()} activeOpacity={0.8}>
+                        <Text style={s.actMainText}>Finalizar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={s.act} onPress={() => drawRef.current?.undoVertex()} activeOpacity={0.8}>
+                        <Text style={s.actText}>↶ Deshacer punto</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                  {!drawingShape && (
+                    <TouchableOpacity style={[s.act, s.actMain]} onPress={() => drawRef.current?.cancel()} activeOpacity={0.8}>
+                      <Text style={s.actMainText}>Listo</Text>
+                    </TouchableOpacity>
+                  )}
+                  {!!drawingShape && (
+                    <TouchableOpacity style={s.act} onPress={() => drawRef.current?.cancel()} activeOpacity={0.8}>
+                      <Text style={s.actText}>Cancelar</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </>
+            ) : !coords ? (
               <Text style={s.hint}>Dibuja la zona con las herramientas de la izquierda del mapa: polígono o rectángulo. Se analiza una zona a la vez.</Text>
             ) : (
               <>
@@ -246,7 +276,7 @@ export default function NuevoAnalisis() {
       {/* ── 2) Configuración ── */}
       {stage === 'config' && (
         <View style={s.overlay}>
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomPad(40) }}>
             <Text style={s.sec}>NOMBRE DEL PROYECTO</Text>
             <TextInput style={s.input} value={name} onChangeText={(t) => { setName(t); setNameTouched(true); }} maxLength={80} placeholderTextColor="#777" />
 
@@ -341,13 +371,17 @@ const s = StyleSheet.create({
   notices: { position: 'absolute', top: 10, left: 84, right: 66, zIndex: 300, alignItems: 'center' },
   notice: { backgroundColor: 'rgba(14,14,14,0.95)', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 8, maxWidth: 420 },
   noticeText: { color: '#EEE', fontSize: 14, fontWeight: '600', textAlign: 'center' },
-  noticeDraw: { borderColor: '#FFD700', backgroundColor: '#FFD700' },
-  noticeDrawText: { color: '#000', fontSize: 15, fontWeight: '800', textAlign: 'center' },
+  drawHint: { color: '#FFD700', fontSize: 13, fontWeight: '700', marginBottom: 8 },
+  actRow: { flexDirection: 'row', gap: 8 },
+  act: { flex: 1, minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: '#444', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  actMain: { backgroundColor: '#FFD700', borderColor: '#FFD700' },
+  actText: { color: '#DDD', fontWeight: '700', fontSize: 14 },
+  actMainText: { color: '#000', fontWeight: '800', fontSize: 15 },
   noticeError: { borderColor: '#FF6B6B' },
   noticeErrorText: { color: '#FF9B9B', fontSize: 13, lineHeight: 19, textAlign: 'center' },
   noticeClose: { color: '#888', fontSize: 11, textAlign: 'center', marginTop: 6 },
   // En flujo (NO superpuesta al mapa): así el borde inferior del mapa, donde va la atribución de Esri, siempre se ve.
-  bar: { backgroundColor: '#0A0A0A', borderTopColor: '#FFD700', borderTopWidth: 2, padding: 14 },
+  bar: { backgroundColor: '#0A0A0A', borderTopColor: '#FFD700', borderTopWidth: 2, padding: 14, paddingBottom: bottomPad(14) },
   hint: { color: '#BBB', fontSize: 13, lineHeight: 19 },
   area: { fontSize: 18, fontWeight: '800' },
   areaMsg: { fontSize: 12, marginTop: 4, lineHeight: 17 },
