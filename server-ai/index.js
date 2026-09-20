@@ -237,7 +237,7 @@ app.post('/api/ai/chat', async (req, res) => {
 // El bundle web NUNCA lleva el system prompt: el cliente manda solo mensajes (y
 // opcionalmente un bloque de datos `context`); aquí se valida, se arma el prompt,
 // se aplica el mismo rate limit/presupuesto de tokens que /api/ai/chat y se llama a
-// Anthropic. Respuesta: { reply, usage }. Errores: { error } (mismo formato que /chat).
+// Anthropic. Respuesta: { reply, usage, truncated }. Errores: { error } (mismo formato que /chat).
 app.post('/api/ai/villegas', express.json({ limit: '256kb' }), async (req, res) => {
   try {
     if (!ANTHROPIC_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -304,7 +304,8 @@ app.post('/api/ai/villegas', express.json({ limit: '256kb' }), async (req, res) 
     };
     // Telemetría mínima (sin contenido de mensajes): tokens reales por llamada.
     console.log(`[villegas] mode=${parsed.value.mode} uid=${user.id} in=${usageOut.input_tokens} out=${usageOut.output_tokens} cache_w=${usageOut.cache_creation_input_tokens} cache_r=${usageOut.cache_read_input_tokens}`);
-    res.json({ reply, usage: usageOut });
+    // truncated: la salida topó max_tokens (la respuesta termina a media frase); el cliente lo avisa.
+    res.json({ reply, usage: usageOut, truncated: data.stop_reason === 'max_tokens' });
   } catch (err) {
     console.error('[/api/ai/villegas]', err.message);
     res.status(500).json({ error: 'Error interno del servidor de IA.' });
