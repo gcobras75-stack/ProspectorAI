@@ -11,6 +11,7 @@ import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, useWindowD
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import ResultsPanel from '../../app/components/ResultsPanel';
 import { SAFE_BOTTOM } from '../../web-lib/safeArea';
+import VillegasButton from '../../web-lib/VillegasButton';
 import { computeAllMetalScores, type MetalScore } from '../../app/core/GeologicalEngine';
 import { loadWebProject, loadWebSamples, type WebProject, type WebSample } from '../../app/core/webData';
 import LeafletMap, { type MapHandle } from '../../web-lib/LeafletMap';
@@ -81,10 +82,13 @@ export default function ProyectoWeb() {
     if (router.canGoBack()) router.back(); else router.replace('/(tabs)/proyectos' as any);
   }, [router]);
 
+  // dismissTo VUELVE a la pestaña Geólogo ya montada (con su conversación); navigate apilaba una copia nueva de las pestañas.
+  const openChat = useCallback(() => { router.dismissTo('/(tabs)/geologo' as any); }, [router]);
+
   const onInterpret = useCallback((ctx: string) => {
-    setPendingInterpretation(ctx);
-    router.navigate('/(tabs)/geologo' as any);
-  }, [router]);
+    setPendingInterpretation(ctx, project?.id ?? null);
+    openChat();
+  }, [openChat, project?.id]);
 
   return (
     <View style={s.root}>
@@ -110,6 +114,7 @@ export default function ProyectoWeb() {
             </Text>
           )}
         </View>
+        <VillegasButton onPress={openChat} />
       </View>
 
       {status === 'loading' && <ActivityIndicator color="#FFD700" style={{ marginTop: 32 }} />}

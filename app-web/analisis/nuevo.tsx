@@ -16,6 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import DrawMap, { type DrawHandle, type LocateStatus } from '../../web-lib/DrawMap';
 import { bottomPad } from '../../web-lib/safeArea';
+import VillegasButton from '../../web-lib/VillegasButton';
 import MaterialPicker from '../../web-lib/MaterialPicker';
 import { polygonAreaHa, type Coordinate } from '../../web-lib/geo';
 import { runAnalysis, AnalysisError, type AnalysisOutput } from '../../web-lib/runAnalysis';
@@ -173,6 +174,11 @@ export default function NuevoAnalisis() {
     catch (e: any) { setSaveFailed(true); setError(e?.message || 'No se pudo guardar el proyecto.'); }
   };
 
+  // Ir al chat sale de esta pantalla: la zona dibujada se pierde (el mapa se desmonta), así que se avisa.
+  const openChat = () => {
+    if (coords && typeof window !== 'undefined' && !window.confirm('Se perderá la zona que dibujaste. ¿Ir al chat con Villegas?')) return;
+    router.dismissTo('/(tabs)/geologo' as any);
+  };
   const goBack = () => { if (router.canGoBack()) router.back(); else router.replace('/(tabs)/proyectos' as any); };
 
   return (
@@ -181,7 +187,8 @@ export default function NuevoAnalisis() {
         <TouchableOpacity onPress={stage === 'config' ? () => setStage('draw') : goBack} disabled={stage === 'running'} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Text style={[s.back, stage === 'running' && { opacity: 0.3 }]}>‹ {stage === 'config' ? 'Mapa' : 'Proyectos'}</Text>
         </TouchableOpacity>
-        <Text style={s.title}>Nuevo análisis</Text>
+        <Text style={[s.title, { flex: 1 }]}>Nuevo análisis</Text>
+        <VillegasButton onPress={openChat} disabled={stage === 'running'} />
       </View>
 
       {/* ── 1) Mapa de dibujo (se mantiene montado: desmontarlo perdería el polígono) ── */}

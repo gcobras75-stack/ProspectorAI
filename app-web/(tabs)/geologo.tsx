@@ -2,9 +2,14 @@
  * geologo.tsx (PWA) — chat con el Ing. Villegas.
  *
  * Consume POST /api/ai/villegas: el cliente manda mensajes + un bloque de DATOS del
- * proyecto elegido; el prompt vive en el servidor. La conversación es solo de esta
- * sesión (en memoria): la PWA no escribe nada en Supabase, así que no pisa el
- * chat_history que guarda la app nativa.
+ * proyecto elegido; el prompt vive en el servidor. La conversación se guarda en localStorage
+ * de este navegador, una por proyecto ("general" si no hay) — ver web-lib/chatStore.ts. La PWA
+ * no escribe nada en Supabase, así que no pisa el chat_history que guarda la app nativa.
+ *
+ * Reglas de conversación:
+ *  - Cambiar de proyecto A → B muestra la conversación de B (la de A queda guardada, no se borra).
+ *  - Un chat general que YA tenía mensajes en esta sesión se "adopta" al elegir un proyecto: no se pierde.
+ *  - Cada petición recuerda su conversación de origen: si llega la respuesta cuando ya se cambió, se guarda ahí.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -13,12 +18,16 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { listWebProjects, loadWebProject, loadWebSamples, type WebProjectSummary } from '../../app/core/webData';
-import { askVillegas, type ChatMsg } from '../../web-lib/villegasClient';
+import { askVillegas } from '../../web-lib/villegasClient';
 import { buildProjectContext } from '../../web-lib/projectContext';
-import { getSelectedProjectId, setSelectedProjectId, takePendingInterpretation } from '../../web-lib/selection';
+import {
+  getSelectedProjectId, setSelectedProjectId, peekPendingInterpretation, clearPendingInterpretation,
+} from '../../web-lib/selection';
+import { GENERAL_KEY, loadChat, saveChat, appendChat, type StoredMsg } from '../../web-lib/chatStore';
 import Markdown from '../../web-lib/Markdown';
 
-type UiMsg = ChatMsg & { error?: boolean; truncated?: boolean };
+type UiMsg = StoredMsg;
+type Conv = { key: string };
 
 const INTERPRET_PROMPT = 'Interpreta este proyecto: resumen, significado geológico y plan de campo.';
 
@@ -27,50 +36,95 @@ export default function GeologoWeb() {
   const [selId, setSelId] = useState<string | null>(null);
   const [context, setContext] = useState<string | null>(null);
   const [loadingCtx, setLoadingCtx] = useState(false);
-  const [messages, setMessages] = useState<UiMsg[]>([]);
+  const [messages, setMessages] = useState<UiMsg[]>(() => loadChat(GENERAL_KEY));
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState('');
   const scrollRef = useRef<ScrollView>(null);
-  // Evita que una respuesta tardía de un proyecto anterior se pinte en el actual.
-  const epochRef = useRef(0);
 
-  const selectProject = useCallback(async (id: string) => {
-    epochRef.current += 1;
-    const epoch = epochRef.current;
-    setSelId(id); setSelectedProjectId(id);
-    setMessages([]); setContext(null); setLoadError(''); setLoadingCtx(true);
+  // Estado "de verdad" en refs: los callbacks son estables (no dependen de selId), así el efecto de foco
+  // NO se reinicia a media ejecución al cambiar de proyecto (era lo que cancelaba la interpretación pendiente).
+  const convRef = useRef<Conv>({ key: GENERAL_KEY }); // conversación activa; cada petición guarda la suya
+  const msgsRef = useRef<UiMsg[]>(messages);
+  const contextRef = useRef<string | null>(null);
+  const selIdRef = useRef<string | null>(null);
+  const liveGeneralRef = useRef(false); // hubo chat general en esta sesión de pantalla → se puede adoptar
+  const ctxEpochRef = useRef(0);        // descarta cargas de contexto de un proyecto anterior
+
+  const setMsgs = useCallback((next: UiMsg[]) => {
+    msgsRef.current = next;
+    setMessages(next);
+    saveChat(convRef.current.key, next);
+  }, []);
+
+  /** Entrega un mensaje a SU conversación: si ya se cambió de chat, va al almacenamiento de la original. */
+  const deliver = useCallback((conv: Conv, msg: UiMsg) => {
+    if (convRef.current === conv) setMsgs([...msgsRef.current.filter((m) => !m.error), msg]);
+    else if (!msg.error) appendChat(conv.key, msg);
+  }, [setMsgs]);
+
+  const loadContext = useCallback(async (id: string) => {
+    const epoch = ++ctxEpochRef.current;
+    setContext(null); contextRef.current = null; setLoadError(''); setLoadingCtx(true);
     try {
       const [p, samples] = await Promise.all([loadWebProject(id), loadWebSamples(id)]);
-      if (epoch !== epochRef.current) return;
-      setContext(p ? buildProjectContext(p, samples) : null);
+      if (epoch !== ctxEpochRef.current) return;
+      const c = p ? buildProjectContext(p, samples) : null;
+      contextRef.current = c; setContext(c);
     } catch (e: any) {
-      if (epoch === epochRef.current) setLoadError(e?.message || 'No se pudo cargar el proyecto.');
+      if (epoch === ctxEpochRef.current) setLoadError(e?.message || 'No se pudo cargar el proyecto.');
     } finally {
-      if (epoch === epochRef.current) setLoadingCtx(false);
+      if (epoch === ctxEpochRef.current) setLoadingCtx(false);
     }
+  }, []);
+
+  const selectProject = useCallback((id: string) => {
+    if (selIdRef.current === id) return;
+    const adopt = convRef.current.key === GENERAL_KEY && liveGeneralRef.current
+      && msgsRef.current.length > 0 && loadChat(id).length === 0;
+    selIdRef.current = id; setSelId(id); setSelectedProjectId(id);
+    if (adopt) {
+      // El chat general en curso pasa a ser el de este proyecto (misma conversación, sin borrar nada ni cortar
+      // una petición en vuelo: sigue apuntando al mismo objeto).
+      convRef.current.key = id;
+      saveChat(id, msgsRef.current); saveChat(GENERAL_KEY, []);
+    } else {
+      convRef.current = { key: id };
+      msgsRef.current = loadChat(id); setMessages(msgsRef.current);
+      setBusy(false);
+    }
+    liveGeneralRef.current = false;
+    void loadContext(id);
+  }, [loadContext]);
+
+  const selectGeneral = useCallback(() => {
+    if (selIdRef.current === null) return;
+    selIdRef.current = null; setSelId(null); setSelectedProjectId(null);
+    convRef.current = { key: GENERAL_KEY };
+    msgsRef.current = loadChat(GENERAL_KEY); setMessages(msgsRef.current);
+    ctxEpochRef.current += 1; setContext(null); contextRef.current = null; setLoadingCtx(false); setLoadError('');
+    liveGeneralRef.current = false; setBusy(false);
   }, []);
 
   // Interpretación de UN punto (botón del panel de resultados): modo 'punto' del servidor, que
   // usa el prompt de interpretación estricta. Solo manda los datos reales del punto.
   const runPunto = useCallback(async (ctx: string) => {
-    const epoch = epochRef.current;
-    setMessages((m) => [...m.filter((x) => !x.error), { role: 'user', content: 'Interpretación del punto que elegí en el mapa.' }]);
+    const conv = convRef.current;
+    if (conv.key === GENERAL_KEY) liveGeneralRef.current = true;
+    setMsgs([...msgsRef.current.filter((x) => !x.error), { role: 'user', content: 'Interpretación del punto que elegí en el mapa.' }]);
     setBusy(true);
     try {
       const { reply, truncated } = await askVillegas([{ role: 'user', content: ctx }], null, 'punto');
-      if (epoch !== epochRef.current) return;
-      setMessages((m) => [...m, { role: 'assistant', content: reply, truncated }]);
+      deliver(conv, { role: 'assistant', content: reply, truncated });
     } catch (e: any) {
-      if (epoch === epochRef.current) {
-        setMessages((m) => [...m, { role: 'assistant', content: e?.message || 'No se pudo interpretar el punto.', error: true }]);
-      }
+      deliver(conv, { role: 'assistant', content: e?.message || 'No se pudo interpretar el punto.', error: true });
     } finally {
-      if (epoch === epochRef.current) setBusy(false);
+      if (convRef.current === conv) setBusy(false);
     }
-  }, []);
+  }, [setMsgs, deliver]);
 
-  // Al enfocar la pestaña: refresca la lista y respeta el proyecto elegido en "Proyectos".
+  // Al enfocar la pestaña: refresca la lista, respeta el proyecto elegido y ejecuta la interpretación pendiente.
+  // La pendiente solo se consume cuando SE VA A EJECUTAR (si la pantalla pierde el foco a medias, queda para la próxima).
   useFocusEffect(useCallback(() => {
     let alive = true;
     (async () => {
@@ -78,35 +132,35 @@ export default function GeologoWeb() {
         const list = await listWebProjects();
         if (!alive) return;
         setProjects(list);
-        const want = getSelectedProjectId();
-        if (want && want !== selId && list.some((p) => p.id === want)) await selectProject(want);
-        const pending = takePendingInterpretation();
-        if (pending && alive) runPunto(pending);
+        const pend = peekPendingInterpretation();
+        const want = pend?.projectId ?? getSelectedProjectId();
+        if (want && list.some((p) => p.id === want)) selectProject(want);
+        if (!alive) return;
+        const p2 = peekPendingInterpretation();
+        if (p2) { clearPendingInterpretation(); void runPunto(p2.ctx); }
       } catch (e: any) {
         if (alive) { setProjects([]); setLoadError(e?.message || 'No se pudieron cargar los proyectos.'); }
       }
     })();
     return () => { alive = false; };
-  }, [selId, selectProject, runPunto]));
+  }, [selectProject, runPunto]));
 
   useEffect(() => { scrollRef.current?.scrollToEnd({ animated: true }); }, [messages, busy]);
 
   const send = async (text: string) => {
     const clean = text.trim();
     if (!clean || busy) return;
-    const epoch = epochRef.current;
-    const next: UiMsg[] = [...messages.filter((m) => !m.error), { role: 'user', content: clean }];
-    setMessages(next); setInput(''); setBusy(true);
+    const conv = convRef.current;
+    if (conv.key === GENERAL_KEY) liveGeneralRef.current = true;
+    const next: UiMsg[] = [...msgsRef.current.filter((m) => !m.error), { role: 'user', content: clean }];
+    setMsgs(next); setInput(''); setBusy(true);
     try {
-      const { reply, truncated } = await askVillegas(next.map(({ role, content }) => ({ role, content })), context);
-      if (epoch !== epochRef.current) return;
-      setMessages([...next, { role: 'assistant', content: reply, truncated }]);
+      const { reply, truncated } = await askVillegas(next.map(({ role, content }) => ({ role, content })), contextRef.current);
+      deliver(conv, { role: 'assistant', content: reply, truncated });
     } catch (e: any) {
-      if (epoch === epochRef.current) {
-        setMessages([...next, { role: 'assistant', content: e?.message || 'No se pudo consultar al Ing. Villegas.', error: true }]);
-      }
+      deliver(conv, { role: 'assistant', content: e?.message || 'No se pudo consultar al Ing. Villegas.', error: true });
     } finally {
-      if (epoch === epochRef.current) setBusy(false);
+      if (convRef.current === conv) setBusy(false);
     }
   };
 
@@ -118,6 +172,11 @@ export default function GeologoWeb() {
       <View style={s.head}>
         <Text style={s.title}>Ing. Villegas</Text>
         <Text style={s.muted}>Asistente geológico de IA · versión web</Text>
+        {messages.length > 0 && (
+          <TouchableOpacity onPress={() => setMsgs([])} disabled={busy} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={s.clearLink}>Borrar esta conversación</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {projects === null && <ActivityIndicator color="#FFD700" style={{ marginTop: 24 }} />}
@@ -125,9 +184,12 @@ export default function GeologoWeb() {
         <Text style={[s.muted, { padding: 16 }]}>Sin proyectos sincronizados en esta cuenta.</Text>
       )}
 
-      {hasProjects && (
+      {(hasProjects || messages.length > 0) && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.chips} contentContainerStyle={{ paddingHorizontal: 12 }}>
-          {projects!.map((p) => (
+          <TouchableOpacity onPress={selectGeneral} style={[s.chip, selId === null && s.chipOn]}>
+            <Text style={[s.chipText, selId === null && s.chipTextOn]}>General</Text>
+          </TouchableOpacity>
+          {(projects ?? []).map((p) => (
             <TouchableOpacity key={p.id} onPress={() => selectProject(p.id)} style={[s.chip, p.id === selId && s.chipOn]}>
               <Text style={[s.chipText, p.id === selId && s.chipTextOn]} numberOfLines={1}>{p.nombre}</Text>
             </TouchableOpacity>
@@ -204,6 +266,7 @@ const s = StyleSheet.create({
   head: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
   title: { color: '#FFD700', fontSize: 24, fontWeight: '800' },
   muted: { color: '#888', fontSize: 13, marginTop: 4, lineHeight: 19 },
+  clearLink: { color: '#777', fontSize: 12, marginTop: 6, textDecorationLine: 'underline' },
   error: { color: '#FF6B6B', marginTop: 8 },
   chips: { maxHeight: 48, flexGrow: 0, marginVertical: 8 },
   chip: { borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8, maxWidth: 200, justifyContent: 'center' },

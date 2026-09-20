@@ -23,12 +23,14 @@ export function setSelectedProjectId(id: string | null): void {
 // ── Interpretación de un punto pendiente (ResultsPanel → pestaña Geólogo) ────────────────
 // Solo en memoria y de un solo uso: el detalle del proyecto la deja aquí, cambia de pestaña y
 // el chat la toma al enfocarse. Contiene los datos reales del punto (no es un prompt).
-let pendingInterpretation: string | null = null;
+// Lleva también el proyecto de origen: el chat debe abrirse en ESE proyecto aunque otro estuviera elegido.
+export type PendingInterpretation = { ctx: string; projectId: string | null };
+let pendingInterpretation: PendingInterpretation | null = null;
 
-export function setPendingInterpretation(ctx: string | null): void { pendingInterpretation = ctx; }
-
-export function takePendingInterpretation(): string | null {
-  const c = pendingInterpretation;
-  pendingInterpretation = null;
-  return c;
+export function setPendingInterpretation(ctx: string | null, projectId: string | null = null): void {
+  pendingInterpretation = ctx ? { ctx, projectId } : null;
 }
+
+/** Solo se consume cuando el chat la va a ejecutar de verdad (ver geologo.tsx): mirar no la gasta. */
+export function peekPendingInterpretation(): PendingInterpretation | null { return pendingInterpretation; }
+export function clearPendingInterpretation(): void { pendingInterpretation = null; }
