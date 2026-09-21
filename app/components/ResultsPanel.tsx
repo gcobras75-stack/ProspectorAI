@@ -37,12 +37,27 @@ interface ResultsPanelProps {
   onClose: () => void;
   onNavigateTo?: (lat: number, lng: number) => void;
   onInterpret?: (context: string) => void;
+  /**
+   * SOLO la PWA. Abre la hoja "Validar en campo" de un punto. Sin esta propiedad la tarjeta NO cambia (la app nativa no la pasa):
+   * ni botón ni insignia.
+   */
+  onValidate?: (point: any) => void;
+  /** Veredictos ya marcados por el usuario, por clave de punto; `validationKey` da la clave de cada tarjeta. */
+  validations?: Record<string, { verdict: 'CONFIRMED' | 'PARTIAL' | 'NOT_CONFIRMED'; comment?: string }>;
+  validationKey?: (p: any) => string;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
 }
 
+// Insignias de validación en campo (solo se usan si la PWA pasa `validations`). Mismas claves que la app nativa.
+const VALIDATION_BADGE: Record<'CONFIRMED' | 'PARTIAL' | 'NOT_CONFIRMED', { label: string; color: string }> = {
+  CONFIRMED: { label: '✅ Confirmado en campo', color: '#4CAF50' },
+  PARTIAL: { label: '⚠️ Parcial', color: '#FF9800' },
+  NOT_CONFIRMED: { label: '❌ No lo encontré (en mi visita)', color: '#E53935' },
+};
+
 export default function ResultsPanel({
-  satelliteData, metalScores, analysisPoints, zoneProspectivity: zoneProspectivityRaw, knownOccurrences, selectedMineral, terrainType, areaHa, thermalData, rockType, rockSource, rockProposal, mapRef, onClose, onNavigateTo, onInterpret, collapsed, onToggleCollapsed,
+  satelliteData, metalScores, analysisPoints, zoneProspectivity: zoneProspectivityRaw, knownOccurrences, selectedMineral, terrainType, areaHa, thermalData, rockType, rockSource, rockProposal, mapRef, onClose, onNavigateTo, onInterpret, onValidate, validations, validationKey, collapsed, onToggleCollapsed,
 }: ResultsPanelProps) {
   // TECHO DE EVIDENCIA antes de pintar nada. El objeto puede venir RECIÉN CALCULADO
   // (ya capado, y entonces esto no hace nada) o LEÍDO DE LA BASE — y los análisis
@@ -116,6 +131,10 @@ export default function ResultsPanel({
     mapRef.current?.animateToRegion({ latitude: p.lat, longitude: p.lng, latitudeDelta: 0.005, longitudeDelta: 0.005 }, 500);
     onNavigateTo?.(p.lat, p.lng);
   };
+  const validationOf = (p: any) => {
+    if (!onValidate || !validations || !validationKey) return undefined;
+    try { return validations[validationKey(p)]; } catch { return undefined; }
+  };
   const interpretPoint = (p: any) => {
     onInterpret?.(buildPointInterpretationContext(p, { selectedMineral, terrainType, allPoints: analysisPoints, satelliteData, thermalData, rockType, rockSource, rockProposal }));
   };
@@ -172,6 +191,17 @@ export default function ResultsPanel({
                         #{p.rank ?? i + 1} — Señal <Text style={{ color: dotColor, fontWeight: '900' }}>{word}</Text> de minerales alterados
                       </Text>
                       <Text style={styles.simpleSub}>{evidenceLine(p)}</Text>
+                      {(() => {
+                        const v = validationOf(p);
+                        if (!v) return null;
+                        const B = VALIDATION_BADGE[v.verdict];
+                        return (
+                          <>
+                            <Text style={[styles.validationBadge, { color: B.color }]}>{B.label}</Text>
+                            {!!v.comment && <Text style={styles.validationNote} numberOfLines={2}>“{v.comment}”</Text>}
+                          </>
+                        );
+                      })()}
                     </View>
                   </View>
                   {/* (3) ¿A dónde voy? — acciones directas, máx. 1 tap */}
@@ -191,6 +221,11 @@ export default function ResultsPanel({
                     >
                       <Text style={styles.n1BtnNavText}>🧭 Cómo llegar</Text>
                     </TouchableOpacity>
+                    {onValidate && (
+                      <TouchableOpacity style={styles.n1BtnValidate} onPress={() => onValidate(p)} activeOpacity={0.85} accessibilityLabel="Validar este punto en campo">
+                        <Text style={styles.n1BtnValidateText}>{validationOf(p) ? '✔ Cambiar veredicto' : '✔ Validar en campo'}</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
               );
@@ -567,6 +602,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   n1BtnNavText: { color: '#1a1a1a', fontWeight: '900', fontSize: 13.5 },
+  n1BtnValidate: {
+    width: '100%', height: 42, borderRadius: 8, borderWidth: 1.5, borderColor: '#4CAF50',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  n1BtnValidateText: { color: '#4CAF50', fontWeight: '900', fontSize: 13.5 },
+  validationBadge: { fontSize: 12.5, fontWeight: '800', marginTop: 5 },
+  validationNote: { color: Colors.textSub, fontSize: 12, marginTop: 2, lineHeight: 16, fontStyle: 'italic' },
   n1BtnMap: {
     flex: 1, height: 42, borderRadius: 8,
     backgroundColor: Colors.surface3, borderWidth: 1, borderColor: Colors.surface4,

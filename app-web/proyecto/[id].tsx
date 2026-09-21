@@ -12,6 +12,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import ResultsPanel from '../../app/components/ResultsPanel';
 import { SAFE_BOTTOM } from '../../web-lib/safeArea';
 import VillegasButton from '../../web-lib/VillegasButton';
+import ValidationSheet from '../../web-lib/ValidationSheet';
+import { listPairs, savePair, removePair } from '../../web-lib/validationStore';
+import { pointKey, type PairView, type Verdict } from '../../web-lib/validationPairs';
 import { computeAllMetalScores, type MetalScore } from '../../app/core/GeologicalEngine';
 import { loadWebProject, loadWebSamples, type WebProject, type WebSample } from '../../app/core/webData';
 import LeafletMap, { type MapHandle } from '../../web-lib/LeafletMap';
@@ -29,6 +32,9 @@ export default function ProyectoWeb() {
   const [collapsed, setCollapsed] = useState(width < 700); // en móvil el mapa manda; el panel se abre con un toque
   const mapHandle = useRef<MapHandle>(null);
   const [occurrences, setOccurrences] = useState<KnownOccurrencesResult | null>(null);
+  // Validación en campo (pares predicción-realidad que el usuario marca). Solo se registra: no ajusta el análisis.
+  const [validations, setValidations] = useState<Record<string, PairView>>({});
+  const [sheetPoint, setSheetPoint] = useState<any | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -49,6 +55,29 @@ export default function ProyectoWeb() {
   }, [id]);
 
   const points = project?.analisis_resultado ?? [];
+
+  // Veredictos ya guardados de este proyecto. Si falla la lectura, el detalle sigue funcionando (sin insignias).
+  useEffect(() => {
+    setValidations({});
+    if (!project?.id) return;
+    let alive = true;
+    listPairs(project.id).then((v) => { if (alive) setValidations(v); }).catch(() => { /* sin insignias; no rompe el detalle */ });
+    return () => { alive = false; };
+  }, [project?.id]);
+
+  const validationKey = useCallback((p: any) => pointKey(p.lat, p.lng), []);
+  const onValidate = useCallback((p: any) => setSheetPoint(p), []);
+  const sheetExisting = (() => { try { return sheetPoint ? validations[pointKey(sheetPoint.lat, sheetPoint.lng)] : undefined; } catch { return undefined; } })();
+  const saveValidation = useCallback(async (verdict: Verdict, comment: string) => {
+    if (!project || !sheetPoint) return;
+    const view = await savePair(project as any, sheetPoint, verdict, comment);
+    setValidations((v) => ({ ...v, [pointKey(sheetPoint.lat, sheetPoint.lng)]: view }));
+  }, [project, sheetPoint]);
+  const removeValidation = useCallback(async () => {
+    if (!project || !sheetPoint) return;
+    await removePair(project as any, sheetPoint);
+    setValidations((v) => { const n = { ...v }; delete n[pointKey(sheetPoint.lat, sheetPoint.lng)]; return n; });
+  }, [project, sheetPoint]);
 
   // Yacimientos conocidos (USGS MRDS) alrededor de la zona. En segundo plano: nunca bloquea ni rompe
   // el detalle (si falla, el panel lo dice; no se confunde con "0 yacimientos").
@@ -153,8 +182,15 @@ export default function ProyectoWeb() {
               collapsed={collapsed}
               onToggleCollapsed={() => setCollapsed((c) => !c)}
               onInterpret={onInterpret}
+              onValidate={onValidate}
+              validations={validations}
+              validationKey={validationKey}
             />
           )}
+          <ValidationSheet
+            point={sheetPoint} existing={sheetExisting}
+            onClose={() => setSheetPoint(null)} onSave={saveValidation} onRemove={removeValidation}
+          />
         </View>
       )}
     </View>
