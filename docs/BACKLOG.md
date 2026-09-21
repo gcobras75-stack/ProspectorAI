@@ -20,6 +20,12 @@ Pendientes anotados, sin investigar todavía. Cada uno se revisa en una sesión 
 - **Después de migrar:** `MINING_ALLOW_APP_TOKEN=0`. Rollback siempre por variable de entorno (`warn`/`off`).
 - **La app nativa actual (sin JWT) queda FUERA en `enforce`** (verificado en staging: 401 en minería). Por eso `enforce` en producción depende de la OTA y de medir cuántas peticiones `sin_jwt` siguen llegando.
 
+### Contraste regional (`POST /api/background-contrast`) — PROMOVIDO a producción (2026-09-20, servidor `master` `8d399c5`)
+- Anillo de 1–3 km por kernel de imagen; mediana + IQR/1.349; `null` sin relleno; capas ópticas (`iron_oxide`, `ferroso`, `clay`, `ndvi`) + `slope_deg`/`elevation_m` como contexto. **Sentinel-1 EXCLUIDO del contrato** (pedir `vv_*` → 400; la respuesta no trae campos de S1). Diseño: `BACKLOG.md` del servidor.
+- Verificado antes de promover: `regress.sh` en staging 19 OK / 0 FAIL / 0 DIFF; en producción, una llamada real (modo gracia `warn`) respondió con `ring_n` = 2516.
+- **Siguiente bloque (pendiente de OK):** cablear el botón "requiere análisis de contraste regional" (`app/core/saturation.ts`) al endpoint. Sin hacer todavía.
+- **Defecto aparte, con plan pendiente de OK:** `/api/mining/spectral-grid` (razón promediada con denominadores casi cero; afecta sobre todo a `iron_oxide`).
+
 ### Estructura por satélite — PAUSADA (decisión 2026-09-20; se pospone, no se abandona)
 - **Estructura por satélite:** `near_lineament` (DEM solo o DEM+S1) validado con AUC ~0.37-0.53 contra fallas reales de USGS — no detecta, mide pendiente de terreno. Requeriría un detector de rasgos lineales dedicado (extracción de líneas/filtros direccionales), proyecto aparte, sin fecha. Sin validar aún: pesos 0.7/0.3 y umbral 0.4 del intento actual.
 - **En producción NO cambia nada:** `POST /api/structural/grid` sigue devolviendo error y la app nativa y la PWA siguen sin "Estructura ✓" ni `structuralScore`. Nada del bloque estructural/Sentinel-1 se promueve (ni servidor ni cliente).
