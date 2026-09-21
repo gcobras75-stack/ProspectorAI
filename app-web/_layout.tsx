@@ -9,6 +9,7 @@ import { useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { AuthProvider, useAuth } from '../app/core/AuthContext';
 import { installGeeAuth } from '../web-lib/geeAuth';
+import { setScopeUser } from '../web-lib/userScope';
 import { SAFE_TOP } from '../web-lib/safeArea';
 
 // Envoltorio de fetch para el servidor GEE (token de app + motivo real de un 401/429). Ver geeAuth.ts.
@@ -18,6 +19,12 @@ function RootNavigation() {
   const { session, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  // Identidad del storage local (A5): el id del usuario de la sesión. Se fija en el render, ANTES de montar las pantallas (leen el chat al
+  // montar), y solo cuando ya se sabe si hay sesión (con `loading` aún no se sabe: no borrar nada). Al cambiar de usuario o al salir
+  // se borra lo del anterior (ver userScope.ts).
+  const uid = session?.user?.id ?? null;
+  if (!loading) setScopeUser(uid);
 
   useEffect(() => {
     if (loading) return;
@@ -35,7 +42,8 @@ function RootNavigation() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    // key = usuario: al cambiar de usuario las pantallas se remontan y no conservan el estado (chat en memoria) del anterior.
+    <Stack key={uid ?? 'anon'} screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="proyecto/[id]" />
       <Stack.Screen name="analisis/nuevo" />

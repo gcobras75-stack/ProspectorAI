@@ -26,19 +26,20 @@ import { materialLabel } from '../../app/core/materialsCatalog';
 import { computeAdaptiveCellSize } from '../../app/core/SatelliteEngine';
 import { centroidOf, proposeRockType, rockSourceLabel, type RockProposal, type RockSource } from '../../app/core/lithologyService';
 import { parseCoordinate } from '../../app/core/coordParse';
+import { scopedKey } from '../../web-lib/userScope';
 
 const TERRAINS = ['sierra', 'playa', 'árido'];
 const DEPTHS = ['0-5m', '5-20m', '20m+'];
 const ROCKS: { id: string; label: string }[] = [
   { id: 'ignea', label: 'Ígnea' }, { id: 'sedimentaria', label: 'Sedimentaria' }, { id: 'metamorfica', label: 'Metamórfica' },
 ];
-const PREFS_KEY = 'pwa.analysisPrefs';
+const PREFS_BASE = 'pwa.analysisPrefs';   // por usuario: scopedKey → `pwa.analysisPrefs.<userId>` (userScope.ts)
 
 type Stage = 'draw' | 'config' | 'running';
 
 function loadPrefs(): { mineral: string; terrain: string; depth: string; deep: boolean } {
   const def = { mineral: 'oro', terrain: 'sierra', depth: '0-5m', deep: false };
-  try { return { ...def, ...JSON.parse(window.localStorage.getItem(PREFS_KEY) || '{}') }; } catch { return def; }
+  try { const k = scopedKey(PREFS_BASE); return k ? { ...def, ...JSON.parse(window.localStorage.getItem(k) || '{}') } : def; } catch { return def; }
 }
 
 const todayLabel = () => {
@@ -123,7 +124,7 @@ export default function NuevoAnalisis() {
   const pickRock = (id: string) => { setRockType(id); setRockSource('usuario'); };
 
   const savePrefs = () => {
-    try { window.localStorage.setItem(PREFS_KEY, JSON.stringify({ mineral, terrain, depth, deep })); } catch { /* storage bloqueado */ }
+    try { const k = scopedKey(PREFS_BASE); if (k) window.localStorage.setItem(k, JSON.stringify({ mineral, terrain, depth, deep })); } catch { /* storage bloqueado */ }
   };
 
   const persist = useCallback(async (out: AnalysisOutput) => {

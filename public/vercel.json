@@ -1,6 +1,12 @@
 {
   "rewrites": [{ "source": "/((?!_expo/|.*[.].*).*)", "destination": "/index.html" }],
   "headers": [
+    { "source": "/(.*)", "headers": [
+      { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://services.arcgisonline.com; font-src 'self' data:; connect-src 'self' https://kjprkyuaghzwjatcjnyx.supabase.co https://prospector-gee-server-production.up.railway.app https://prospectorai-ai-production.up.railway.app https://macrostrat.org https://mrdata.usgs.gov; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" },
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+      { "key": "X-Frame-Options", "value": "DENY" }
+    ] },
     { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
     { "source": "/sw.js", "headers": [
       { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },

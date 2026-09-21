@@ -48,3 +48,21 @@ Pendientes anotados, sin investigar todavía. Cada uno se revisa en una sesión 
 - **No es idéntica a la app nativa:** la nativa usa el mapa satelital/híbrido de la plataforma (`react-native-maps` sin `provider`: Apple Maps en iPhone). Igualarla exigiría Apple MapKit JS (Apple Developer Program + JWT firmado en servidor) y reemplazar Leaflet/Geoman. Decisión del usuario: "parecida y satelital de verdad".
 - **Sin etiquetas** (calles/poblados) a diferencia del modo "híbrido" nativo. Si se necesitan: capas de referencia de Esri (p. ej. `World_Boundaries_and_Places`), con su propia atribución; evaluar junto con la migración a ArcGIS Location Platform.
 - **OpenStreetMap** ya no se usa en la PWA (su política no garantiza servicio ni permite uso intensivo). La app nativa sigue con su overlay OSM opcional.
+
+## Auditoría de la app (2026-09-20)
+
+**Corregidos** (ver `docs/PWA-SEGURIDAD.md`):
+- **A5** localStorage por usuario: `pwa.chat.<userId>.<proyecto>`, `pwa.selectedProjectId.<userId>`, `pwa.analysisPrefs.<userId>`; al salir o cambiar de usuario se borra todo `pwa.*` ajeno (incluidas las claves antiguas sin id) y se reinicia la memoria (selección, interpretación pendiente). `web-lib/userScope.ts`, con 10 pruebas (`scripts/test-user-scope.mjs`) y prueba en navegador de dos usuarios.
+- **A8** cabeceras de seguridad en `public/vercel.json`: CSP, X-Content-Type-Options, Referrer-Policy, X-Frame-Options. Probada en Chromium con Leaflet, Geoman y tiles reales de Esri (15 de 15 cargados, 0 violaciones); control negativo sin Esri: 15 → 0.
+- **A10** el commit local `65c4eb4` (docs/OTA-PUBLICAR.md) se subió a origin.
+
+**Confirmados en verde (sin cambios):**
+- **A2** `validation_pairs`: la RLS `validation_own` aísla por usuario (índice único `(user_id, client_id)`); probado con una cuenta desechable, ya borrada.
+- **A7** popups de Leaflet: se arman con `textContent` (`popupEl`); no hay `innerHTML` ni `dangerouslySetInnerHTML` en la PWA ni en los componentes compartidos.
+
+**Anotados, SIN implementar:**
+- **A1** El JWT solo sale hacia el servidor GEE (`fetchWithTimeout` en `SatelliteEngine.ts`, `ReportGenerator.ts:565/589`). NO está verificado qué pasa si el JWT expira A MITAD de un análisis (Supabase debería renovarlo; falta probarlo con una sesión de vida corta). `app/core/geeAuth.ts`, `web-lib/geeAuth.ts`. Esfuerzo bajo (prueba con caducidad forzada).
+- **A3** Que la app nativa no cambia con el botón opcional de `ResultsPanel` se demostró solo por evidencia ESTÁTICA (diff desde `78bb360`: solo props opcionales; la nativa no pasa ninguna en `app/(tabs)/index.tsx:1869`). Falta una prueba de render: no corre en Node por el ESM de `react-native-web`; haría falta un navegador headless con el bundle web o `jest-expo`. Esfuerzo medio.
+- **A4** Listas y colores duplicados sin fuente única: `TERRAINS = ['sierra','playa','árido']` fijo en `app-web/analisis/nuevo.tsx`; colores de consenso/veredicto repetidos entre `ValidationView.tsx` (`CONSENSUS_COLOR`, `VerdictKey`) y `ResultsPanel.tsx` (`VALIDATION_BADGE`). Exportar del catálogo y de un módulo de veredictos. Esfuerzo bajo–medio.
+- **A6** Deriva de `web-lib/runAnalysis.ts` frente al pipeline nativo (`app/(tabs)/index.tsx` ~998–1325): el archivo dice que es "el MISMO pipeline" y que hay que cambiarlo en dos sitios; solo se sincroniza a mano. Diferencias deliberadas: sin ranking por IA, sin waypoints, sin caché ni cola offline. Extraer un orquestador común (alto) o un test que compare la lista de llamadas (bajo).
+- **A9** Test debt: solo hay pruebas de `validationPairs` (11) y `userScope`/`chatStore`/`selection` (10). Sin pruebas: `validationStore` (upsert/quitar), `geo` (`polygonAreaHa`, `getDrySeasonDates`), `runAnalysis` (degradación cuando una fuente falla), `geeAuth` (carrera de 4 s). Esfuerzo medio.
