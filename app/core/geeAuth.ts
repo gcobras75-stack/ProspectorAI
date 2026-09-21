@@ -5,7 +5,13 @@
  * el JWT de la sesión de Supabase (`Authorization: Bearer <access_token>`), que el servidor verifica
  * localmente. Sin secretos en el cliente: es el token de sesión del propio usuario.
  *
- * Con el servidor en modo `off`/`warn` (hoy) la cabecera se ignora, así que mandarla es inocuo.
+ * Qué hace el servidor con la cabecera según su modo (MINING_AUTH_MODE; en `warn` la petición NUNCA se rechaza por el JWT):
+ *  - `off`:  la ignora.
+ *  - `warn` (producción hoy): la VERIFICA y la registra en el log (`jwt=ok` / `jwt=sin_jwt` / `jwt=invalido:…`). Si el JWT es válido
+ *    identifica al usuario: ya no exige el X-App-Token y SÍ aplica el límite por usuario (60 peticiones cada 10 min; 429 al pasarse).
+ *    Sin JWT, o con uno inválido, la petición pasa igual que antes (gracia).
+ *  - `enforce`: sin JWT válido → 401 (o con el X-App-Token transitorio, si el servidor lo acepta).
+ * Verificado en vivo contra producción en `warn` con un JWT real (jwt=ok, límite 60 por usuario). Ver docs/BACKLOG.md.
  * Si NO hay sesión, o falla la lectura, no se manda nada y la petición sale exactamente como antes.
  * La usan SatelliteEngine y ReportGenerator (nativa y PWA comparten este archivo).
  */
