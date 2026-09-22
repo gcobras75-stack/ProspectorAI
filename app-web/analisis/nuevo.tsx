@@ -27,6 +27,7 @@ import { computeAdaptiveCellSize } from '../../app/core/SatelliteEngine';
 import { centroidOf, proposeRockType, rockSourceLabel, type RockProposal, type RockSource } from '../../app/core/lithologyService';
 import { parseCoordinate } from '../../app/core/coordParse';
 import { scopedKey } from '../../web-lib/userScope';
+import { confirmAction } from '../../web-lib/confirmAction';
 
 const TERRAINS = ['sierra', 'playa', 'árido'];
 const DEPTHS = ['0-5m', '5-20m', '20m+'];
@@ -177,7 +178,7 @@ export default function NuevoAnalisis() {
 
   // Ir al chat sale de esta pantalla: la zona dibujada se pierde (el mapa se desmonta), así que se avisa.
   const openChat = () => {
-    if (coords && typeof window !== 'undefined' && !window.confirm('Se perderá la zona que dibujaste. ¿Ir al chat con Villegas?')) return;
+    if (coords && !confirmAction('¿Ir al chat con Villegas?', 'Se perderá la zona que dibujaste.')) return;
     router.dismissTo('/(tabs)/geologo' as any);
   };
   const goBack = () => { if (router.canGoBack()) router.back(); else router.replace('/(tabs)/proyectos' as any); };
@@ -340,7 +341,7 @@ export default function NuevoAnalisis() {
                   // Auditoría de usabilidad (2026-09-21): cancelar a medio análisis tira minutos de espera y
                   // cuota de satélite ya gastada (mismo espíritu que "no se tira por un fallo de red al
                   // guardar"). Un toque accidental con prisa no debe perderlo sin avisar.
-                  if (typeof window !== 'undefined' && !window.confirm('¿Cancelar el análisis en curso? Se perderá el progreso.')) return;
+                  if (!confirmAction('¿Cancelar el análisis en curso?', 'Se perderá el progreso.')) return;
                   cancelRef.current = true; setStep('Cancelando…');
                 }}
               >
@@ -403,15 +404,17 @@ const s = StyleSheet.create({
   hint: { color: '#BBB', fontSize: 13, lineHeight: 19 },
   area: { fontSize: 18, fontWeight: '800' },
   areaMsg: { fontSize: 12, marginTop: 4, lineHeight: 17 },
-  primary: { backgroundColor: '#FFD700', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 12 },
+  // Repaso de consistencia (2026-09-21): mismo mínimo de 52px que login.tsx/proyectos.tsx en las 5 pantallas.
+  primary: { backgroundColor: '#FFD700', borderRadius: 12, paddingVertical: 14, minHeight: 52, justifyContent: 'center', alignItems: 'center', marginTop: 12 },
   primaryText: { color: '#000', fontWeight: '800', fontSize: 16 },
-  ghost: { borderColor: '#444', borderWidth: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 12 },
+  ghost: { borderColor: '#444', borderWidth: 1, borderRadius: 12, paddingVertical: 12, minHeight: 52, justifyContent: 'center', alignItems: 'center', marginTop: 12 },
   ghostText: { color: '#CCC', fontWeight: '700' },
   overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000', zIndex: 200, marginTop: 45 },
   sec: { color: '#FFD700', fontSize: 12, fontWeight: '800', letterSpacing: 0.6, marginTop: 18, marginBottom: 8 },
-  input: { backgroundColor: '#161616', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 10, color: '#FFF', paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
+  input: { backgroundColor: '#161616', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 10, color: '#FFF', paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, minHeight: 52 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { borderColor: '#333', borderWidth: 1, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 11, minHeight: 40 },
+  // 44px: mismo mínimo que el chip de proyecto de geologo.tsx y el botón 📍/"Ir" de esta pantalla.
+  chip: { borderColor: '#333', borderWidth: 1, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 11, minHeight: 44 },
   chipOn: { backgroundColor: '#FFD700', borderColor: '#FFD700' },
   chipText: { color: '#CCC', fontSize: 14 },
   chipTextOn: { color: '#000', fontWeight: '700' },

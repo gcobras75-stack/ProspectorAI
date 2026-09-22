@@ -20,6 +20,7 @@ import { loadWebProject, loadWebSamples, type WebProject, type WebSample } from 
 import LeafletMap, { type MapHandle } from '../../web-lib/LeafletMap';
 import { fetchKnownOccurrences, type KnownOccurrencesResult } from '../../app/core/mrdsService';
 import { setSelectedProjectId, setPendingInterpretation } from '../../web-lib/selection';
+import { confirmAction } from '../../web-lib/confirmAction';
 
 export default function ProyectoWeb() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -115,7 +116,7 @@ export default function ProyectoWeb() {
   // Auditoría de usabilidad (2026-09-21): si la hoja "Validar en campo" está abierta (nota a medio escribir),
   // salir al chat la cierra sin guardar nada; se confirma antes (mismo criterio que "Ir al chat" en Nuevo análisis).
   const openChat = useCallback(() => {
-    if (sheetPoint && typeof window !== 'undefined' && !window.confirm('Tienes una validación de campo sin guardar. ¿Salir de todos modos?')) return;
+    if (sheetPoint && !confirmAction('¿Salir al chat con Villegas?', 'Se perderá la validación de campo sin guardar.')) return;
     router.dismissTo('/(tabs)/geologo' as any);
   }, [router, sheetPoint]);
 

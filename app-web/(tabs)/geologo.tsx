@@ -25,6 +25,7 @@ import {
 } from '../../web-lib/selection';
 import { GENERAL_KEY, loadChat, saveChat, appendChat, type StoredMsg } from '../../web-lib/chatStore';
 import Markdown from '../../web-lib/Markdown';
+import { confirmAction } from '../../web-lib/confirmAction';
 
 type UiMsg = StoredMsg;
 type Conv = { key: string };
@@ -177,7 +178,7 @@ export default function GeologoWeb() {
             onPress={() => {
               // Auditoría de usabilidad (2026-09-21): borraba TODA la conversación (puede ser de días) de un
               // solo toque, sin avisar ni poder deshacerlo. Se confirma antes.
-              if (typeof window !== 'undefined' && !window.confirm('¿Borrar esta conversación? No se puede deshacer.')) return;
+              if (!confirmAction('¿Borrar esta conversación?', 'Se perderá todo el historial de este chat.')) return;
               setMsgs([]);
             }}
             disabled={busy} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -284,7 +285,8 @@ const s = StyleSheet.create({
   chipTextOn: { color: '#000', fontWeight: '700' },
   intro: { backgroundColor: '#111', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 12, padding: 14 },
   introTitle: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  primary: { backgroundColor: '#FFD700', borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 14 },
+  // Repaso de consistencia (2026-09-21): mismo mínimo de 52px que login.tsx/proyectos.tsx en las 5 pantallas.
+  primary: { backgroundColor: '#FFD700', borderRadius: 10, paddingVertical: 12, minHeight: 52, justifyContent: 'center', alignItems: 'center', marginTop: 14 },
   primaryText: { color: '#000', fontWeight: '700', fontSize: 15 },
   bubble: { borderRadius: 14, padding: 12, marginBottom: 10, maxWidth: '92%' },
   user: { backgroundColor: '#2A2410', alignSelf: 'flex-end', borderColor: '#FFD70055', borderWidth: 1 },
@@ -295,8 +297,8 @@ const s = StyleSheet.create({
   composer: { flexDirection: 'row', alignItems: 'flex-end', padding: 12, borderTopColor: '#222', borderTopWidth: 1, backgroundColor: '#0A0A0A' },
   input: {
     flex: 1, backgroundColor: '#161616', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 12, color: '#FFF',
-    paddingHorizontal: 14, paddingVertical: 10, fontSize: 16, maxHeight: 120,
+    paddingHorizontal: 14, paddingVertical: 10, fontSize: 16, minHeight: 52, maxHeight: 120,
   },
-  send: { backgroundColor: '#FFD700', borderRadius: 12, paddingHorizontal: 18, minHeight: 46, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
+  send: { backgroundColor: '#FFD700', borderRadius: 12, paddingHorizontal: 18, minHeight: 52, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
   sendText: { color: '#000', fontWeight: '700' },
 });

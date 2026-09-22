@@ -9,6 +9,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../app/core/AuthContext';
 import { listWebProjects, type WebProjectSummary } from '../../app/core/webData';
 import { setSelectedProjectId } from '../../web-lib/selection';
+import { confirmAction } from '../../web-lib/confirmAction';
 
 export default function ProyectosWeb() {
   const { session, signOut } = useAuth();
@@ -36,8 +37,7 @@ export default function ProyectosWeb() {
   // avisar. `Alert.alert` de react-native-web es un no-op (ver AuthContext), así que se usa `confirm`
   // del navegador. `window` no existe en el prerender de servidor: se guarda por si acaso.
   const confirmSignOut = () => {
-    const ok = typeof window !== 'undefined' ? window.confirm('¿Cerrar tu sesión?') : true;
-    if (ok) signOut();
+    if (confirmAction('¿Cerrar tu sesión?', 'Se borrará el chat y la selección guardados en este navegador.')) signOut();
   };
 
   return (

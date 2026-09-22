@@ -96,3 +96,12 @@ Pendientes anotados, sin investigar todavía. Cada uno se revisa en una sesión 
 **Aplicados (bajo riesgo, probados en navegador):** "Borrar esta conversación" ahora confirma ("¿Borrar esta conversación? No se puede deshacer.") — antes borraba TODO el historial (puede ser de varios días) de un solo toque, sin poder deshacerlo; probé rechazar (sigue ahí) y aceptar (se borra de verdad). Chips de proyecto y botón "Enviar" agrandados a 44–46px (antes ~34–43px).
 
 **Pendiente, SIN implementar (rediseño si crece):** los chips de proyecto son una fila horizontal sin buscador; con muchos proyectos, encontrar el correcto a puro scroll lateral se vuelve difícil. No urge hoy (pocos proyectos por cuenta), pero si crece necesita buscador o lista desplegable.
+
+## Repaso de consistencia — las 5 pantallas de la PWA (2026-09-21)
+
+Encontradas y corregidas 2 inconsistencias entre las auditorías de usabilidad de login/proyectos/nuevo-análisis/detalle/geólogo:
+
+1. **Confirmaciones:** cada pantalla había inventado su propio `window.confirm` suelto, con distinto orden (pregunta↔consecuencia) y una sin consecuencia ("¿Cerrar tu sesión?" a secas). Ahora las 6 pasan por `web-lib/confirmAction.ts`, la única función de confirmación de la PWA: siempre "¿Pregunta corta? Consecuencia en una frase.", mismo tuteo. 3 pruebas unitarias.
+2. **Tamaños:** unificados al más generoso (52px) los botones primarios/secundarios y campos de texto de las 5 pantallas (antes 40–46px sin minHeight en varios: "Configurar análisis"/"Analizar"/"Cancelar" de Nuevo análisis, "Interpretar este proyecto"/"Enviar" de Geólogo, Guardar/Cancelar de la hoja de validación); los chips quedaron en 44px en las dos pantallas que los usan.
+
+Reprobadas las 6 confirmaciones y los tamaños con Playwright tras el cambio: mismos resultados, con los textos y alturas nuevas.

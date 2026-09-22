@@ -10,6 +10,7 @@ import {
   NOTE_MAX, SCOPE_NOTICE, VERDICTS, VERDICT_BUTTON, VERDICT_COLOR, VERDICT_HELP, pointKey,
   type PairPoint, type PairView, type Verdict,
 } from './validationPairs';
+import { confirmAction } from './confirmAction';
 
 type Props = {
   /** Punto a validar; null = hoja cerrada. */
@@ -91,7 +92,7 @@ export default function ValidationSheet({ point, existing, onClose, onSave, onRe
               onPress={() => {
                 // Auditoría de usabilidad (2026-09-21): borraba el veredicto y la nota de campo de un
                 // solo toque. Es lo único que quedó de esa visita: se confirma antes de perderlo.
-                if (typeof window !== 'undefined' && !window.confirm('¿Quitar este veredicto? Se borra la nota que escribiste.')) return;
+                if (!confirmAction('¿Quitar este veredicto?', 'Se borrará la nota que escribiste.')) return;
                 run(onRemove);
               }}
               disabled={busy} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -121,7 +122,8 @@ const s = StyleSheet.create({
   scope: { color: '#888', fontSize: 12, lineHeight: 17, marginTop: 8 },
   err: { color: '#FF6B6B', fontSize: 13, marginTop: 8 },
   row: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  btn: { flex: 1, minHeight: 46, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  // Repaso de consistencia (2026-09-21): mismo mínimo de 52px que los botones primarios de las otras 4 pantallas.
+  btn: { flex: 1, minHeight: 52, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   ghost: { borderColor: '#444', borderWidth: 1 },
   ghostText: { color: '#CCC', fontWeight: '700', fontSize: 15 },
   primary: { backgroundColor: '#FFD700' },
