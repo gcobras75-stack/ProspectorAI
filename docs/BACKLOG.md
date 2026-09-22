@@ -66,3 +66,9 @@ Pendientes anotados, sin investigar todavía. Cada uno se revisa en una sesión 
 - **A4** Listas y colores duplicados sin fuente única: `TERRAINS = ['sierra','playa','árido']` fijo en `app-web/analisis/nuevo.tsx`; colores de consenso/veredicto repetidos entre `ValidationView.tsx` (`CONSENSUS_COLOR`, `VerdictKey`) y `ResultsPanel.tsx` (`VALIDATION_BADGE`). Exportar del catálogo y de un módulo de veredictos. Esfuerzo bajo–medio.
 - **A6** Deriva de `web-lib/runAnalysis.ts` frente al pipeline nativo (`app/(tabs)/index.tsx` ~998–1325): el archivo dice que es "el MISMO pipeline" y que hay que cambiarlo en dos sitios; solo se sincroniza a mano. Diferencias deliberadas: sin ranking por IA, sin waypoints, sin caché ni cola offline. Extraer un orquestador común (alto) o un test que compare la lista de llamadas (bajo).
 - **A9** Test debt: solo hay pruebas de `validationPairs` (11) y `userScope`/`chatStore`/`selection` (10). Sin pruebas: `validationStore` (upsert/quitar), `geo` (`polygonAreaHa`, `getDrySeasonDates`), `runAnalysis` (degradación cuando una fuente falla), `geeAuth` (carrera de 4 s). Esfuerzo medio.
+
+## Auditoría de usabilidad — app-web/login.tsx (2026-09-21)
+
+**Aplicados (bajo riesgo):** ojito 👁️ para mostrar/ocultar contraseña (paridad con `app/login.tsx`, antes solo en la nativa); botón "Entrar" y campos agrandados (min. 50–52px de alto, uso con prisa/manos torpes); el error ("Correo o contraseña incorrectos") ya no se queda pegado en pantalla al corregir — se limpia en cuanto el usuario vuelve a escribir.
+
+**Pendiente, SIN implementar (rediseño grande):** no hay "¿Olvidaste tu contraseña?" — si alguien se equivoca de contraseña repetidamente, la pantalla es un callejón sin salida (no hay registro tampoco, por decisión de producto). Requiere pantalla de recuperación + `resetPasswordForEmail` + página de nueva contraseña; no existe ni en la app nativa. Esfuerzo medio.

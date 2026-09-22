@@ -4,13 +4,21 @@
  */
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase, friendlyAuthError } from '../app/core/supabase';
 
 export default function LoginWeb() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  // Auditoría de usabilidad (2026-09-21): si el usuario corrige un dato tras un error, el error viejo
+  // ("Correo o contraseña incorrectos") se queda en pantalla y puede confundir si el nuevo intento aún
+  // no respondió. Se limpia apenas vuelve a escribir.
+  const onChangeEmail = (t: string) => { setEmail(t); if (error) setError(''); };
+  const onChangePassword = (t: string) => { setPassword(t); if (error) setError(''); };
 
   const submit = async () => {
     if (busy) return;
@@ -36,19 +44,29 @@ export default function LoginWeb() {
 
         <Text style={s.label}>Correo</Text>
         <TextInput
-          style={s.input} value={email} onChangeText={setEmail}
+          style={s.input} value={email} onChangeText={onChangeEmail}
           placeholder="tu@correo.com" placeholderTextColor="#555"
           autoCapitalize="none" autoCorrect={false} keyboardType="email-address"
           textContentType="username" autoComplete="email"
         />
         <Text style={s.label}>Contraseña</Text>
-        <TextInput
-          style={s.input} value={password} onChangeText={setPassword}
-          placeholder="••••••••" placeholderTextColor="#555"
-          secureTextEntry autoCapitalize="none" autoCorrect={false}
-          textContentType="password" autoComplete="current-password"
-          onSubmitEditing={submit}
-        />
+        <View style={s.passwordRow}>
+          <TextInput
+            style={s.passwordInput} value={password} onChangeText={onChangePassword}
+            placeholder="••••••••" placeholderTextColor="#555"
+            secureTextEntry={!showPassword} autoCapitalize="none" autoCorrect={false}
+            textContentType="password" autoComplete="current-password"
+            onSubmitEditing={submit}
+          />
+          <TouchableOpacity
+            style={s.eyeBtn} onPress={() => setShowPassword((v) => !v)}
+            accessibilityRole="button"
+            accessibilityLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color="#AAA" />
+          </TouchableOpacity>
+        </View>
 
         {!!error && <Text style={s.error}>{error}</Text>}
 
@@ -69,10 +87,18 @@ const s = StyleSheet.create({
   label: { color: '#CCC', fontSize: 13, marginBottom: 6, marginTop: 12 },
   input: {
     backgroundColor: '#161616', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 10,
-    color: '#FFF', paddingHorizontal: 14, paddingVertical: 12, fontSize: 16,
+    color: '#FFF', paddingHorizontal: 14, paddingVertical: 14, fontSize: 16, minHeight: 50,
   },
+  // Fila del campo de contraseña + ojito (paridad con app/login.tsx): mismo tamaño de toque que `input`.
+  passwordRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#161616', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 10, minHeight: 50,
+  },
+  passwordInput: { flex: 1, color: '#FFF', paddingHorizontal: 14, paddingVertical: 14, fontSize: 16 },
+  eyeBtn: { paddingHorizontal: 12, paddingVertical: 12 },
   error: { color: '#FF6B6B', marginTop: 14, fontSize: 14 },
-  btn: { backgroundColor: '#FFD700', borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 22 },
-  btnText: { color: '#000', fontWeight: '700', fontSize: 16 },
+  // Botón principal agrandado (uso con prisa/manos torpes): 52px de alto mínimo, único camino de la pantalla.
+  btn: { backgroundColor: '#FFD700', borderRadius: 10, paddingVertical: 16, minHeight: 52, justifyContent: 'center', alignItems: 'center', marginTop: 22 },
+  btnText: { color: '#000', fontWeight: '700', fontSize: 17 },
   hint: { color: '#666', fontSize: 12, textAlign: 'center', marginTop: 22 },
 });
