@@ -87,7 +87,15 @@ export default function ValidationSheet({ point, existing, onClose, onSave, onRe
             </TouchableOpacity>
           </View>
           {existing && onRemove && (
-            <TouchableOpacity onPress={() => run(onRemove)} disabled={busy} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity
+              onPress={() => {
+                // Auditoría de usabilidad (2026-09-21): borraba el veredicto y la nota de campo de un
+                // solo toque. Es lo único que quedó de esa visita: se confirma antes de perderlo.
+                if (typeof window !== 'undefined' && !window.confirm('¿Quitar este veredicto? Se borra la nota que escribiste.')) return;
+                run(onRemove);
+              }}
+              disabled={busy} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
               <Text style={s.remove}>Quitar veredicto</Text>
             </TouchableOpacity>
           )}

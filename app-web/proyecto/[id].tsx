@@ -112,7 +112,12 @@ export default function ProyectoWeb() {
   }, [router]);
 
   // dismissTo VUELVE a la pestaña Geólogo ya montada (con su conversación); navigate apilaba una copia nueva de las pestañas.
-  const openChat = useCallback(() => { router.dismissTo('/(tabs)/geologo' as any); }, [router]);
+  // Auditoría de usabilidad (2026-09-21): si la hoja "Validar en campo" está abierta (nota a medio escribir),
+  // salir al chat la cierra sin guardar nada; se confirma antes (mismo criterio que "Ir al chat" en Nuevo análisis).
+  const openChat = useCallback(() => {
+    if (sheetPoint && typeof window !== 'undefined' && !window.confirm('Tienes una validación de campo sin guardar. ¿Salir de todos modos?')) return;
+    router.dismissTo('/(tabs)/geologo' as any);
+  }, [router, sheetPoint]);
 
   const onInterpret = useCallback((ctx: string) => {
     setPendingInterpretation(ctx, project?.id ?? null);
