@@ -31,6 +31,15 @@ export default function ProyectosWeb() {
     router.push(`/proyecto/${id}` as any);
   };
 
+  // Auditoría de usabilidad (2026-09-21): "Salir" era un toque directo, sin confirmación — un roce
+  // accidental cerca del título cierra la sesión y borra el chat/selección local del usuario (A5) sin
+  // avisar. `Alert.alert` de react-native-web es un no-op (ver AuthContext), así que se usa `confirm`
+  // del navegador. `window` no existe en el prerender de servidor: se guarda por si acaso.
+  const confirmSignOut = () => {
+    const ok = typeof window !== 'undefined' ? window.confirm('¿Cerrar tu sesión?') : true;
+    if (ok) signOut();
+  };
+
   return (
     <ScrollView
       style={s.root} contentContainerStyle={{ padding: 16, paddingBottom: 48 }}
@@ -38,7 +47,7 @@ export default function ProyectosWeb() {
     >
       <View style={s.head}>
         <Text style={s.title}>Proyectos</Text>
-        <TouchableOpacity onPress={signOut} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}><Text style={s.link}>Salir</Text></TouchableOpacity>
+        <TouchableOpacity onPress={confirmSignOut} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}><Text style={s.link}>Salir</Text></TouchableOpacity>
       </View>
       <Text style={s.muted}>{session?.user?.email}</Text>
 
@@ -46,7 +55,7 @@ export default function ProyectosWeb() {
         <Text style={s.newBtnText}>＋ Nuevo análisis</Text>
       </TouchableOpacity>
 
-      {!!error && <Text style={s.error}>{error}</Text>}
+      {!!error && <Text style={s.error}>{error} Desliza hacia abajo para reintentar.</Text>}
       {projects === null && <ActivityIndicator color="#FFD700" style={{ marginTop: 24 }} />}
       {projects?.length === 0 && !error && <Text style={s.muted}>Sin proyectos sincronizados en esta cuenta.</Text>}
 
@@ -75,6 +84,7 @@ const s = StyleSheet.create({
   card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 12, padding: 14, marginTop: 12 },
   cardTitle: { color: '#FFF', fontSize: 16, fontWeight: '700' },
   chev: { color: '#FFD700', fontSize: 26, marginLeft: 8 },
-  newBtn: { backgroundColor: '#FFD700', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 14 },
+  // Botón principal agrandado (uso con prisa/manos torpes), mismo mínimo que app-web/login.tsx.
+  newBtn: { backgroundColor: '#FFD700', borderRadius: 12, paddingVertical: 16, minHeight: 52, justifyContent: 'center', alignItems: 'center', marginTop: 14 },
   newBtnText: { color: '#000', fontWeight: '800', fontSize: 16 },
 });

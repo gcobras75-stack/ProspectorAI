@@ -72,3 +72,9 @@ Pendientes anotados, sin investigar todavía. Cada uno se revisa en una sesión 
 **Aplicados (bajo riesgo):** ojito 👁️ para mostrar/ocultar contraseña (paridad con `app/login.tsx`, antes solo en la nativa); botón "Entrar" y campos agrandados (min. 50–52px de alto, uso con prisa/manos torpes); el error ("Correo o contraseña incorrectos") ya no se queda pegado en pantalla al corregir — se limpia en cuanto el usuario vuelve a escribir.
 
 **Pendiente, SIN implementar (rediseño grande):** no hay "¿Olvidaste tu contraseña?" — si alguien se equivoca de contraseña repetidamente, la pantalla es un callejón sin salida (no hay registro tampoco, por decisión de producto). Requiere pantalla de recuperación + `resetPasswordForEmail` + página de nueva contraseña; no existe ni en la app nativa. Esfuerzo medio.
+
+## Auditoría de usabilidad — app-web/(tabs)/proyectos.tsx (2026-09-21)
+
+**Aplicados (bajo riesgo, probados en navegador):** "Salir" ya pide confirmación (`window.confirm`) antes de cerrar la sesión — antes era un solo toque sin avisar, y con el aislamiento por usuario (A5) borra también el chat/selección local; probado cancelar (sigue dentro) y aceptar (sale, va a `/login`). Botón "＋ Nuevo análisis" agrandado a 52px (antes ~44px). El error de carga ahora sugiere la salida ("Desliza hacia abajo para reintentar.").
+
+**Pendiente, SIN implementar (rediseño grande):** "Salir" es un texto suelto junto al título; la nativa lo agrupa en un menú de cuenta (📱 botón "Cuenta"/"Admin" → hoja de opciones). Traer ese mismo patrón a la PWA (y dejar sitio ahí para más opciones de cuenta a futuro) es un rediseño, no un arreglo de una línea.
