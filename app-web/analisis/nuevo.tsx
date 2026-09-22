@@ -334,7 +334,16 @@ export default function NuevoAnalisis() {
               <ActivityIndicator color="#FFD700" size="large" />
               <Text style={s.runStep}>{step}</Text>
               <Text style={s.runNote}>Mantén esta pantalla abierta. Puede tardar varios minutos según la zona y las fuentes.</Text>
-              <TouchableOpacity style={s.ghost} onPress={() => { cancelRef.current = true; setStep('Cancelando…'); }}>
+              <TouchableOpacity
+                style={s.ghost}
+                onPress={() => {
+                  // Auditoría de usabilidad (2026-09-21): cancelar a medio análisis tira minutos de espera y
+                  // cuota de satélite ya gastada (mismo espíritu que "no se tira por un fallo de red al
+                  // guardar"). Un toque accidental con prisa no debe perderlo sin avisar.
+                  if (typeof window !== 'undefined' && !window.confirm('¿Cancelar el análisis en curso? Se perderá el progreso.')) return;
+                  cancelRef.current = true; setStep('Cancelando…');
+                }}
+              >
                 <Text style={s.ghostText}>Cancelar</Text>
               </TouchableOpacity>
             </>
@@ -371,8 +380,9 @@ const s = StyleSheet.create({
   title: { color: '#FFF', fontSize: 17, fontWeight: '800' },
   body: { flex: 1 },
   jumpRow: { flexDirection: 'row', padding: 8, backgroundColor: '#0A0A0A' },
-  jumpInput: { flex: 1, backgroundColor: '#161616', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 8, color: '#FFF', paddingHorizontal: 10, paddingVertical: 8, fontSize: 16 },
-  jumpBtn: { backgroundColor: '#222', borderRadius: 8, paddingHorizontal: 14, justifyContent: 'center', marginLeft: 6 },
+  // Fila del salto por coordenada + 📍: altura mínima de 44px (uso con prisa/manos torpes), antes ~36px.
+  jumpInput: { flex: 1, backgroundColor: '#161616', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 8, color: '#FFF', paddingHorizontal: 10, paddingVertical: 8, fontSize: 16, minHeight: 44 },
+  jumpBtn: { backgroundColor: '#222', borderRadius: 8, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center', alignItems: 'center', marginLeft: 6 },
   jumpBtnText: { color: '#FFD700', fontWeight: '700' },
   jumpError: { color: '#FF6B6B', fontSize: 12, paddingHorizontal: 10, paddingBottom: 6, backgroundColor: '#0A0A0A' },
   mapWrap: { flex: 1 },
@@ -401,7 +411,7 @@ const s = StyleSheet.create({
   sec: { color: '#FFD700', fontSize: 12, fontWeight: '800', letterSpacing: 0.6, marginTop: 18, marginBottom: 8 },
   input: { backgroundColor: '#161616', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 10, color: '#FFF', paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { borderColor: '#333', borderWidth: 1, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8 },
+  chip: { borderColor: '#333', borderWidth: 1, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 11, minHeight: 40 },
   chipOn: { backgroundColor: '#FFD700', borderColor: '#FFD700' },
   chipText: { color: '#CCC', fontSize: 14 },
   chipTextOn: { color: '#000', fontWeight: '700' },

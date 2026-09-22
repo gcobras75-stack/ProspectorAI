@@ -78,3 +78,9 @@ Pendientes anotados, sin investigar todavía. Cada uno se revisa en una sesión 
 **Aplicados (bajo riesgo, probados en navegador):** "Salir" ya pide confirmación (`window.confirm`) antes de cerrar la sesión — antes era un solo toque sin avisar, y con el aislamiento por usuario (A5) borra también el chat/selección local; probado cancelar (sigue dentro) y aceptar (sale, va a `/login`). Botón "＋ Nuevo análisis" agrandado a 52px (antes ~44px). El error de carga ahora sugiere la salida ("Desliza hacia abajo para reintentar.").
 
 **Pendiente, SIN implementar (rediseño grande):** "Salir" es un texto suelto junto al título; la nativa lo agrupa en un menú de cuenta (📱 botón "Cuenta"/"Admin" → hoja de opciones). Traer ese mismo patrón a la PWA (y dejar sitio ahí para más opciones de cuenta a futuro) es un rediseño, no un arreglo de una línea.
+
+## Auditoría de usabilidad — app-web/analisis/nuevo.tsx (2026-09-21)
+
+**Aplicados (bajo riesgo, probados con Geoman + navegador real):** botones "Ir"/"📍" y chips (terreno/profundidad/roca) agrandados a ≥43–44px (antes ~19–36px, por debajo del mínimo táctil). "Cancelar" durante un análisis en curso ahora confirma ("¿Cancelar el análisis en curso? Se perderá el progreso.") — antes un toque accidental con prisa tiraba minutos de espera y cuota de satélite ya gastada, sin avisar; probado rechazar (sigue corriendo) y aceptar (regresa a Configuración).
+
+**Pendiente, SIN implementar (rediseño/decisión cruzada con la app nativa):** el resumen de área muestra "~XX m/celda" (tamaño de celda de la rejilla satelital) junto a las hectáreas — es un detalle interno que un novato no puede accionar ni necesita ver. Aparece igual en la nativa (`app/(tabs)/index.tsx`), así que quitarlo o explicarlo es una decisión de producto compartida entre las dos apps, no algo para cambiar solo en la PWA.
