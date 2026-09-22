@@ -90,3 +90,9 @@ Pendientes anotados, sin investigar todavía. Cada uno se revisa en una sesión 
 **Aplicados (bajo riesgo, probados en navegador: mapa Esri, popup, insignia, hoja con veredicto existente):** "💬 Villegas" ahora confirma si la hoja "Validar en campo" está abierta ("Tienes una validación de campo sin guardar. ¿Salir de todos modos?") — antes navegaba y perdía la nota a medio escribir sin avisar. "Quitar veredicto" ahora confirma ("¿Quitar este veredicto? Se borra la nota que escribiste.") — antes borraba de un solo toque la única observación de esa visita. Probadas las dos rutas (rechazar/aceptar) en cada caso.
 
 **Pendiente, SIN implementar (rediseño):** el mapa no explica la diferencia entre el círculo dorado (celda analizada) y el círculo azul (yacimiento conocido USGS MRDS) — un novato no sabe qué significa cada color sin tocarlos uno por uno. Necesita una leyenda pequeña, con cuidado de no tapar el mapa ni los avisos existentes (atribución de Esri, "📍 buscando ubicación").
+
+## Auditoría de usabilidad — app-web/(tabs)/geologo.tsx (2026-09-21)
+
+**Aplicados (bajo riesgo, probados en navegador):** "Borrar esta conversación" ahora confirma ("¿Borrar esta conversación? No se puede deshacer.") — antes borraba TODO el historial (puede ser de varios días) de un solo toque, sin poder deshacerlo; probé rechazar (sigue ahí) y aceptar (se borra de verdad). Chips de proyecto y botón "Enviar" agrandados a 44–46px (antes ~34–43px).
+
+**Pendiente, SIN implementar (rediseño si crece):** los chips de proyecto son una fila horizontal sin buscador; con muchos proyectos, encontrar el correcto a puro scroll lateral se vuelve difícil. No urge hoy (pocos proyectos por cuenta), pero si crece necesita buscador o lista desplegable.

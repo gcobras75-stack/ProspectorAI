@@ -173,7 +173,15 @@ export default function GeologoWeb() {
         <Text style={s.title}>Ing. Villegas</Text>
         <Text style={s.muted}>Asistente geológico de IA · versión web</Text>
         {messages.length > 0 && (
-          <TouchableOpacity onPress={() => setMsgs([])} disabled={busy} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity
+            onPress={() => {
+              // Auditoría de usabilidad (2026-09-21): borraba TODA la conversación (puede ser de días) de un
+              // solo toque, sin avisar ni poder deshacerlo. Se confirma antes.
+              if (typeof window !== 'undefined' && !window.confirm('¿Borrar esta conversación? No se puede deshacer.')) return;
+              setMsgs([]);
+            }}
+            disabled={busy} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
             <Text style={s.clearLink}>Borrar esta conversación</Text>
           </TouchableOpacity>
         )}
@@ -268,8 +276,9 @@ const s = StyleSheet.create({
   muted: { color: '#888', fontSize: 13, marginTop: 4, lineHeight: 19 },
   clearLink: { color: '#777', fontSize: 12, marginTop: 6, textDecorationLine: 'underline' },
   error: { color: '#FF6B6B', marginTop: 8 },
-  chips: { maxHeight: 48, flexGrow: 0, marginVertical: 8 },
-  chip: { borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8, maxWidth: 200, justifyContent: 'center' },
+  chips: { maxHeight: 52, flexGrow: 0, marginVertical: 8 },
+  // Chip de proyecto agrandado (uso con prisa/manos torpes): ~44px de alto, antes ~36px.
+  chip: { borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 11, marginRight: 8, maxWidth: 200, minHeight: 44, justifyContent: 'center' },
   chipOn: { backgroundColor: '#FFD700', borderColor: '#FFD700' },
   chipText: { color: '#CCC', fontSize: 13 },
   chipTextOn: { color: '#000', fontWeight: '700' },
@@ -288,6 +297,6 @@ const s = StyleSheet.create({
     flex: 1, backgroundColor: '#161616', borderColor: '#2A2A2A', borderWidth: 1, borderRadius: 12, color: '#FFF',
     paddingHorizontal: 14, paddingVertical: 10, fontSize: 16, maxHeight: 120,
   },
-  send: { backgroundColor: '#FFD700', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, marginLeft: 8 },
+  send: { backgroundColor: '#FFD700', borderRadius: 12, paddingHorizontal: 18, minHeight: 46, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
   sendText: { color: '#000', fontWeight: '700' },
 });
