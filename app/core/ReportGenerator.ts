@@ -18,6 +18,7 @@ import { generateReportSection, generateSampleResena } from './ClaudeServices';
 import { geeAuthHeaders } from './geeAuth';
 import { applyEvidenceCeiling, type ZoneProspectivity } from './ConsensusFusion';
 import { anomalyFromPct } from './spectralHelpers';
+import { displayScore } from './displayScore';
 import type { MetalScore } from './GeologicalEngine';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from './indexGlossary';
 import { isSaturated, hasSaturatedIndex, SATURATION_NOTICE } from './saturation';
@@ -276,8 +277,7 @@ function buildTopPointsRows(analysisPoints: any[], metalName: string): string {
     else badge = '<span class="badge badge-single">Individual</span>';
 
     // Score display — use spectral base_score (0-1 range)
-    const score = parseFloat(p.base_score ?? p.score ?? 0);
-    const scorePct = score <= 1 ? Math.round(score * 100) : Math.round(score);
+    const scorePct = Math.round(displayScore(p));
     const scoreStr = `${scorePct}%`;
 
     // Evidence string (from ConsensusFusion)
@@ -383,8 +383,7 @@ function sampleAnomalyLevel(
   }
   // ~0.045° ≈ 5 km. Más lejos, ese punto no describe esta muestra.
   if (!best || bestDist > 0.045) return null;
-  const score = Number.isFinite(best.base_score) ? best.base_score : best.score;
-  if (!Number.isFinite(score)) return null;
+  const score = displayScore(best);
   return anomalyFromPct(Math.max(0, Math.min(100, score))).level;
 }
 
@@ -534,7 +533,7 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
   // ── A. Obtain/generate Ing. Villegas section (cached) ─────────────────────────
   // Compute hash from current analysis (top-5 coords + base_scores + metal + area)
   const analisisHash =
-    input.analysisPoints.slice(0, 5).map(p => `${p.lat?.toFixed(4)},${p.lng?.toFixed(4)},${(p.base_score || 0).toFixed(3)}`).join('|')
+    input.analysisPoints.slice(0, 5).map(p => `${p.lat?.toFixed(4)},${p.lng?.toFixed(4)},${displayScore(p).toFixed(3)}`).join('|')
     + `|${input.metalName}|${input.areaHa}`;
 
   let saved = await loadReportContent(input.projectId);
@@ -578,7 +577,7 @@ export async function generateAndShareReport(input: ReportInput): Promise<void> 
       cell_size_m: input.cellSizeM,
       analysis_points: input.analysisPoints.map(p => ({
         lat: p.lat, lng: p.lng,
-        score: p.base_score ?? 0,
+        score: displayScore(p),
         rank: p.rank ?? 99,
       })),
       polygon_coords: (input.polygonCoords || []).map(c => ({

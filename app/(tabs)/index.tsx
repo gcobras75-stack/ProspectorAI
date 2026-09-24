@@ -21,6 +21,7 @@ import ConfigModal from '../components/ConfigModal';
 import MoreSheet from '../components/MoreSheet';
 import { TAP_METAL_META } from '../core/spectralHelpers';
 import { materialIcon, materialLabel, normalizeMaterialId, isThermalMaterial } from '../core/materialsCatalog';
+import { displayScore } from '../core/displayScore';
 import { newAnalisisId, setCurrentAnalisis, logAnalisisZona } from '../core/costTelemetry';
 import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
@@ -834,6 +835,7 @@ export default function ProspectorDashboard() {
           consensus_level: nearest.consensus_level ?? nearest.consensus ?? '',
           evidence: nearest.evidence ?? '',
           base_score: nearest.base_score ?? 0,
+          score: displayScore(nearest),   // el número que el usuario vio en ese punto
           indices: nearest.indices ?? {},
         };
       }
@@ -1192,7 +1194,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             if (data.top_points) enrichPointsWithDeepData(data.top_points as any, asterResult?.cells, emitResult?.cells, deepWeights);
             // Re-ordenar por base_score enriquecido solo si no hubo ranking por IA.
             if (!wasAnalyzed) {
-              finalPoints.sort((a: any, b: any) => (b.base_score || 0) - (a.base_score || 0));
+              finalPoints.sort((a: any, b: any) => displayScore(b) - displayScore(a));
               finalPoints.forEach((p: any, idx: number) => { p.rank = idx + 1; });
             }
           }
@@ -1310,9 +1312,15 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         const latStep = data.grid_size ? data.grid_size.latStep / 2 : 0.0005;
         const lngStep = data.grid_size ? data.grid_size.lngStep / 2 : 0.0005;
 
+        // El color de cada celda usa el MISMO número que ve el usuario (displayScore). La
+        // rejilla completa (all_points) solo trae base_score; los puntos finales llevan el
+        // score de consenso/IA, así que se cruzan por coordenada.
+        const shownByCell = new Map<string, number>();
+        finalPoints.forEach((fp: any) => shownByCell.set(`${fp.lat.toFixed(6)},${fp.lng.toFixed(6)}`, displayScore(fp)));
+
         sourcePoints.forEach((point: any) => {
           let color = 'rgba(68,255,68,0.4)'; // Verde (Baja prob)
-          const score = point.base_score || point.score || 0;
+          const score = shownByCell.get(`${point.lat.toFixed(6)},${point.lng.toFixed(6)}`) ?? displayScore(point);
           if (score > 80) color = 'rgba(255,68,68,0.6)';      // Rojo Intenso
           else if (score > 60) color = 'rgba(255,165,0,0.5)'; // Naranja
           else if (score > 40) color = 'rgba(255,221,68,0.4)'; // Amarillo

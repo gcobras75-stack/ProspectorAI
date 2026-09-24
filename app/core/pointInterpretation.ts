@@ -8,6 +8,7 @@
  */
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from './indexGlossary';
 import { isSaturated, saturatedKeys } from './saturation';
+import { displayScore } from './displayScore';
 import { anomalyFromPct } from './spectralHelpers';
 import { findNearestCell, type MiningSpectralResult, type ThermalResult } from './SatelliteEngine';
 import { materialLabel, materialAiFrame, isThermalMaterial, THERMAL_VEG_NOTE } from './materialsCatalog';
@@ -29,7 +30,7 @@ export interface PointInterpOptions {
 export function buildPointInterpretationContext(p: any, opts: PointInterpOptions): string {
   const { selectedMineral, terrainType, allPoints, satelliteData, thermalData, rockType, rockSource, rockProposal } = opts;
 
-  const realScore = Math.round(p.base_score || p.score || 0);
+  const realScore = Math.round(displayScore(p));
   const idx = p.indices ?? null;
   const measuredKeys = idx ? S2_REAL_INDEX_KEYS.filter(k => typeof idx[k] === 'number') : [];
   const { level: primLevel } = anomalyFromPct(realScore);

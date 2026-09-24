@@ -3,6 +3,7 @@ import { View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet } from 'rea
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import MapView from 'react-native-maps';
 import { openExternalNavigation } from '../core/externalNav';
+import { displayScore } from '../core/displayScore';
 import { findNearestCell, type MiningSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
 import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct } from '../core/spectralHelpers';
 import { METAL_COLORS } from './ScoreCard';
@@ -36,7 +37,7 @@ export default function SelectedPointModal({
 
   if (!selectedPoint) return null;
 
-  const realScore = Math.round(selectedPoint.base_score || selectedPoint.score || 0);
+  const realScore = Math.round(displayScore(selectedPoint));
   const idx = selectedPoint.indices ?? null;
   const measuredKeys = idx
     ? S2_REAL_INDEX_KEYS.filter(k => typeof idx[k] === 'number')

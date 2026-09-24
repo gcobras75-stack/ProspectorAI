@@ -11,6 +11,7 @@ import { Colors, Typography, Spacing, Radii, anomalyFromPct } from '../core/them
 import { buildPointInterpretationContext } from '../core/pointInterpretation';
 import { type RockProposal, type RockSource } from '../core/lithologyService';
 import { openExternalNavigation } from '../core/externalNav';
+import { displayScore } from '../core/displayScore';
 import { materialLabel, resolveDisplayConfidence, CONFIDENCE_META } from '../core/materialsCatalog';
 
 // Puntos de confianza: ●●●○ etc. — independientes del color (color = favorabilidad)
@@ -80,7 +81,7 @@ export default function ResultsPanel({
     }).start();
   }, []);
   const regionalAvg = analysisPoints.length > 0
-    ? analysisPoints.reduce((s, p) => s + (p.base_score || 0), 0) / analysisPoints.length
+    ? analysisPoints.reduce((s, p) => s + displayScore(p), 0) / analysisPoints.length
     : undefined;
   const selMs = metalScores.find(ms => ms.metal === selectedMineral);
   const selGlobalMax = selMs?.score_maximo ?? 100;
@@ -90,7 +91,7 @@ export default function ResultsPanel({
   const csmLabel = csm >= 1000 ? `${csm / 1000} km` : `${csm} m`;
 
   // ── NIVEL 1 — resumen en lenguaje llano (minero no técnico, 5 segundos) ──────
-  const pointScore = (p: any): number => Math.round(p.score || p.base_score || 0);
+  const pointScore = (p: any): number => Math.round(displayScore(p));
   const signalWord = (p: any): string => {
     const s = pointScore(p);
     return s >= 65 ? 'FUERTE' : s >= 35 ? 'MEDIA' : 'DÉBIL';
@@ -498,7 +499,7 @@ export default function ResultsPanel({
               Señal espectral 0–100 — no es probabilidad de yacimiento. Toca un punto para ver sus índices.
             </Text>
             {analysisPoints.slice(0, 20).map((p, i) => {
-              const score = Math.round(p.score || p.base_score || 0);
+              const score = Math.round(displayScore(p));
               const pct = Math.round((score / selGlobalMax) * 100);
               const anomaly = anomalyFromPct(pct);
               const anomalyColor = anomaly.color;

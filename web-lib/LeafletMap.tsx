@@ -14,6 +14,7 @@ import L from 'leaflet';
 import type { WebSample } from '../app/core/webData';
 import type { KnownOccurrence } from '../app/core/mrdsService';
 import { addBaseLayer } from './baseLayer';
+import { displayScore } from '../app/core/displayScore';
 
 export type MapHandle = { flyTo: (lat: number, lng: number, zoom?: number) => void };
 
@@ -101,7 +102,7 @@ const LeafletMap = forwardRef<MapHandle, Props>(function LeafletMap({ vertices, 
     const pts = points.filter((p) => isNum(p?.lat) && isNum(p?.lng));
     pts.forEach((p, i) => {
       const rank = p.rank ?? i + 1;
-      const score = Math.round(p.score ?? p.base_score ?? 0);
+      const score = Math.round(displayScore(p));
       const popup = popupEl([
         `Punto #${rank}`,
         `Score ${score}${p.consensus ? ` · ${String(p.consensus)}` : ''}`,

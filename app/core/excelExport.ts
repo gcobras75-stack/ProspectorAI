@@ -11,6 +11,7 @@ import * as Sharing from 'expo-sharing';
 
 import { getMuestras, loadProjectState } from './Database';
 import { applyEvidenceCeiling } from './ConsensusFusion';
+import { displayScore } from './displayScore';
 import { computeAllMetalScores } from './GeologicalEngine';
 import { INDEX_GLOSSARY, NON_S2_INDEX_KEYS, S2_REAL_INDEX_KEYS } from './indexGlossary';
 
@@ -80,7 +81,7 @@ export async function exportProjectToExcel(projectId: string, projectName?: stri
   ];
   const pointsBody = points.map(p => [
     p.rank ?? '', p.lat ?? '', p.lng ?? '', p.utm_zone ?? '',
-    typeof p.base_score === 'number' ? Math.round(p.base_score) : '',
+    (typeof p.score === 'number' || typeof p.base_score === 'number') ? Math.round(displayScore(p)) : '',
     p.consensus_level ?? p.consensus ?? '', p.evidence ?? '',
     ...idxKeys.map(k => num3(p.indices?.[k])),
   ]);

@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Colors, Spacing, Radii, Touch } from '../core/theme';
+import { displayScore } from '../core/displayScore';
 import {
   updateMuestraLab, updateMuestraValidation, upsertValidationPair,
   LabResult,
@@ -260,6 +261,10 @@ export default function SampleDetailModal({
   const spectral = (() => {
     try { return JSON.parse(sample.spectral_snapshot || '{}'); } catch { return {}; }
   })();
+  const sampleScore: number | null =
+    typeof spectral.score === 'number' || typeof spectral.base_score === 'number'
+      ? Math.round(displayScore(spectral))
+      : null;
   const analisisIA = (() => {
     try { return JSON.parse(sample.analisis_ia || '{}'); } catch { return {}; }
   })();
@@ -324,8 +329,8 @@ export default function SampleDetailModal({
       {spectral.consensus_level && (
         <Section title="Espectral satélite">
           <Row label="Consenso" value={spectral.consensus_level} />
-          {spectral.base_score != null && (
-            <Row label="Score" value={`${(spectral.base_score * 100).toFixed(1)}%`} />
+          {sampleScore != null && (
+            <Row label="Score" value={`${sampleScore}`} />
           )}
           {!!spectral.evidence && <Row label="Evidencia" value={spectral.evidence} />}
         </Section>
@@ -500,7 +505,7 @@ export default function SampleDetailModal({
           />
           <Row
             label="Score espectral"
-            value={spectral.base_score != null ? `${(spectral.base_score * 100).toFixed(1)}%` : '—'}
+            value={sampleScore != null ? `${sampleScore}` : '—'}
           />
           <Row label="Au lab" value={sample.lab_au_gt != null ? `${sample.lab_au_gt} g/t` : '—'} />
           <Row label="Ag lab" value={sample.lab_ag_gt != null ? `${sample.lab_ag_gt} g/t` : '—'} />

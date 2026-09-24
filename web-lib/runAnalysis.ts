@@ -27,6 +27,7 @@ import { newAnalisisId, setCurrentAnalisis, logAnalisisZona } from '../app/core/
 import { type RockSource } from '../app/core/lithologyService';
 import { getDrySeasonDates, polygonAreaHa, type Coordinate } from './geo';
 import { getGeeFailure, resetGeeFailure } from './geeAuth';
+import { displayScore } from '../app/core/displayScore';
 
 export type AnalysisInput = {
   coords: Coordinate[];
@@ -168,7 +169,7 @@ export async function runAnalysis(
       if (data.all_points) enrichPointsWithDeepData(data.all_points as any, asterResult?.cells, emitResult?.cells, deepWeights);
       if (data.top_points) enrichPointsWithDeepData(data.top_points as any, asterResult?.cells, emitResult?.cells, deepWeights);
       // Sin ranking por IA (la PWA no lo hace) → se re-ordena por base_score enriquecido, como la nativa.
-      finalPoints.sort((a: any, b: any) => (b.base_score || 0) - (a.base_score || 0));
+      finalPoints.sort((a: any, b: any) => displayScore(b) - displayScore(a));
       finalPoints.forEach((p: any, idx: number) => { p.rank = idx + 1; });
     }
   }

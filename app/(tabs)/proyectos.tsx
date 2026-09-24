@@ -35,6 +35,7 @@ import { Colors, Radii, Shadows, Spacing, Touch, Typography } from '../core/them
 import ValidationView from '../components/ValidationView';
 import { exportProjectToExcel } from '../core/excelExport';
 import { useAuth } from '../core/AuthContext';
+import { displayScore } from '../core/displayScore';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -413,7 +414,7 @@ export default function ProyectosScreen() {
 
           const analisisArr: any[] = state?.analisis_resultado ?? [];
           const top3 = analisisArr
-            .map((a: any) => typeof a?.score === 'number' ? a.score : (typeof a?.pct === 'number' ? a.pct : 0))
+            .map((a: any) => (typeof a?.score === 'number' || typeof a?.base_score === 'number') ? displayScore(a) : (typeof a?.pct === 'number' ? a.pct : 0))
             .sort((a: number, b: number) => b - a)
             .slice(0, 3);
 

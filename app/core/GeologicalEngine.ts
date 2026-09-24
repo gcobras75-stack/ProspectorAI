@@ -423,9 +423,14 @@ export function enrichPointsWithDeepData<T extends { lat: number; lng: number; i
     const eCell = eCells ? (findNearestCell(p.lat, p.lng, eCells as any) as any) : null;
     const { indices, enriched } = enrichIndicesWithDeepData(p.indices, aCell, eCell);
     if (enriched.length) {
+      const prevBase = p.base_score;
       p.indices = indices;
       p.enriched_indices = Array.from(new Set([...(p.enriched_indices || []), ...enriched]));
       p.base_score = scoreFromIndices(indices, weights);
+      // Si `score` era solo un espejo del base_score viejo (consenso sin bonus), se actualiza:
+      // displayScore lo prefiere y, si no, la mejora medida por ASTER/EMIT no se vería.
+      // Un score de IA o de consenso con bonus casi nunca coincide con el base viejo y no se toca.
+      if (typeof (p as any).score === 'number' && (p as any).score === prevBase) (p as any).score = p.base_score;
     }
   }
   return points;

@@ -11,6 +11,7 @@ import { useFocusEffect } from 'expo-router';
 import { askClaudeGeologoExperto, askClaudeInterpretacionPunto, photoUriToBase64 } from '../core/ClaudeServices';
 import { loadLastAnalysis, getMuestras, saveProjectChatHistory, loadProjectState, loadFieldPackage, loadProjectWaypoints } from '../core/Database';
 import { useBadge } from '../core/BadgeContext';
+import { displayScore } from '../core/displayScore';
 
 const PROJ_KEY = 'currentProjectId';
 const PENDING_INTERP_KEY = 'pendingGeologoInterpretation';
@@ -71,7 +72,7 @@ function formatContext(
   if (!analysis) return '';
   const points: any[] = analysis.analisis_resultado || [];
   const topPoints = points.slice(0, 5).map((p, i) => {
-    const score = p.score ?? p.base_score ?? 0;
+    const score = displayScore(p);
     const level = score >= 65 ? 'ALTA' : score >= 35 ? 'MEDIA' : 'BAJA';
     const conf = p.consensus === 'PRIORITY_TARGET'
       ? ' OBJETIVO PRIORITARIO S2+ASTER+Estructura'
