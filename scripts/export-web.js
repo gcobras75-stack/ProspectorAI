@@ -48,7 +48,11 @@ replaceOnce(
     '<link rel="stylesheet" href="/vendor/leaflet.css" />',
     '<link rel="stylesheet" href="/vendor/leaflet-geoman.css" />',
     '<link rel="stylesheet" href="/vendor/pwa-map.css" />',
-    '<style>html,body{background:#000;overscroll-behavior:none}</style>',
+    // El documento NUNCA se desplaza: body fijo al viewport visible. Si la página fuera más alta que lo visible (barra de Safari,
+    // 100vh), iOS la desplazaba y dejaba ver el borde amarillo de la lista bajo la barra de estado y la última tarjeta bajo la
+    // barra de pestañas. Las listas se desplazan dentro de su propio ScrollView. La franja ::before tapa (negro) el hueco de la
+    // barra de estado, pase lo que pase debajo (env() vale 0 donde no hay notch).
+    '<style>html,body{background:#000;overscroll-behavior:none}body{position:fixed;top:0;left:0;right:0;bottom:0;width:100%;overflow:hidden}body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top,0px);background:#000;z-index:2147483647;pointer-events:none}</style>',
     '</head>',
   ].join('\n  '),
   '</head>',

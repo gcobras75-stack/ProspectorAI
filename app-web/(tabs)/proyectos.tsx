@@ -10,6 +10,7 @@ import { useAuth } from '../../app/core/AuthContext';
 import { listWebProjects, type WebProjectSummary } from '../../app/core/webData';
 import { setSelectedProjectId } from '../../web-lib/selection';
 import { confirmAction } from '../../web-lib/confirmAction';
+import { bottomPad } from '../../web-lib/safeArea';
 
 export default function ProyectosWeb() {
   const { session, signOut } = useAuth();
@@ -42,7 +43,7 @@ export default function ProyectosWeb() {
 
   return (
     <ScrollView
-      style={s.root} contentContainerStyle={{ padding: 16, paddingBottom: 48 }}
+      style={s.root} contentContainerStyle={{ padding: 16, paddingBottom: bottomPad(48) }}
       refreshControl={<RefreshControl refreshing={refreshing} tintColor="#FFD700" onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
     >
       <View style={s.head}>
