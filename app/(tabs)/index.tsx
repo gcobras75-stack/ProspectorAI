@@ -901,6 +901,20 @@ export default function ProspectorDashboard() {
     setDrawingType(type);
   };
 
+  // Inicia (o cancela) un trazado. Un solo lugar para "Trazar" y "Rectángulo": si hay un
+  // análisis sin guardar, pregunta antes de descartarlo.
+  const startTrace = (type: 'polygon' | 'rectangle') => {
+    if (drawingType === type) { selectMode('none'); return; }
+    if (resolvedPolygonCoords.length >= 3 && showResults) {
+      Alert.alert('Nuevo trazado', 'Hay un análisis sin guardar. ¿Descartar y trazar nueva zona?', [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Descartar y trazar', style: 'destructive', onPress: () => selectMode(type) },
+      ]);
+    } else {
+      selectMode(type);
+    }
+  };
+
   const clearShapes = async () => {
     setPolygonCoords([]);
     setRectPointA(null);
@@ -1592,7 +1606,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           <View style={styles.statusPillDivider} />
           <TouchableOpacity onPress={() => setShowHeatmap(!showHeatmap)} style={styles.statusPillSide}>
             <Text style={[styles.statusPillText, { color: showHeatmap ? '#FFD700' : '#666' }]}>
-              Capa {showHeatmap ? 'ON' : 'OFF'}
+              {showHeatmap ? '☑' : '☐'} Mapa de calor
             </Text>
           </TouchableOpacity>
         </View>
@@ -1697,18 +1711,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.toolbarBtn, drawingType === 'polygon' && styles.toolbarBtnActive]}
-              onPress={() => {
-                if (drawingType === 'polygon') {
-                  selectMode('none');
-                } else if (resolvedPolygonCoords.length >= 3 && showResults) {
-                  Alert.alert('Nuevo trazado', 'Hay un análisis sin guardar. ¿Descartar y trazar nueva zona?', [
-                    { text: 'Cancelar', style: 'cancel' },
-                    { text: 'Descartar y trazar', style: 'destructive', onPress: () => selectMode('polygon') },
-                  ]);
-                } else {
-                  selectMode('polygon');
-                }
-              }}
+              onPress={() => startTrace('polygon')}
               onLongPress={() => {
                 if (drawingType === 'none') {
                   Alert.alert('Modo de trazado', 'Elige el tipo de zona a trazar:', [
@@ -1726,6 +1729,21 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               />
               <Text style={[styles.toolbarBtnLabel, drawingType === 'polygon' && { color: '#000' }]} numberOfLines={1}>
                 {drawingType === 'polygon' ? 'Salir' : resolvedPolygonCoords.length >= 3 ? 'Nuevo' : 'Trazar'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toolbarBtn, drawingType === 'rectangle' && styles.toolbarBtnActive]}
+              onPress={() => startTrace('rectangle')}
+              accessibilityRole="button"
+              accessibilityLabel="Trazar un rectángulo arrastrando el dedo"
+            >
+              <MaterialCommunityIcons
+                name={drawingType === 'rectangle' ? 'close-circle-outline' : 'vector-rectangle'}
+                size={22}
+                color={drawingType === 'rectangle' ? '#000' : '#FFD700'}
+              />
+              <Text style={[styles.toolbarBtnLabel, drawingType === 'rectangle' && { color: '#000' }]} numberOfLines={1}>
+                {drawingType === 'rectangle' ? 'Salir' : 'Rectángulo'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.toolbarBtn} onPress={() => setShowMoreSheet(true)}>
@@ -1859,7 +1877,9 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             <View style={styles.consoleBar}>
               <MaterialCommunityIcons name="map-search-outline" size={16} color="#555" style={{ marginRight: 6 }} />
               <Text style={[styles.consoleBarText, { color: '#555' }]} numberOfLines={1}>
-                Toca Trazar para delimitar una zona
+                {drawingType === 'rectangle'
+                  ? 'Arrastra el dedo sobre el mapa para dibujar el rectángulo'
+                  : 'Toca Trazar (puntos) o Rectángulo para delimitar una zona'}
               </Text>
             </View>
           )}
@@ -2615,6 +2635,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 4,
     minHeight: Touch.min,
+    maxWidth: '46%',
     justifyContent: 'center',
     zIndex: 10,
   },
