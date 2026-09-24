@@ -2,6 +2,8 @@ import type { MiningSpectralResult, AsterSpectralCell, EmitSpectralCell } from '
 import { findNearestCell, computeAdaptiveCellSize } from './SatelliteEngine';
 import { CATALOG_WEIGHTS, getMaterial, normalizeMaterialId } from './materialsCatalog';
 import { detectedFromPct } from './theme';
+import { SYNTHETIC_INDEX_KEYS, DEEP_ENRICHABLE_KEYS } from './deepAdvice';
+export { SYNTHETIC_INDEX_KEYS };
 
 /**
  * Pesos espectrales por material (fuente única, exportada para que otros módulos
@@ -25,7 +27,7 @@ export const METAL_WEIGHTS: Record<string, Record<string, number>> = {
  * (generateIndices, semilla por coordenada) — NO son medición real y no deben
  * presentarse como tal. Se usan para penalizar la CONFIANZA del metal afectado.
  */
-export const SYNTHETIC_INDEX_KEYS = ['silica', 'malachite', 'sphalerite', 'carbonate', 'galena'] as const;
+// SYNTHETIC_INDEX_KEYS y DEEP_ENRICHABLE_KEYS viven en ./deepAdvice (fuente única, también para la sugerencia de Análisis profundo).
 
 export interface SpectralIndices {
   iron_oxide: number;
@@ -319,7 +321,6 @@ export function analyzeZoneLocal(
 // Normalización idéntica a la de ConsensusFusion (mismas constantes) para consistencia.
 
 /** Índice destino → proxy real medible por ASTER/EMIT. */
-const DEEP_ENRICHABLE_KEYS = ['carbonate', 'propylitic', 'argillic', 'ferric_iron'] as const;
 
 /**
  * Techo del score de un material ANTES de analizar: 100 − peso de los índices sin proxy

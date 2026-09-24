@@ -23,6 +23,7 @@ import { runAnalysis, AnalysisError, type AnalysisOutput } from '../../web-lib/r
 import { createWebProject } from '../../app/core/webData';
 import { AREA_LEVEL_COLOR, AREA_WARN_MESSAGE, areaBlockMessage, getAreaLevel } from '../../app/core/areaLimits';
 import { materialLabel } from '../../app/core/materialsCatalog';
+import DeepAdviceBanner from '../../app/components/DeepAdviceBanner';
 import { computeAdaptiveCellSize } from '../../app/core/SatelliteEngine';
 import { centroidOf, proposeRockType, rockSourceLabel, type RockProposal, type RockSource } from '../../app/core/lithologyService';
 import { parseCoordinate } from '../../app/core/coordParse';
@@ -312,6 +313,7 @@ export default function NuevoAnalisis() {
               </View>
               <Switch value={deep} onValueChange={setDeep} trackColor={{ true: '#FFD700', false: '#333' }} />
             </View>
+            <DeepAdviceBanner materialId={mineral} deepOn={deep} onChange={setDeep} />
 
             <View style={s.summary}>
               <Text style={s.summaryText}>

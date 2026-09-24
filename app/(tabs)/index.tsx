@@ -28,6 +28,7 @@ import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
 import WaypointModal from '../components/WaypointModal';
 import ResultsPanel from '../components/ResultsPanel';
+import DeepAdviceBanner from '../components/DeepAdviceBanner';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, loadProjectState, listProjects, createProject, renameProject, updateMuestraCodigo } from '../core/Database';
 import { scheduleFlush } from '../core/SyncEngine';
 import { proposeRockType, centroidOf, rockSourceLabel, type RockProposal, type RockSource } from '../core/lithologyService';
@@ -1853,6 +1854,9 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               {polygonCoords.length >= 3 && ceilingNote && (
                 <Text style={[styles.consoleAreaNote, { color: '#FFA000' }]}>{ceilingNote}</Text>
               )}
+              {polygonCoords.length >= 3 && (
+                <DeepAdviceBanner materialId={selectedMineral} deepOn={deepAnalysis} onChange={handleSetDeepAnalysis} />
+              )}
               {polygonCoords.length >= 3 && areaLevel !== 'ok' && (
                 <Text style={[styles.consoleAreaNote, { color: areaColor }]}>
                   {areaBlocked ? areaBlockMessage(areaHaNum) : AREA_WARN_MESSAGE}
@@ -1880,6 +1884,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
               {ceilingNote && (
                 <Text style={[styles.consoleAreaNote, { color: '#FFA000', marginBottom: 8 }]}>{ceilingNote}</Text>
               )}
+              <DeepAdviceBanner materialId={selectedMineral} deepOn={deepAnalysis} onChange={handleSetDeepAnalysis} />
               {areaLevel !== 'ok' && (
                 <Text style={[styles.consoleAreaNote, { color: areaColor, marginBottom: 8 }]}>
                   {areaBlocked ? areaBlockMessage(areaHaNum) : AREA_WARN_MESSAGE}
