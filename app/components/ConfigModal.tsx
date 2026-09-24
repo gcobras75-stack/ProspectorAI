@@ -301,7 +301,7 @@ export default function ConfigModal({
           <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>MATERIAL OBJETIVO</Text>
           <View onLayout={e => { searchY.current = e.nativeEvent.layout.y; }}>
             <TextInput
-              style={[styles.input, isFieldMode && styles.inputLight, { height: 40, marginBottom: 10, fontSize: 14 }]}
+              style={[styles.input, isFieldMode && styles.inputLight, { height: 48, marginBottom: 10, fontSize: 15 }]}
               value={materialQuery}
               onChangeText={setMaterialQuery}
               onFocus={focusSearch}
@@ -376,7 +376,7 @@ export default function ConfigModal({
             </View>
             );
           })}
-          <Text style={{ color: '#777', fontSize: 10, marginTop: 2, marginBottom: 4, lineHeight: 14 }}>
+          <Text style={{ color: '#999', fontSize: 12, marginTop: 2, marginBottom: 4, lineHeight: 17 }}>
             La confianza es la detectabilidad satelital honesta del material. En resultados puede bajar si no hay
             cobertura medida en la zona. “De contexto” = se infiere por geología/terreno, no por firma espectral directa.
           </Text>
@@ -576,16 +576,16 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   matCatHeader: { color: '#00FFFF', fontSize: 11, fontWeight: 'bold', letterSpacing: 1, marginTop: 10, marginBottom: 4 },
   // Encabezado de categoría plegable: área de toque cómoda y chevron a la derecha.
-  matCatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 },
+  matCatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2, minHeight: 44 },
   matCatChevron: { color: '#00FFFF', fontSize: 13, fontWeight: 'bold', marginTop: 10, marginBottom: 4, paddingHorizontal: 4 },
   // El nombre y su pista comparten una columna flexible; el badge queda fuera de ella,
   // así que su ancho ya no puede empujar al nombre.
   matTextCol: { flex: 1, justifyContent: 'center' },
-  matHint: { color: '#8A8A8A', fontSize: 10, marginTop: 1 },
+  matHint: { color: '#8A8A8A', fontSize: 11, marginTop: 1 },
   matRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#333',
-    borderRadius: 8, paddingVertical: 9, paddingHorizontal: 12, marginBottom: 6,
+    borderRadius: 8, paddingVertical: 9, paddingHorizontal: 12, marginBottom: 6, minHeight: 52,
   },
   matRowActive: { backgroundColor: '#3A3100', borderColor: '#FFD700' },
   matRowLight: { backgroundColor: '#F0F0F0', borderColor: '#CCC' },
@@ -607,8 +607,8 @@ const styles = StyleSheet.create({
   syncMsg: { color: '#AAA', fontSize: 11, lineHeight: 15, marginTop: 8 },
   syncFailHeader: { color: '#FF9800', fontSize: 11, fontWeight: 'bold', marginBottom: 3 },
   syncFailText: { color: '#999', fontSize: 10, lineHeight: 14 },
-  rockHint: { color: '#888', fontSize: 10, lineHeight: 14, marginTop: 6 },
-  chip: { backgroundColor: '#333', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#555' },
+  rockHint: { color: '#999', fontSize: 12, lineHeight: 17, marginTop: 6 },
+  chip: { backgroundColor: '#333', minHeight: 44, justifyContent: 'center', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, borderWidth: 1, borderColor: '#555' },
   chipActive: { backgroundColor: '#FFD700', borderColor: '#FFD700' },
   chipText: { color: '#FFF', fontSize: 14, fontWeight: 'bold', textTransform: 'capitalize' },
   chipTextActive: { color: '#000' },

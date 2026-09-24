@@ -457,7 +457,7 @@ export default function ProspectorDashboard() {
       setChatMessages([...newContext, { role: 'assistant', content: response }]);
       triggerHaptic('success');
     } catch(e: any) {
-      Alert.alert('Error Chat IA', e.message);
+      Alert.alert('El asistente no respondió', 'Revisa tu señal e intenta de nuevo.\n\nDetalle: ' + e.message);
     } finally {
       setIsTypingChat(false);
     }
@@ -769,7 +769,7 @@ export default function ProspectorDashboard() {
       triggerHaptic('success');
     } catch (e: any) {
       console.warn("AI Analysis Error:", e);
-      Alert.alert('Error IA', e.message || 'Error desconocido.');
+      Alert.alert('No se pudo analizar la muestra', 'Revisa tu señal e intenta de nuevo.\n\nDetalle: ' + (e.message || 'sin detalle'));
     } finally {
       setIsAiProcessing(false);
     }
@@ -1000,7 +1000,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
     const localCoords = overrideCoords || polygonCoords;
     
     if (localCoords.length < 3 && !(rectPointA && rectPointB)) {
-      Alert.alert('Error', 'Dibuja un polígono o rectángulo primero');
+      Alert.alert('Falta la zona', 'Toca Trazar y marca al menos 3 puntos en el mapa antes de analizar.');
       return;
     }
     
@@ -1322,7 +1322,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
       }
     } catch (error: any) {
       console.error('Error:', error);
-      Alert.alert('Error', 'Conexión fallida: ' + error.message);
+      Alert.alert('No se pudo analizar', 'No hubo conexión con el servidor. Revisa tu señal e intenta de nuevo.\n\nDetalle: ' + error.message);
     } finally {
       setIsAnalyzing(false);
       setAnalysisStep('');
@@ -1583,7 +1583,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         {/* STATUS PILL — Online/Offline · Capa ON/OFF (top right) */}
         <View style={styles.statusPill}>
           <TouchableOpacity
-            onPress={() => Alert.alert('Conexión', isSyncing ? 'Sincronizando...' : (isConnected ? 'Online — Conectado a Claude' : 'Offline — Motor Local'))}
+            onPress={() => Alert.alert('Conexión', isSyncing ? 'Sincronizando tus datos…' : (isConnected ? 'Con internet: el análisis usa todos los satélites y el asistente.' : 'Sin internet: el análisis usa solo lo guardado en tu teléfono, con menos detalle. Se completa al volver la señal.'))}
             style={styles.statusPillSide}
           >
             <View style={[styles.statusDot, { backgroundColor: isConnected ? '#44FF44' : '#666' }]} />
@@ -1781,7 +1781,13 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                     <MaterialCommunityIcons name="radar" size={14} color={areaBlocked ? '#FFF' : '#000'} />
                     <Text style={[styles.consoleBtnPrimaryText, areaBlocked && { color: '#FFF' }]}> ANALIZAR</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.consoleBtnDanger} onPress={() => setPolygonCoords([])}>
+                  <TouchableOpacity style={styles.consoleBtnDanger} onPress={() => {
+                    if (polygonCoords.length < 3) { setPolygonCoords([]); return; }
+                    Alert.alert('¿Borrar los puntos?', `Se quitan los ${polygonCoords.length} puntos marcados y tendrás que trazar de nuevo.`, [
+                      { text: 'Cancelar', style: 'cancel' },
+                      { text: 'Borrar', style: 'destructive', onPress: () => setPolygonCoords([]) },
+                    ]);
+                  }}>
                     <Text style={styles.consoleBtnDangerText}>LIMPIAR</Text>
                   </TouchableOpacity>
                 </View>
@@ -1839,7 +1845,12 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                   {' '}{analysisPoints.length} zonas · celda {satelliteData?.cell_size_m ?? '—'} m · {selectedMineral.toUpperCase()}
                 </Text>
               </View>
-              <TouchableOpacity style={styles.consoleBtnSecondary} onPress={clearShapes}>
+              <TouchableOpacity style={styles.consoleBtnSecondary} onPress={() => {
+                Alert.alert('¿Empezar una zona nueva?', 'Se quitan los resultados de esta zona. Guarda antes lo que quieras conservar.', [
+                  { text: 'Cancelar', style: 'cancel' },
+                  { text: 'Empezar de nuevo', style: 'destructive', onPress: () => clearShapes() },
+                ]);
+              }}>
                 <MaterialCommunityIcons name="refresh" size={14} color="#FFD700" />
                 <Text style={styles.consoleBtnSecondaryText}> Nueva zona</Text>
               </TouchableOpacity>
@@ -2347,7 +2358,7 @@ const styles = StyleSheet.create({
   layerButton: { position: 'absolute', bottom: 152, right: 10, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 30, padding: 10, borderWidth: 1, borderColor: '#FFD700', zIndex: 20 },
   layerMenu: { position: 'absolute', bottom: 152, right: 56, width: 232, backgroundColor: 'rgba(10,10,10,0.96)', borderRadius: 10, borderWidth: 1, borderColor: '#FFD700', padding: 10, zIndex: 30 },
   layerMenuTitle: { color: '#FFD700', fontSize: 11, fontWeight: '900', marginBottom: 6, letterSpacing: 1 },
-  layerMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 8 },
+  layerMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 8, minHeight: Touch.min },
   layerMenuText: { color: '#FFF', fontSize: 12, flex: 1 },
   layerMenuDivider: { height: 1, backgroundColor: 'rgba(255,215,0,0.3)', marginVertical: 4 },
   layerMenuNote: { color: '#AAA', fontSize: 9, marginTop: 6, lineHeight: 12 },
@@ -2545,7 +2556,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
     borderRadius: 8,
-    minHeight: 34,
+    minHeight: Touch.min,
   },
   consoleBtnPrimaryField: {
     backgroundColor: '#000',
@@ -2563,7 +2574,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 7,
     borderRadius: 8,
-    minHeight: 34,
+    minHeight: Touch.min,
   },
   consoleBtnSecondaryField: {
     borderColor: '#000',
@@ -2579,7 +2590,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 7,
     borderRadius: 8,
-    minHeight: 34,
+    minHeight: Touch.min,
     justifyContent: 'center',
   },
   consoleBtnDangerField: {
@@ -2603,7 +2614,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 4,
-    minHeight: 30,
+    minHeight: Touch.min,
     justifyContent: 'center',
     zIndex: 10,
   },

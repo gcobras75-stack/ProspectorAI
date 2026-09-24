@@ -105,3 +105,16 @@ Encontradas y corregidas 2 inconsistencias entre las auditorías de usabilidad d
 2. **Tamaños:** unificados al más generoso (52px) los botones primarios/secundarios y campos de texto de las 5 pantallas (antes 40–46px sin minHeight en varios: "Configurar análisis"/"Analizar"/"Cancelar" de Nuevo análisis, "Interpretar este proyecto"/"Enviar" de Geólogo, Guardar/Cancelar de la hoja de validación); los chips quedaron en 44px en las dos pantallas que los usan.
 
 Reprobadas las 6 confirmaciones y los tamaños con Playwright tras el cambio: mismos resultados, con los textos y alturas nuevas.
+
+## Auditoría de usabilidad — app nativa: mapa, trazado, selector de material y modal de punto (2026-09-23)
+
+**Aplicados (bajo riesgo; verificados con `tsc` y `expo lint`, SIN correr en dispositivo):** botones MARCAR/ANALIZAR/LIMPIAR/BORRAR/Nueva zona, chip de material (arriba a la izquierda), filas del menú de capas, chips de terreno/profundidad/roca, filas y buscador del selector de material y la ✕ del modal de punto llevados a ≥44px (antes 30–34px). "LIMPIAR" (≥3 puntos) y "Nueva zona" tras resultados ahora confirman — antes borraban sin avisar, y "Trazar→Nuevo" sí confirmaba (inconsistente). Textos: el aviso de conexión ya no dice "Conectado a Claude / Motor Local"; los errores de análisis, asistente y muestra dicen qué hacer ("Revisa tu señal e intenta de nuevo") y dejan el detalle técnico al final; "Dibuja un polígono o rectángulo primero" → "Toca Trazar y marca al menos 3 puntos". Letras de 9–10px (aviso "Indicador exploratorio" en #333 sobre negro, notas del selector, ASTER) subidas a 11–12px y más claras.
+
+**Pendiente, SIN implementar (rediseño / decisión de producto):**
+- **Rectángulo escondido:** solo se llega con pulsación larga en "Trazar"; un novato nunca lo descubre. Propuesta: botón/selector visible "Polígono | Rectángulo" al tocar Trazar.
+- **"Capa ON/OFF"** (mapa de calor) en la píldora superior: no dice de qué capa habla; ni "Online/Offline" arriba es tocable de forma obvia. Propuesta: "Mapa de calor" con ícono y un solo control de estado.
+- **"~XX m/celda" y "celda 30 m"** en la barra de trazado y de resultados: jerga interna (ya anotado en la PWA; decisión compartida).
+- **Tarea "trazar → analizar" = 7+ toques** (Trazar, ≥3 puntos con MARCAR, ANALIZAR, y antes Ajustes → material → Aplicar). Propuesta: recordar el último material y ofrecer "Analizar aquí" con un solo toque tras el 3.er punto.
+- **Modal de punto:** ~10 secciones en un scroll largo; las 3 acciones útiles (INTERPRETACIÓN, CÓMO LLEGAR, GUARDAR MUESTRA) quedan al fondo. Propuesta: barra fija de acciones abajo y datos técnicos plegados.
+- **Ajustes (ConfigModal):** el selector de material comparte pantalla con satélites, IA, microscopio y "Modelo activo: claude-haiku-…" (jerga). Propuesta: material como pantalla propia; ocultar lo técnico en "Avanzado".
+- **Sin leyenda** para el marcador dorado/azul/cian del mapa (igual que la PWA).

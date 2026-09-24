@@ -180,7 +180,7 @@ export default function SelectedPointModal({
               </View>
             )}
 
-            <Text style={{ color: '#333', fontSize: 9, marginTop: 8, marginBottom: 16, fontStyle: 'italic' }}>
+            <Text style={{ color: '#999', fontSize: 12, marginTop: 8, marginBottom: 16, fontStyle: 'italic' }}>
               Indicador exploratorio — requiere verificación en campo
             </Text>
 
@@ -213,7 +213,7 @@ export default function SelectedPointModal({
                     </Text>
                   ) : (
                     // Un valor bajo aquí NO significa "poca sílice": significa "no medido".
-                    <Text style={{ color: '#FF9800', fontSize: 10, lineHeight: 14, marginBottom: 6 }}>
+                    <Text style={{ color: '#FF9800', fontSize: 12, lineHeight: 17, marginBottom: 6 }}>
                       {THERMAL_VEG_NOTE}
                     </Text>
                   )}
@@ -291,10 +291,13 @@ const styles = StyleSheet.create({
   },
   closeX: {
     position: 'absolute',
-    top: 12,
-    right: 14,
+    top: 4,
+    right: 6,
     zIndex: 10,
-    padding: 4,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   closeXText: { color: '#888', fontSize: 20, fontWeight: '700', lineHeight: 20 },
   header: {
@@ -302,7 +305,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#333',
     paddingBottom: 10,
     marginBottom: 14,
-    paddingRight: 28,
+    paddingRight: 44,
   },
   rank: { color: '#FFD700', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
   coords: { color: '#FFF', fontSize: 11, marginTop: 4, fontFamily: 'monospace' },
@@ -386,7 +389,7 @@ const styles = StyleSheet.create({
   idxVal: { color: '#CCC', fontSize: 13, fontFamily: 'monospace' },
   idxTrack: { height: 4, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' },
   idxFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: '#FFD700', borderRadius: 3, opacity: 0.85 },
-  idxDetail: { color: '#AAA', fontSize: 10, lineHeight: 14, marginTop: 5, fontStyle: 'italic' },
+  idxDetail: { color: '#AAA', fontSize: 12, lineHeight: 17, marginTop: 5, fontStyle: 'italic' },
   thRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 3 },
   thLabel: { color: '#AAA', fontSize: 12, flex: 1 },
   thVal: { color: '#EEE', fontSize: 13, fontWeight: '800' },
