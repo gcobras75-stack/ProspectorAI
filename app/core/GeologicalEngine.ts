@@ -430,6 +430,9 @@ export interface MetalScore {
   warning?: string;
   /** % del modelo del metal que depende de índices SIN proxy real en Sentinel-2 */
   synthetic_weight_pct?: number;
+  /** Máximo score_percent alcanzable con los índices realmente medidos (100 − peso sintético).
+   *  Un 65% con techo 65% es "lo máximo posible sin ASTER/EMIT", no "zona mediocre". */
+  score_ceiling_pct?: number;
   /** true si el metal no es medible con Sentinel-2 (requiere ASTER/EMIT). El score
    *  mostrado sería engañoso, así que la UI debe mostrar "Requiere ASTER/EMIT". */
   requires_deep?: boolean;
@@ -628,10 +631,15 @@ export function computeAllMetalScores(points: AnalysisPoint[], terrain: string):
     }
     const synthetic_weight_pct = Math.round(synthW * 100);
     const requires_deep = synthW > SYNTHETIC_REQUIRES_DEEP_THRESHOLD;
+    // Techo MATEMÁTICO del score: con un índice del modelo valiendo 0 (sin proxy real)
+    // el porcentaje no puede pasar de la fracción de peso que sí se mide. Sin decirlo,
+    // un 65% de cobre se lee como "zona mediocre" cuando es lo máximo posible sin ASTER/EMIT.
+    const totalW = Object.values(weights as Record<string, number>).reduce((a, b) => a + b, 0) || 1;
+    const score_ceiling_pct = Math.round(Math.max(0, 1 - synthW / totalW) * 100);
     const warning = requires_deep
       ? 'No medible con Sentinel-2 — requiere ASTER/EMIT'
       : synthetic_weight_pct > 0
-        ? `${synthetic_weight_pct}% del modelo sin proxy óptico directo`
+        ? `${synthetic_weight_pct}% del modelo sin proxy óptico directo — con Sentinel-2 solo, este score no puede pasar de ${score_ceiling_pct}%`
         : cfg?.warning;
 
     const score_poligono = Math.round(Math.min(scoreMax, raw * scoreMax));
@@ -653,6 +661,7 @@ export function computeAllMetalScores(points: AnalysisPoint[], terrain: string):
       bands: cfg?.bands ?? [],
       warning,
       synthetic_weight_pct,
+      score_ceiling_pct,
       requires_deep,
     };
   }).sort((a, b) => b.score_percent - a.score_percent);
