@@ -16,6 +16,18 @@ export const DEEP_ENRICHABLE_KEYS = ['carbonate', 'propylitic', 'argillic', 'fer
 /** Sube el techo al menos esto (puntos porcentuales) → se sugiere activar el profundo. */
 export const DEEP_SUGGEST_MIN_GAIN_PCT = 20;
 
+/** Materiales en los que el profundo arranca ENCENDIDO al seleccionarlos (el resto arranca apagado). */
+export const DEEP_DEFAULT_ON_MATERIALS: readonly string[] = ['plata'];
+
+/**
+ * Estado efectivo del interruptor: la elección MANUAL de esta sesión manda; sin ella, los materiales de DEEP_DEFAULT_ON_MATERIALS
+ * arrancan encendidos y el resto usa la preferencia guardada (`base`, por defecto apagada).
+ */
+export function effectiveDeep(materialId: string, base: boolean, manual: boolean | null): boolean {
+  if (manual !== null) return manual;
+  return DEEP_DEFAULT_ON_MATERIALS.includes(normalizeMaterialId(materialId)) ? true : base;
+}
+
 export type DeepAdvice = {
   /** suggest: el profundo mejora mucho a este material (y está apagado). unneeded: no lo mejora (y está encendido). */
   kind: 'suggest' | 'unneeded';
@@ -41,7 +53,9 @@ export function deepAdvice(materialId: string, deepOn: boolean): DeepAdvice | nu
   if (!c) return null;
   const benefits = c.on - c.off >= DEEP_SUGGEST_MIN_GAIN_PCT;
   if (benefits && !deepOn) return { kind: 'suggest', ceilingPct: c.off, ceilingWithDeepPct: c.on };
-  if (!benefits && deepOn) return { kind: 'unneeded', ceilingPct: c.off, ceilingWithDeepPct: c.on };
+  // Solo si el techo NO sube y es menor a 100 (oro, cobre, tierras_raras, cantera, granito, sílice). Con techo 100 el profundo
+  // mejora la calidad de la señal (no el techo): no hay aviso, es decisión libre del usuario.
+  if (!benefits && c.off === c.on && c.off < 100 && deepOn) return { kind: 'unneeded', ceilingPct: c.off, ceilingWithDeepPct: c.on };
   return null;
 }
 

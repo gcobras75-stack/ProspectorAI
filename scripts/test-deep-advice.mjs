@@ -2,15 +2,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { deepAdvice, deepAdviceText, deepCeilings } from '../app/core/deepAdvice.ts';
+import { deepAdvice, deepAdviceText, deepCeilings, effectiveDeep } from '../app/core/deepAdvice.ts';
 import { CATALOG_WEIGHTS } from '../app/core/materialsCatalog.ts';
 
 const SUBEN = ['caliza', 'marmol', 'onix', 'barita', 'yeso', 'plomo_zinc'];
 const NO_SUBEN_NUNCA = ['cobre', 'oro', 'tierras_raras', 'cantera', 'granito', 'silice'];
-const TECHO_100 = ['plata', 'hierro', 'manganeso', 'fluorita', 'arcillas_caolin', 'laja', 'agregados', 'pomez', 'bancos_jales', 'placeres'];
+const GRUPO4 = ['hierro', 'manganeso', 'fluorita', 'arcillas_caolin', 'laja', 'agregados', 'pomez', 'bancos_jales', 'placeres'];
+const PLATA = ['plata'];
 
 test('cubre los 22 materiales del catálogo, cada uno en un solo grupo', () => {
-  const todos = [...SUBEN, ...NO_SUBEN_NUNCA, ...TECHO_100];
+  const todos = [...SUBEN, ...NO_SUBEN_NUNCA, ...GRUPO4, ...PLATA];
   assert.equal(new Set(todos).size, 22);
   assert.deepEqual([...todos].sort(), Object.keys(CATALOG_WEIGHTS).sort());
 });
@@ -24,11 +25,27 @@ test('los que se benefician: con el profundo apagado se sugiere; encendido, sile
   }
 });
 
-test('los que no se benefician: apagado, silencio; encendido, aviso honesto', () => {
-  for (const id of [...NO_SUBEN_NUNCA, ...TECHO_100]) {
+test('oro/cobre/tierras_raras/cantera/granito/sílice: apagado silencio; encendido, aviso honesto', () => {
+  for (const id of NO_SUBEN_NUNCA) {
     assert.equal(deepAdvice(id, false), null, id);
     assert.equal(deepAdvice(id, true)?.kind, 'unneeded', id);
   }
+});
+
+test('grupo 4 (techo 100%, mejora de calidad) y plata: NUNCA hay aviso, ni apagado ni encendido', () => {
+  for (const id of [...GRUPO4, ...PLATA]) {
+    assert.equal(deepAdvice(id, false), null, id);
+    assert.equal(deepAdvice(id, true), null, id);
+  }
+});
+
+test('valor por defecto: apagado en todos salvo plata; la elección manual manda', () => {
+  for (const id of [...SUBEN, ...NO_SUBEN_NUNCA, ...GRUPO4]) assert.equal(effectiveDeep(id, false, null), false, id);
+  assert.equal(effectiveDeep('plata', false, null), true);       // arranca encendido
+  assert.equal(effectiveDeep('plata', false, false), false);     // lo apagó: se respeta
+  assert.equal(effectiveDeep('plata', true, null), true);
+  assert.equal(effectiveDeep('yeso', false, true), true);        // lo encendió a mano en otro material
+  assert.equal(effectiveDeep('cobre', true, null), true);        // preferencia guardada (comportamiento previo)
 });
 
 test('cobre y oro: el techo NO cambia con el profundo (malachite y silica sin proxy real)', () => {
@@ -57,10 +74,11 @@ test('los textos: sugerir menciona "tarda más" y el salto; el otro no promete d
   assert.match(t2, /sin esperar más/);
 });
 
-test('el valor por defecto sigue APAGADO en las dos apps', () => {
+test('el valor por defecto sigue APAGADO (base) y el estado efectivo sale de effectiveDeep en las dos apps', () => {
   const nativa = readFileSync(new URL('../app/(tabs)/index.tsx', import.meta.url), 'utf8');
   const web = readFileSync(new URL('../app-web/analisis/nuevo.tsx', import.meta.url), 'utf8');
-  assert.match(nativa, /useState\(false\);?\s*\n?.*\n?/); // existe el estado
-  assert.match(nativa, /const \[deepAnalysis, setDeepAnalysis\] = useState\(false\)/);
-  assert.match(web, /deep: false/);
+  assert.ok(nativa.includes('const [deepBase, setDeepBase] = useState(false)'));
+  assert.ok(nativa.includes('effectiveDeep(selectedMineral, deepBase, deepManual)'));
+  assert.ok(web.includes('deep: false'));
+  assert.ok(web.includes('effectiveDeep(mineral, deepBase, deepManual)'));
 });

@@ -24,6 +24,7 @@ import { createWebProject } from '../../app/core/webData';
 import { AREA_LEVEL_COLOR, AREA_WARN_MESSAGE, areaBlockMessage, getAreaLevel } from '../../app/core/areaLimits';
 import { materialLabel } from '../../app/core/materialsCatalog';
 import DeepAdviceBanner from '../../app/components/DeepAdviceBanner';
+import { effectiveDeep } from '../../app/core/deepAdvice';
 import { computeAdaptiveCellSize } from '../../app/core/SatelliteEngine';
 import { centroidOf, proposeRockType, rockSourceLabel, type RockProposal, type RockSource } from '../../app/core/lithologyService';
 import { parseCoordinate } from '../../app/core/coordParse';
@@ -66,7 +67,11 @@ export default function NuevoAnalisis() {
   const [mineral, setMineral] = useState(prefs.mineral);
   const [terrain, setTerrain] = useState(prefs.terrain);
   const [depth, setDepth] = useState(prefs.depth);
-  const [deep, setDeep] = useState(prefs.deep);
+  // Análisis profundo: preferencia guardada (base) + elección manual de esta sesión; en plata arranca encendido (ver deepAdvice).
+  const [deepBase, setDeepBase] = useState(prefs.deep);
+  const [deepManual, setDeepManual] = useState<boolean | null>(null);
+  const deep = effectiveDeep(mineral, deepBase, deepManual);
+  const setDeep = (v: boolean) => { setDeepManual(v); setDeepBase(v); };
   const [rockType, setRockType] = useState('ignea');
   const [rockSource, setRockSource] = useState<RockSource>('default');
   const [rockProposal, setRockProposal] = useState<RockProposal | null>(null);
@@ -126,7 +131,7 @@ export default function NuevoAnalisis() {
   const pickRock = (id: string) => { setRockType(id); setRockSource('usuario'); };
 
   const savePrefs = () => {
-    try { const k = scopedKey(PREFS_BASE); if (k) window.localStorage.setItem(k, JSON.stringify({ mineral, terrain, depth, deep })); } catch { /* storage bloqueado */ }
+    try { const k = scopedKey(PREFS_BASE); if (k) window.localStorage.setItem(k, JSON.stringify({ mineral, terrain, depth, deep: deepBase })); } catch { /* storage bloqueado */ }
   };
 
   const persist = useCallback(async (out: AnalysisOutput) => {

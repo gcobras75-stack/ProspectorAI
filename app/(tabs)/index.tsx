@@ -29,6 +29,7 @@ import SelectedPointModal from '../components/SelectedPointModal';
 import WaypointModal from '../components/WaypointModal';
 import ResultsPanel from '../components/ResultsPanel';
 import DeepAdviceBanner from '../components/DeepAdviceBanner';
+import { effectiveDeep } from '../core/deepAdvice';
 import { initDB, getMuestras, saveMuestra, clearMuestras, savePoligonoCache, getPendingPolygons, saveProjectState, loadProjectState, listProjects, createProject, renameProject, updateMuestraCodigo } from '../core/Database';
 import { scheduleFlush } from '../core/SyncEngine';
 import { proposeRockType, centroidOf, rockSourceLabel, type RockProposal, type RockSource } from '../core/lithologyService';
@@ -229,7 +230,9 @@ export default function ProspectorDashboard() {
   const [asterData, setAsterData]         = useState<AsterSpectralResult | null>(null);
   const [emitData, setEmitData]           = useState<EmitSpectralResult | null>(null);
   const [structuralData, setStructuralData] = useState<StructuralResult | null>(null);
-  const [deepAnalysis, setDeepAnalysis] = useState(false);
+  // Preferencia guardada (base) + elección manual de ESTA sesión; el estado efectivo (deepAnalysis) se deriva más abajo, con el material.
+  const [deepBase, setDeepBase] = useState(false);
+  const [deepManual, setDeepManual] = useState<boolean | null>(null);
   const [currentProjectId, setCurrentProjectId] = useState('default');
   const [metalScores, setMetalScores] = useState<MetalScore[]>([]);
   const [showResults, setShowResults] = useState(false);
@@ -270,6 +273,8 @@ export default function ProspectorDashboard() {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [activeProject, setActiveProject] = useState('Prospecto Alpha');
   const [selectedMineral, setSelectedMineral] = useState('oro');
+  // Análisis profundo: apagado por defecto; en plata arranca encendido. Si el usuario lo mueve, su elección manda toda la sesión.
+  const deepAnalysis = effectiveDeep(selectedMineral, deepBase, deepManual);
   const [terrainType, setTerrainType] = useState('sierra');
   const [depth, setDepth] = useState('0-5m');
   const [rockType, setRockType] = useState('ignea');
@@ -443,7 +448,8 @@ export default function ProspectorDashboard() {
     AsyncStorage.setItem('config_terrain', v);
   }, []);
   const handleSetDeepAnalysis = useCallback((v: boolean) => {
-    setDeepAnalysis(v);
+    setDeepManual(v);
+    setDeepBase(v);
     AsyncStorage.setItem('config_deepAnalysis', String(v));
   }, []);
 
@@ -696,7 +702,7 @@ export default function ProspectorDashboard() {
         const savedDeepAnalysis = await AsyncStorage.getItem('config_deepAnalysis');
         if (savedMineral) setSelectedMineral(normalizeMaterialId(savedMineral));
         if (savedTerrain) setTerrainType(savedTerrain);
-        if (savedDeepAnalysis) setDeepAnalysis(savedDeepAnalysis === 'true');
+        if (savedDeepAnalysis) setDeepBase(savedDeepAnalysis === 'true');
 
         // Show tip 1 if not seen
         const seen1 = await AsyncStorage.getItem('hasSeenTip_1');
