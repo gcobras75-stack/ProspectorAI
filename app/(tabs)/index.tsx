@@ -1932,16 +1932,6 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         </View>
       )}
 
-      {showResults && !isAnalyzing && (
-        <TouchableOpacity
-          style={styles.nextStepBanner}
-          onPress={() => router.push('/(tabs)/geologo')}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.nextStepText}>🧑‍🔬 Pregunta al geólogo sobre este análisis →</Text>
-        </TouchableOpacity>
-      )}
-
       {showResults && (
         <ResultsPanel
           thermalData={thermalData}
@@ -1958,6 +1948,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           areaHa={areaHa}
           mapRef={mapRef}
           collapsed={resultsCollapsed}
+          onAskGeologo={() => router.push('/(tabs)/geologo')}
           onToggleCollapsed={() => setResultsCollapsed(v => !v)}
           onClose={() => {
             setShowResults(false);
@@ -2447,30 +2438,6 @@ const styles = StyleSheet.create({
   
   resultRecom: { color: '#00FFFF', fontSize: 11, fontWeight: 'bold', marginTop: 2 },
 
-  nextStepBanner: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: Colors.primarySoft,
-    borderTopWidth: 1,
-    borderTopColor: Colors.primary,
-    borderRadius: 0,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    marginHorizontal: 0,
-    marginBottom: 0,
-    minHeight: Touch.min,
-    justifyContent: 'center',
-    zIndex: 99,
-  },
-  nextStepText: {
-    color: Colors.primary,
-    fontSize: Typography.bodyBold.fontSize,
-    fontWeight: Typography.bodyBold.fontWeight,
-    lineHeight: Typography.bodyBold.lineHeight,
-    textAlign: 'center',
-  },
   sectionLabelModal: { color: '#FFD700', fontSize: 12, fontWeight: 'bold', marginTop: 15, marginBottom: 8, letterSpacing: 1 },
   sectionHeader: { fontSize: 15, marginTop: 15, marginBottom: 5, letterSpacing: 0.5 },
   chipsRowModal: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

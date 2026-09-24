@@ -38,6 +38,8 @@ interface ResultsPanelProps {
   mapRef: React.RefObject<MapView | null>;
   onClose: () => void;
   onNavigateTo?: (lat: number, lng: number) => void;
+  /** Atajo al chat del geólogo. Solo se muestra con el panel EXPANDIDO (en el colapsado no cabe). La PWA no lo pasa. */
+  onAskGeologo?: () => void;
   onInterpret?: (context: string) => void;
   /**
    * SOLO la PWA. Abre la hoja "Validar en campo" de un punto. Sin esta propiedad la tarjeta NO cambia (la app nativa no la pasa):
@@ -59,7 +61,7 @@ const VALIDATION_BADGE: Record<'CONFIRMED' | 'PARTIAL' | 'NOT_CONFIRMED', { labe
 };
 
 export default function ResultsPanel({
-  satelliteData, metalScores, analysisPoints, zoneProspectivity: zoneProspectivityRaw, knownOccurrences, selectedMineral, terrainType, areaHa, thermalData, rockType, rockSource, rockProposal, mapRef, onClose, onNavigateTo, onInterpret, onValidate, validations, validationKey, collapsed, onToggleCollapsed,
+  satelliteData, metalScores, analysisPoints, zoneProspectivity: zoneProspectivityRaw, knownOccurrences, selectedMineral, terrainType, areaHa, thermalData, rockType, rockSource, rockProposal, mapRef, onClose, onNavigateTo, onAskGeologo, onInterpret, onValidate, validations, validationKey, collapsed, onToggleCollapsed,
 }: ResultsPanelProps) {
   // TECHO DE EVIDENCIA antes de pintar nada. El objeto puede venir RECIÉN CALCULADO
   // (ya capado, y entonces esto no hace nada) o LEÍDO DE LA BASE — y los análisis
@@ -172,7 +174,7 @@ export default function ResultsPanel({
         </View>
       </View>
 
-      <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
+      <ScrollView style={{ maxHeight: 400, flexShrink: 1 }} showsVerticalScrollIndicator={false}>
 
         {/* ═══════════ NIVEL 1 — Resumen en lenguaje llano ═══════════ */}
         {nPts > 0 && (
@@ -546,6 +548,12 @@ export default function ResultsPanel({
 
         <View style={{ height: 14 }} />
       </ScrollView>
+
+      {onAskGeologo && (
+        <TouchableOpacity style={styles.askGeologo} onPress={onAskGeologo} activeOpacity={0.8} accessibilityRole="button">
+          <Text style={styles.askGeologoText}>🧑‍🔬 Pregunta al geólogo sobre este análisis →</Text>
+        </TouchableOpacity>
+      )}
       {csm > 0 && (
         <Text style={{ color: Colors.textDisabled, fontSize: 9, textAlign: 'center', paddingTop: 3 }}>
           Malla {csmLabel}
@@ -578,6 +586,11 @@ const styles = StyleSheet.create({
     borderTopWidth: 2, borderTopColor: Colors.primary,
     paddingHorizontal: 16, paddingTop: 12, paddingBottom: 22, zIndex: 100,
   },
+  askGeologo: {
+    marginTop: 8, minHeight: 44, justifyContent: 'center', borderRadius: 10, paddingHorizontal: 12,
+    backgroundColor: Colors.primarySoft, borderWidth: 1, borderColor: Colors.primary,
+  },
+  askGeologoText: { color: Colors.primary, fontSize: 14, fontWeight: '700', textAlign: 'center' },
   collapsedText: { color: Colors.text, fontSize: 15, fontWeight: '800', flex: 1 },
   collapsedChevron: { color: Colors.primary, fontSize: 13, fontWeight: '700', marginLeft: 10 },
   // ── NIVEL 1 — resumen llano ──
