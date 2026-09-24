@@ -10,7 +10,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
-import { analyzeZoneLocal, computeAllMetalScores, enrichPointsWithDeepData, MetalScore } from '../core/GeologicalEngine';
+import { analyzeZoneLocal, computeAllMetalScores, enrichPointsWithDeepData, scoreCeilingForMaterial, MetalScore } from '../core/GeologicalEngine';
 import { Colors, Typography, Spacing, Radii, Touch } from '../core/theme';
 import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, fetchThermalGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
 import { getAreaLevel, AREA_LEVEL_COLOR, areaBlockMessage, AREA_WARN_MESSAGE } from '../core/areaLimits';
@@ -888,6 +888,16 @@ export default function ProspectorDashboard() {
     }
   };
 
+  // Aviso ANTES de analizar: el material tiene un techo de score por índices sin medición
+  // satelital. Se calcula con el estado actual del toggle de Análisis profundo.
+  const ceilingInfo = scoreCeilingForMaterial(normalizeMaterialId(selectedMineral), deepAnalysis);
+  const ceilingNote = ceilingInfo
+    ? `⚠️ ${materialLabel(selectedMineral)}: con satélite el puntaje máximo posible es ${ceilingInfo.ceilingPct}%. ` +
+      (ceilingInfo.ceilingWithDeepPct > ceilingInfo.ceilingPct
+        ? `Con Análisis profundo (Ajustes) sube hasta ${ceilingInfo.ceilingWithDeepPct}%.`
+        : 'El Análisis profundo no lo cambia.')
+    : null;
+
   const selectMode = (type: DrawingType) => {
     setPolygonCoords([]);
     setRectPointA(null);
@@ -1757,7 +1767,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             <View style={[
               styles.consoleBar,
               // Con aviso o bloqueo la barra crece para caber el mensaje.
-              areaLevel !== 'ok' && polygonCoords.length >= 3 && {
+              (areaLevel !== 'ok' || !!ceilingNote) && polygonCoords.length >= 3 && {
                 flexDirection: 'column', alignItems: 'stretch', maxHeight: undefined, minHeight: undefined, paddingVertical: 8,
               },
             ]}>
@@ -1810,6 +1820,9 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                   </TouchableOpacity>
                 </View>
               </View>
+              {polygonCoords.length >= 3 && ceilingNote && (
+                <Text style={[styles.consoleAreaNote, { color: '#FFA000' }]}>{ceilingNote}</Text>
+              )}
               {polygonCoords.length >= 3 && areaLevel !== 'ok' && (
                 <Text style={[styles.consoleAreaNote, { color: areaColor }]}>
                   {areaBlocked ? areaBlockMessage(areaHaNum) : AREA_WARN_MESSAGE}
@@ -1834,6 +1847,9 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
                   Resolución ~{Math.round(computeAdaptiveCellSize(parseFloat(areaHa) || 0))} m/celda
                 </Text>
               </View>
+              {ceilingNote && (
+                <Text style={[styles.consoleAreaNote, { color: '#FFA000', marginBottom: 8 }]}>{ceilingNote}</Text>
+              )}
               {areaLevel !== 'ok' && (
                 <Text style={[styles.consoleAreaNote, { color: areaColor, marginBottom: 8 }]}>
                   {areaBlocked ? areaBlockMessage(areaHaNum) : AREA_WARN_MESSAGE}

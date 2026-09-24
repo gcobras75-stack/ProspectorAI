@@ -321,6 +321,35 @@ export function analyzeZoneLocal(
 const DEEP_ENRICHABLE_KEYS = ['carbonate', 'propylitic', 'argillic', 'ferric_iron'] as const;
 
 /**
+ * Techo del score de un material ANTES de analizar: 100 − peso de los índices sin proxy
+ * real. `deepOn` = el mejor caso con Análisis profundo, que solo recupera los índices de
+ * DEEP_ENRICHABLE_KEYS (carbonato, etc.). malachite (cobre) y silica (oro) NO están ahí:
+ * ni ASTER ni EMIT los enriquecen, así que su techo no cambia con el toggle.
+ * Devuelve null si no hay techo que avisar (score completo) o si el material ya
+ * es "requiere ASTER/EMIT" (>50% sintético), que tiene su propio aviso.
+ */
+export function scoreCeilingForMaterial(
+  id: string,
+  deepOn: boolean,
+): { ceilingPct: number; ceilingWithDeepPct: number } | null {
+  const w = METAL_WEIGHTS[id];
+  if (!w) return null;
+  const total = Object.values(w).reduce((x, y) => x + y, 0) || 1;
+  const ceil = (deep: boolean) => {
+    let synth = 0;
+    for (const k of SYNTHETIC_INDEX_KEYS) {
+      if (deep && (DEEP_ENRICHABLE_KEYS as readonly string[]).includes(k)) continue;
+      synth += (w as any)[k] || 0;
+    }
+    return { synth, pct: Math.round(Math.max(0, 1 - synth / total) * 100) };
+  };
+  const off = ceil(false);
+  if (off.synth <= 0 || off.synth / total > SYNTHETIC_REQUIRES_DEEP_THRESHOLD) return null;
+  const cur = ceil(deepOn);
+  return { ceilingPct: cur.pct, ceilingWithDeepPct: ceil(true).pct };
+}
+
+/**
  * Enriquece los SpectralIndices de un punto con ASTER/EMIT reales. Devuelve los
  * índices resultantes y las claves que recibieron dato real (solo si SUBEN la señal,
  * nunca reducen un valor S2 real existente). Si no hay celda, devuelve sin cambios.
