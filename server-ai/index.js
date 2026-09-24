@@ -61,6 +61,15 @@ const jsonBig = express.json({ limit: '25mb' });
 app.use((req, res, next) => (req.path === '/api/ai/villegas' ? next() : jsonBig(req, res, next)));
 
 // ── Helpers Supabase ─────────────────────────────────────────────────────────
+// Cabeceras con la llave de servicio. Llave legacy (JWT, empieza por eyJ): apikey + Bearer, como
+// siempre. Llave nueva (sb_secret_…, no es JWT): SOLO apikey; como Bearer la rechaza el gateway.
+// Con el helper el mismo código sirve antes y después de migrar la llave.
+function serviceHeaders(extra = {}) {
+  const h = { apikey: SUPABASE_SERVICE_ROLE_KEY, ...extra };
+  if (SUPABASE_SERVICE_ROLE_KEY.startsWith('eyJ')) h.Authorization = `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`;
+  return h;
+}
+
 async function supabaseUser(token) {
   const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
     headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
@@ -70,7 +79,7 @@ async function supabaseUser(token) {
 
 async function supabaseProfile(uid) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${uid}&select=role,active,deleted`, {
-    headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
+    headers: serviceHeaders(),
   });
   if (!r.ok) return null;
   const rows = await r.json();
@@ -127,11 +136,7 @@ async function checkAiUsage(uid, maxRequests, maxTokens, estTokens) {
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_and_increment_ai_usage`, {
       method: 'POST',
-      headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-        'Content-Type': 'application/json',
-      },
+      headers: serviceHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ p_user: uid, p_max: maxRequests }),
     });
     if (r.ok) remoteOk = await r.json(); // boolean
