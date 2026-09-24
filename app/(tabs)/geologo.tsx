@@ -12,6 +12,7 @@ import { askClaudeGeologoExperto, askClaudeInterpretacionPunto, photoUriToBase64
 import { loadLastAnalysis, getMuestras, saveProjectChatHistory, loadProjectState, loadFieldPackage, loadProjectWaypoints } from '../core/Database';
 import { useBadge } from '../core/BadgeContext';
 import { displayScore } from '../core/displayScore';
+import { anomalyFromPct } from '../core/theme';
 
 const PROJ_KEY = 'currentProjectId';
 const PENDING_INTERP_KEY = 'pendingGeologoInterpretation';
@@ -73,7 +74,7 @@ function formatContext(
   const points: any[] = analysis.analisis_resultado || [];
   const topPoints = points.slice(0, 5).map((p, i) => {
     const score = displayScore(p);
-    const level = score >= 65 ? 'ALTA' : score >= 35 ? 'MEDIA' : 'BAJA';
+    const level = anomalyFromPct(score).label;
     const conf = p.consensus === 'PRIORITY_TARGET'
       ? ' OBJETIVO PRIORITARIO S2+ASTER+Estructura'
       : p.consensus === 'CONFIRMED' ? ' CONFIRMADA S2+ASTER' : '';

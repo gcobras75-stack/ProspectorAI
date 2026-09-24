@@ -6,6 +6,7 @@
  */
 
 import type { MiningSpectralCell } from './SatelliteEngine';
+import { AnomalyLevel } from './theme';
 
 // ─── Metal display metadata ───────────────────────────────────────────────────
 
@@ -45,13 +46,13 @@ export function cellAnomalyScore(cell: MiningSpectralCell, metal: string): numbe
 // ─── Anomaly level helpers ────────────────────────────────────────────────────
 
 export function anomalyFromPct(pct: number): { level: 'ALTA' | 'MEDIA' | 'BAJA'; color: string } {
-  if (pct >= 65) return { level: 'ALTA',  color: '#E53935' };
-  if (pct >= 35) return { level: 'MEDIA', color: '#FFA000' };
+  if (pct >= AnomalyLevel.high.minPct) return { level: 'ALTA',  color: '#E53935' };
+  if (pct >= AnomalyLevel.med.minPct)  return { level: 'MEDIA', color: '#FFA000' };
   return             { level: 'BAJA',  color: '#546E7A' };
 }
 
 export function tapMessage(pct: number): { text: string; color: string } {
-  if (pct >= 65) return { text: '⭐ Anomalía significativa',           color: '#E53935' };
-  if (pct >= 35) return { text: '🟡 Señal moderada — registrar zona', color: '#FFA000' };
+  if (pct >= AnomalyLevel.high.minPct) return { text: '⭐ Anomalía significativa',           color: '#E53935' };
+  if (pct >= AnomalyLevel.med.minPct)  return { text: '🟡 Señal moderada — registrar zona', color: '#FFA000' };
   return              { text: '⚫ Sin anomalía detectable',            color: '#546E7A' };
 }

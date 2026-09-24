@@ -183,11 +183,18 @@ export const ConsensusBadge = {
 
 // ─── ANOMALY LEVEL CONFIG ────────────────────────────────────────────────────
 
+// FUENTE ÚNICA de los umbrales de "alto/medio/bajo" de toda la app (tarjetas, mapa de calor,
+// `detected`, resumen, consenso, PDF, Excel, chat). No escribir 65/35 sueltos en otro lado.
 export const AnomalyLevel = {
   high: { label: 'ALTA',  color: Colors.anomalyHigh, minPct: 65 },
   med:  { label: 'MEDIA', color: Colors.anomalyMed,  minPct: 35 },
   low:  { label: 'BAJA',  color: Colors.anomalyLow,  minPct:  0 },
 } as const;
+
+/** Igual que anomalyFromPct pero con las claves de `MetalScore.detected`. */
+export function detectedFromPct(pct: number): 'high' | 'medium' | 'low' {
+  return pct >= AnomalyLevel.high.minPct ? 'high' : pct >= AnomalyLevel.med.minPct ? 'medium' : 'low';
+}
 
 export function anomalyFromPct(pct: number) {
   if (pct >= AnomalyLevel.high.minPct) return AnomalyLevel.high;
@@ -201,8 +208,8 @@ export function anomalyFromPct(pct: number) {
 // vía anomalyFromPct() — NO mezclar las dos escalas.
 
 export const ProspectivityBand = {
-  strong:   { band: 'FUERTE'   as const, color: Colors.confirmed,   label: 'FAVORABILIDAD FUERTE',   minSignal: 65 },
-  moderate: { band: 'MODERADA' as const, color: Colors.anomalyMed,  label: 'FAVORABILIDAD MODERADA', minSignal: 35 },
+  strong:   { band: 'FUERTE'   as const, color: Colors.confirmed,   label: 'FAVORABILIDAD FUERTE',   minSignal: AnomalyLevel.high.minPct },
+  moderate: { band: 'MODERADA' as const, color: Colors.anomalyMed,  label: 'FAVORABILIDAD MODERADA', minSignal: AnomalyLevel.med.minPct },
   weak:     { band: 'DEBIL'    as const, color: Colors.anomalyHigh, label: 'FAVORABILIDAD DÉBIL',    minSignal:  0 },
 } as const;
 

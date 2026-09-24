@@ -2,7 +2,7 @@ import { MiningSpectralResult, AsterSpectralResult, AsterSpectralCell, Structura
 import { cellAnomalyScore } from './spectralHelpers';
 import { METAL_WEIGHTS, SYNTHETIC_INDEX_KEYS, SYNTHETIC_REQUIRES_DEEP_THRESHOLD } from './GeologicalEngine';
 import { evidenceCeiling } from './materialsCatalog';
-import { prospectivityFromSignal } from './theme';
+import { prospectivityFromSignal, AnomalyLevel } from './theme';
 
 export type ConsensusLevel = 'PRIORITY_TARGET' | 'TRIPLE_SPECTRAL' | 'CONFIRMED' | 'SINGLE' | 'VEGETATION' | 'NO_DATA';
 
@@ -100,17 +100,17 @@ export function fuseAnalysisPoints(
 
     // Build evidence string
     const evidenceParts: string[] = [];
-    if (s2Score >= 35)                                 evidenceParts.push('S2 \u2713');
-    if (asterScore !== null && asterScore >= 35)       evidenceParts.push('ASTER \u2713');
-    if (emitScore !== null && emitScore >= 65)         evidenceParts.push('EMIT \u2713');
+    if (s2Score >= AnomalyLevel.med.minPct)                                 evidenceParts.push('S2 \u2713');
+    if (asterScore !== null && asterScore >= AnomalyLevel.med.minPct)       evidenceParts.push('ASTER \u2713');
+    if (emitScore !== null && emitScore >= AnomalyLevel.high.minPct)         evidenceParts.push('EMIT \u2713');
     if (nearLineament)                                 evidenceParts.push('Estructura \u2713');
     const evidence = evidenceParts.join(' \u00B7 ') || 'sin anomal\u00EDa';
 
     let consensus:   ConsensusLevel;
     let supportedBy: ('S2' | 'ASTER' | 'EMIT')[];
 
-    const tripleSpectral = s2Score >= 65 && asterScore !== null && asterScore >= 65 && emitScore !== null && emitScore >= 65;
-    const dualSpectral   = s2Score >= 65 && asterScore !== null && asterScore >= 65;
+    const tripleSpectral = s2Score >= AnomalyLevel.high.minPct && asterScore !== null && asterScore >= AnomalyLevel.high.minPct && emitScore !== null && emitScore >= AnomalyLevel.high.minPct;
+    const dualSpectral   = s2Score >= AnomalyLevel.high.minPct && asterScore !== null && asterScore >= AnomalyLevel.high.minPct;
 
     if (masked) {
       consensus   = 'VEGETATION';
@@ -125,9 +125,9 @@ export function fuseAnalysisPoints(
     } else if (dualSpectral) {
       consensus   = 'CONFIRMED';
       supportedBy = ['S2', 'ASTER'];
-    } else if (s2Score >= 35 || (asterScore !== null && asterScore >= 35) || (emitScore !== null && emitScore >= 35)) {
+    } else if (s2Score >= AnomalyLevel.med.minPct || (asterScore !== null && asterScore >= AnomalyLevel.med.minPct) || (emitScore !== null && emitScore >= AnomalyLevel.med.minPct)) {
       consensus   = 'SINGLE';
-      supportedBy = s2Score >= 35 ? ['S2'] : (asterScore !== null && asterScore >= 35 ? ['ASTER'] : ['EMIT']);
+      supportedBy = s2Score >= AnomalyLevel.med.minPct ? ['S2'] : (asterScore !== null && asterScore >= AnomalyLevel.med.minPct ? ['ASTER'] : ['EMIT']);
     } else {
       consensus   = 'NO_DATA';
       supportedBy = [];

@@ -1,6 +1,7 @@
 import type { MiningSpectralResult, AsterSpectralCell, EmitSpectralCell } from './SatelliteEngine';
 import { findNearestCell, computeAdaptiveCellSize } from './SatelliteEngine';
 import { CATALOG_WEIGHTS, getMaterial, normalizeMaterialId } from './materialsCatalog';
+import { detectedFromPct } from './theme';
 
 /**
  * Pesos espectrales por material (fuente única, exportada para que otros módulos
@@ -583,8 +584,7 @@ export function computePointScore(
                      + regional * 0.15 + historical * 0.10;
     const pointScore = Math.round(Math.min(scoreMax, raw * scoreMax));
     const pct        = Math.round((pointScore / scoreMax) * 100);
-    const detected: 'high' | 'medium' | 'low' =
-      pct >= 65 ? 'high' : pct >= 45 ? 'medium' : 'low';
+    const detected = detectedFromPct(pct);
 
     return {
       metal,
@@ -678,8 +678,7 @@ export function computeAllMetalScores(points: AnalysisPoint[], terrain: string):
 
     const score_poligono = Math.round(Math.min(scoreMax, raw * scoreMax));
     const score_percent  = Math.round((score_poligono / scoreMax) * 100);
-    const detected: 'high' | 'medium' | 'low' =
-      score_percent >= 70 ? 'high' : score_percent >= 40 ? 'medium' : 'low';
+    const detected = detectedFromPct(score_percent);
 
     return {
       metal,

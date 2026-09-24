@@ -7,7 +7,7 @@ import { MetalScore } from '../core/GeologicalEngine';
 import { computeAdaptiveCellSize, type MiningSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
 import { type ZoneProspectivity, applyEvidenceCeiling } from '../core/ConsensusFusion';
 import { type KnownOccurrencesResult } from '../core/mrdsService';
-import { Colors, Typography, Spacing, Radii, anomalyFromPct } from '../core/theme';
+import { Colors, Typography, Spacing, Radii, anomalyFromPct, AnomalyLevel } from '../core/theme';
 import { buildPointInterpretationContext } from '../core/pointInterpretation';
 import { type RockProposal, type RockSource } from '../core/lithologyService';
 import { openExternalNavigation } from '../core/externalNav';
@@ -94,7 +94,7 @@ export default function ResultsPanel({
   const pointScore = (p: any): number => Math.round(displayScore(p));
   const signalWord = (p: any): string => {
     const s = pointScore(p);
-    return s >= 65 ? 'FUERTE' : s >= 35 ? 'MEDIA' : 'DÉBIL';
+    return s >= AnomalyLevel.high.minPct ? 'FUERTE' : s >= AnomalyLevel.med.minPct ? 'MEDIA' : 'DÉBIL';
   };
   const nSats = (p: any): number =>
     Array.isArray(p.supportedBy) && p.supportedBy.length > 0
@@ -117,7 +117,7 @@ export default function ResultsPanel({
     return base;
   };
   const strongCount = analysisPoints.filter(
-    p => ['PRIORITY_TARGET', 'TRIPLE_SPECTRAL', 'CONFIRMED'].includes(p.consensus) || pointScore(p) >= 65
+    p => ['PRIORITY_TARGET', 'TRIPLE_SPECTRAL', 'CONFIRMED'].includes(p.consensus) || pointScore(p) >= AnomalyLevel.high.minPct
   ).length;
   const vegPct = zoneProspectivity?.vegetation_pct ?? 0;
   const nPts = analysisPoints.length;

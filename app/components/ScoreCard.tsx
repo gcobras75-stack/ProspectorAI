@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Colors, Typography, Radii } from '../core/theme';
+import { Colors, Typography, Radii, AnomalyLevel } from '../core/theme';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -15,8 +15,8 @@ export const METAL_COLORS: Record<string, string> = {
 // Anomaly level thresholds (based on score_percent, which is derived from
 // real spectral indices when satellite data is available)
 function getAnomalyLevel(pct: number): { level: 'ALTA' | 'MEDIA' | 'BAJA'; color: string } {
-  if (pct >= 65) return { level: 'ALTA',  color: Colors.anomalyHigh };
-  if (pct >= 35) return { level: 'MEDIA', color: Colors.anomalyMed  };
+  if (pct >= AnomalyLevel.high.minPct) return { level: 'ALTA',  color: Colors.anomalyHigh };
+  if (pct >= AnomalyLevel.med.minPct)  return { level: 'MEDIA', color: Colors.anomalyMed  };
   return             { level: 'BAJA',  color: Colors.anomalyLow  };
 }
 
@@ -88,7 +88,7 @@ export default function ScoreCard({
           <View style={[styles.barFill, { width: barWidth, backgroundColor: levelColor }]} />
         </View>
         <Text style={styles.scaleNote}>
-          {'Señal espectral 0–100 · alto ≥65 · medio 35–64 · bajo <35 · no es probabilidad de yacimiento ni ley/tonelaje'}
+          {`Señal espectral 0–100 · alto ≥${AnomalyLevel.high.minPct} · medio ${AnomalyLevel.med.minPct}–${AnomalyLevel.high.minPct - 1} · bajo <${AnomalyLevel.med.minPct} · no es probabilidad de yacimiento ni ley/tonelaje`}
         </Text>
         {regionalAvg !== undefined && (
           <Text style={styles.regionalNote}>

@@ -11,7 +11,7 @@ import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, enrichPointsWithDeepData, scoreCeilingForMaterial, MetalScore } from '../core/GeologicalEngine';
-import { Colors, Typography, Spacing, Radii, Touch } from '../core/theme';
+import { Colors, Typography, Spacing, Radii, Touch, anomalyFromPct } from '../core/theme';
 import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, fetchThermalGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
 import { getAreaLevel, AREA_LEVEL_COLOR, areaBlockMessage, AREA_WARN_MESSAGE } from '../core/areaLimits';
 import { fuseAnalysisPoints, computeZoneProspectivity, type ZoneProspectivity } from '../core/ConsensusFusion';
@@ -900,6 +900,11 @@ export default function ProspectorDashboard() {
         : 'El Análisis profundo no lo cambia.')
     : null;
 
+  const heatColor = (score: number) => {
+    const l = anomalyFromPct(score);
+    return l.color + (l.label === 'ALTA' ? '99' : l.label === 'MEDIA' ? '80' : '59');
+  };
+
   const selectMode = (type: DrawingType) => {
     setPolygonCoords([]);
     setRectPointA(null);
@@ -1319,12 +1324,10 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
         finalPoints.forEach((fp: any) => shownByCell.set(`${fp.lat.toFixed(6)},${fp.lng.toFixed(6)}`, displayScore(fp)));
 
         sourcePoints.forEach((point: any) => {
-          let color = 'rgba(68,255,68,0.4)'; // Verde (Baja prob)
           const score = shownByCell.get(`${point.lat.toFixed(6)},${point.lng.toFixed(6)}`) ?? displayScore(point);
-          if (score > 80) color = 'rgba(255,68,68,0.6)';      // Rojo Intenso
-          else if (score > 60) color = 'rgba(255,165,0,0.5)'; // Naranja
-          else if (score > 40) color = 'rgba(255,221,68,0.4)'; // Amarillo
-          
+          // Misma escala y mismos colores que las tarjetas (theme.AnomalyLevel: 65/35).
+          const color = heatColor(score);
+
           zonas.push({
             coordinates: [
               { latitude: point.lat - latStep, longitude: point.lng - lngStep },

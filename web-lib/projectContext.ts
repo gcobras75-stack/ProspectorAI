@@ -8,6 +8,7 @@
  */
 import type { WebProject, WebSample } from '../app/core/webData';
 import { displayScore } from '../app/core/displayScore';
+import { anomalyFromPct } from '../app/core/theme';
 
 /** null si el proyecto no tiene celdas analizadas (no hay nada que interpretar). */
 export function buildProjectContext(p: WebProject, samples: WebSample[]): string | null {
@@ -16,7 +17,7 @@ export function buildProjectContext(p: WebProject, samples: WebSample[]): string
 
   const topPoints = points.slice(0, 5).map((pt, i) => {
     const score = displayScore(pt);
-    const level = score >= 65 ? 'ALTA' : score >= 35 ? 'MEDIA' : 'BAJA';
+    const level = anomalyFromPct(score).label;
     const conf = pt.consensus === 'PRIORITY_TARGET'
       ? ' OBJETIVO PRIORITARIO S2+ASTER+Estructura'
       : pt.consensus === 'CONFIRMED' ? ' CONFIRMADA S2+ASTER' : '';
