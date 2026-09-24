@@ -11,7 +11,7 @@ import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, enrichPointsWithDeepData, scoreCeilingForMaterial, MetalScore } from '../core/GeologicalEngine';
-import { Colors, Typography, Spacing, Radii, Touch, anomalyFromPct } from '../core/theme';
+import { Colors, Typography, Spacing, Radii, Touch, anomalyFromPct, AnomalyLevel } from '../core/theme';
 import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, fetchThermalGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
 import { getAreaLevel, AREA_LEVEL_COLOR, areaBlockMessage, AREA_WARN_MESSAGE } from '../core/areaLimits';
 import { fuseAnalysisPoints, computeZoneProspectivity, type ZoneProspectivity } from '../core/ConsensusFusion';
@@ -22,6 +22,7 @@ import MoreSheet from '../components/MoreSheet';
 import { TAP_METAL_META } from '../core/spectralHelpers';
 import { materialIcon, materialLabel, normalizeMaterialId, isThermalMaterial } from '../core/materialsCatalog';
 import { displayScore } from '../core/displayScore';
+import { SCORE_NOTE } from '../core/scoreNote';
 import { newAnalisisId, setCurrentAnalisis, logAnalisisZona } from '../core/costTelemetry';
 import TapPanel from '../components/TapPanel';
 import SelectedPointModal from '../components/SelectedPointModal';
@@ -1632,6 +1633,24 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
           </TouchableOpacity>
         </View>
 
+        {/* LEYENDA del mapa de calor: mismos colores y cortes que las tarjetas (theme.AnomalyLevel) */}
+        {showHeatmap && zoneColors.length > 0 && (
+          <View style={styles.heatLegend}>
+            <Text style={styles.heatLegendTitle}>MAPA DE CALOR</Text>
+            {([
+              { c: Colors.anomalyHigh, t: `Alta · ${AnomalyLevel.high.minPct} o más` },
+              { c: Colors.anomalyMed,  t: `Media · ${AnomalyLevel.med.minPct} a ${AnomalyLevel.high.minPct - 1}` },
+              { c: Colors.anomalyLow,  t: `Baja · menos de ${AnomalyLevel.med.minPct}` },
+            ]).map(({ c, t }) => (
+              <View key={t} style={styles.heatLegendRow}>
+                <View style={[styles.heatLegendSwatch, { backgroundColor: c }]} />
+                <Text style={styles.heatLegendText}>{t}</Text>
+              </View>
+            ))}
+            <Text style={styles.heatLegendNote}>{SCORE_NOTE}</Text>
+          </View>
+        )}
+
         {/* ALTITUDE — compact horizontal pill, bottom-left */}
         <View style={styles.hudCornerPill}>
           <MaterialCommunityIcons name="image-filter-hdr" size={13} color="#88CCFF" />
@@ -2396,11 +2415,12 @@ const styles = StyleSheet.create({
   compassContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   compassArrow: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
 
-  heatmapLegend: { position: 'absolute', bottom: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.85)', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#FFD700', zIndex: 25 },
-  legendTitle: { color: '#FFD700', fontSize: 12, fontWeight: 'bold', marginBottom: 5, textAlign: 'center' },
-  legendItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  legendColor: { width: 20, height: 20, borderRadius: 4, marginRight: 8 },
-  legendText: { color: '#FFF', fontSize: 10 },
+  heatLegend: { position: 'absolute', bottom: 44, left: 10, width: 210, backgroundColor: 'rgba(0,0,0,0.85)', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#FFD700', zIndex: 25 },
+  heatLegendTitle: { color: '#FFD700', fontSize: 11, fontWeight: '900', letterSpacing: 1, marginBottom: 4 },
+  heatLegendRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
+  heatLegendSwatch: { width: 14, height: 14, borderRadius: 3, marginRight: 6 },
+  heatLegendText: { color: '#FFF', fontSize: 11 },
+  heatLegendNote: { color: '#AAA', fontSize: 10, lineHeight: 13, marginTop: 4 },
   locationButton: { position: 'absolute', bottom: 100, right: 10, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 30, padding: 10, borderWidth: 1, borderColor: '#FFD700', zIndex: 20 },
   layerButton: { position: 'absolute', bottom: 152, right: 10, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 30, padding: 10, borderWidth: 1, borderColor: '#FFD700', zIndex: 20 },
   layerMenu: { position: 'absolute', bottom: 152, right: 56, width: 232, backgroundColor: 'rgba(10,10,10,0.96)', borderRadius: 10, borderWidth: 1, borderColor: '#FFD700', padding: 10, zIndex: 30 },

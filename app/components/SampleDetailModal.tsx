@@ -7,6 +7,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Colors, Spacing, Radii, Touch } from '../core/theme';
 import { displayScore } from '../core/displayScore';
+import { SCORE_NOTE } from '../core/scoreNote';
 import {
   updateMuestraLab, updateMuestraValidation, upsertValidationPair,
   LabResult,
@@ -330,7 +331,10 @@ export default function SampleDetailModal({
         <Section title="Espectral satélite">
           <Row label="Consenso" value={spectral.consensus_level} />
           {sampleScore != null && (
-            <Row label="Score" value={`${sampleScore}`} />
+            <>
+              <Row label="Score" value={`${sampleScore}`} />
+              <Text style={{ color: '#999', fontSize: 11, lineHeight: 15, marginTop: 4 }}>{SCORE_NOTE}</Text>
+            </>
           )}
           {!!spectral.evidence && <Row label="Evidencia" value={spectral.evidence} />}
         </Section>
@@ -507,6 +511,7 @@ export default function SampleDetailModal({
             label="Score espectral"
             value={sampleScore != null ? `${sampleScore}` : '—'}
           />
+          <Text style={{ color: '#999', fontSize: 11, lineHeight: 15, marginTop: 4 }}>{SCORE_NOTE}</Text>
           <Row label="Au lab" value={sample.lab_au_gt != null ? `${sample.lab_au_gt} g/t` : '—'} />
           <Row label="Ag lab" value={sample.lab_ag_gt != null ? `${sample.lab_ag_gt} g/t` : '—'} />
           <Row label="Cu lab" value={sample.lab_cu_pct != null ? `${sample.lab_cu_pct} %` : '—'} />

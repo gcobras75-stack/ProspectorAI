@@ -36,6 +36,7 @@ import ValidationView from '../components/ValidationView';
 import { exportProjectToExcel } from '../core/excelExport';
 import { useAuth } from '../core/AuthContext';
 import { displayScore } from '../core/displayScore';
+import { SCORE_NOTE } from '../core/scoreNote';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -240,6 +241,7 @@ function ProjectDetail({ project, onBack, onDeleted, onRenamed }: DetailProps) {
                   </View>
                 ))}
               </View>
+              <Text style={{ color: '#999', fontSize: 11, lineHeight: 15, marginTop: 4 }}>{SCORE_NOTE}</Text>
             </View>
           )}
         </View>

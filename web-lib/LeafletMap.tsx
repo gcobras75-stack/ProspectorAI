@@ -15,6 +15,7 @@ import type { WebSample } from '../app/core/webData';
 import type { KnownOccurrence } from '../app/core/mrdsService';
 import { addBaseLayer } from './baseLayer';
 import { displayScore } from '../app/core/displayScore';
+import { SCORE_NOTE } from '../app/core/scoreNote';
 
 export type MapHandle = { flyTo: (lat: number, lng: number, zoom?: number) => void };
 
@@ -106,6 +107,7 @@ const LeafletMap = forwardRef<MapHandle, Props>(function LeafletMap({ vertices, 
       const popup = popupEl([
         `Punto #${rank}`,
         `Score ${score}${p.consensus ? ` · ${String(p.consensus)}` : ''}`,
+        SCORE_NOTE,
         p.near_lineament ? 'Sobre un posible lineamiento' : '',
         `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`,
       ]);

@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import MapView from 'react-native-maps';
 import { openExternalNavigation } from '../core/externalNav';
 import { displayScore } from '../core/displayScore';
+import { SCORE_NOTE } from '../core/scoreNote';
 import { findNearestCell, type MiningSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
 import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct } from '../core/spectralHelpers';
 import { METAL_COLORS } from './ScoreCard';
@@ -103,6 +104,7 @@ export default function SelectedPointModal({
               <Text style={{ color: '#555', fontSize: 9, fontStyle: 'italic' }}>
                 Intensidad de {materialAiFrame(selectedMineral).signalWord} calculada de índices espectrales reales
               </Text>
+              <Text style={{ color: '#999', fontSize: 11, lineHeight: 15, marginTop: 4 }}>{SCORE_NOTE}</Text>
             </View>
 
             {/* Other metals from nearest cell */}

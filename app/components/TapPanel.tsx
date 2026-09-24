@@ -6,6 +6,7 @@ import { TAP_METAL_META, cellAnomalyScore, anomalyFromPct, tapMessage } from '..
 import { QUICK_METALS } from '../core/materialsCatalog';
 import { isSaturated, hasSaturatedIndex, SATURATION_NOTICE } from '../core/saturation';
 import { Colors, Radii } from '../core/theme';
+import { SCORE_NOTE } from '../core/scoreNote';
 
 interface TapPanelProps {
   tapPoint: { lat: number; lng: number };
@@ -48,6 +49,7 @@ export default function TapPanel({ tapPoint, satelliteData, onClose }: TapPanelP
       <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
         {hasReal ? (
           <>
+            <Text style={{ color: '#999', fontSize: 11, lineHeight: 15, marginBottom: 8 }}>{SCORE_NOTE}</Text>
             {QUICK_METALS.map(metal => {
               const score = cellAnomalyScore(nearestCell!, metal);
               const { level, color: aColor } = anomalyFromPct(score);

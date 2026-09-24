@@ -12,6 +12,7 @@ import * as Sharing from 'expo-sharing';
 import { getMuestras, loadProjectState } from './Database';
 import { applyEvidenceCeiling } from './ConsensusFusion';
 import { displayScore } from './displayScore';
+import { SCORE_NOTE } from './scoreNote';
 import { computeAllMetalScores } from './GeologicalEngine';
 import { INDEX_GLOSSARY, NON_S2_INDEX_KEYS, S2_REAL_INDEX_KEYS } from './indexGlossary';
 
@@ -76,7 +77,7 @@ export async function exportProjectToExcel(projectId: string, projectName?: stri
   // ── Hoja 2: Puntos ─────────────────────────────────────────────────────────
   const idxKeys = [...S2_REAL_INDEX_KEYS];
   const pointsHeader = [
-    'Rank', 'Lat', 'Lng', 'UTM zona', 'Señal (0-100)', 'Consenso', 'Evidencia',
+    'Rank', 'Lat', 'Lng', 'UTM zona', 'Señal (0-100) — evidencia satelital, no es probabilidad de hallazgo', 'Consenso', 'Evidencia',
     ...idxKeys.map(k => INDEX_GLOSSARY[k]?.label ?? k),
   ];
   const pointsBody = points.map(p => [
@@ -86,6 +87,7 @@ export async function exportProjectToExcel(projectId: string, projectName?: stri
     ...idxKeys.map(k => num3(p.indices?.[k])),
   ]);
   const pointsRows: any[][] = [
+    [SCORE_NOTE],
     ['Nota: los índices listados son los medidos por Sentinel-2. Sin dato directo de S2 (requiere ASTER/EMIT): ' +
       NON_S2_INDEX_KEYS.map(k => INDEX_GLOSSARY[k]?.label ?? k).join(', ')],
     [],
@@ -110,12 +112,12 @@ export async function exportProjectToExcel(projectId: string, projectName?: stri
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(mRows), 'Muestras');
 
   // ── Hoja 4: Metales ────────────────────────────────────────────────────────
-  const metHeader = ['Metal', 'Señal %', 'Nivel', 'Requiere ASTER/EMIT', '% sin proxy óptico directo'];
+  const metHeader = ['Metal', 'Señal % (evidencia satelital, no es probabilidad de hallazgo)', 'Nivel', 'Requiere ASTER/EMIT', '% sin proxy óptico directo'];
   const metBody = metals.map((mt: any) => [
     mt.label ?? mt.metal, mt.score_percent ?? '', mt.detected ?? '',
     mt.requires_deep ? 'Sí' : 'No', mt.synthetic_weight_pct ?? 0,
   ]);
-  const metRows: any[][] = [metHeader, ...(metBody.length ? metBody : [['(Sin análisis para calcular metales)']])];
+  const metRows: any[][] = [[SCORE_NOTE], [], metHeader, ...(metBody.length ? metBody : [['(Sin análisis para calcular metales)']])];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(metRows), 'Metales');
 
   // ── Escribir + compartir ───────────────────────────────────────────────────

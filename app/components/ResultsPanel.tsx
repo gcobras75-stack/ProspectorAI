@@ -12,6 +12,7 @@ import { buildPointInterpretationContext } from '../core/pointInterpretation';
 import { type RockProposal, type RockSource } from '../core/lithologyService';
 import { openExternalNavigation } from '../core/externalNav';
 import { displayScore } from '../core/displayScore';
+import { SCORE_NOTE } from '../core/scoreNote';
 import { materialLabel, resolveDisplayConfidence, CONFIDENCE_META } from '../core/materialsCatalog';
 
 // Puntos de confianza: ●●●○ etc. — independientes del color (color = favorabilidad)
@@ -255,7 +256,8 @@ export default function ResultsPanel({
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={[styles.heroBand, { color: zoneProspectivity.band_color }]}>{zoneProspectivity.band_label}</Text>
-                <Text style={styles.heroSub}>solo {materialLabel(selectedMineral)} · no es probabilidad de yacimiento</Text>
+                <Text style={styles.heroSub}>solo {materialLabel(selectedMineral)}</Text>
+                <Text style={styles.heroSub}>{SCORE_NOTE}</Text>
               </View>
             </View>
 
@@ -482,7 +484,7 @@ export default function ResultsPanel({
               })}
             </View>
             <Text style={styles.assocNote}>
-              Los indicadores derivan de los mismos índices espectrales — no son mediciones independientes.
+              Los indicadores derivan de los mismos índices espectrales — no son mediciones independientes. {SCORE_NOTE}
             </Text>
           </View>
         )}
@@ -496,7 +498,7 @@ export default function ResultsPanel({
               </Text>
             </View>
             <Text style={{ color: Colors.textDim, fontSize: 11, paddingHorizontal: 2, marginBottom: 8, lineHeight: 15 }}>
-              Señal espectral 0–100 — no es probabilidad de yacimiento. Toca un punto para ver sus índices.
+              Señal espectral 0–100. {SCORE_NOTE} Toca un punto para ver sus índices.
             </Text>
             {analysisPoints.slice(0, 20).map((p, i) => {
               const score = Math.round(displayScore(p));

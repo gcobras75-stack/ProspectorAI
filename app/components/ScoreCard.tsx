@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Colors, Typography, Radii, AnomalyLevel } from '../core/theme';
+import { SCORE_NOTE } from '../core/scoreNote';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -88,7 +89,7 @@ export default function ScoreCard({
           <View style={[styles.barFill, { width: barWidth, backgroundColor: levelColor }]} />
         </View>
         <Text style={styles.scaleNote}>
-          {`Señal espectral 0–100 · alto ≥${AnomalyLevel.high.minPct} · medio ${AnomalyLevel.med.minPct}–${AnomalyLevel.high.minPct - 1} · bajo <${AnomalyLevel.med.minPct} · no es probabilidad de yacimiento ni ley/tonelaje`}
+          {`Señal espectral 0–100 · alto ≥${AnomalyLevel.high.minPct} · medio ${AnomalyLevel.med.minPct}–${AnomalyLevel.high.minPct - 1} · bajo <${AnomalyLevel.med.minPct}. ${SCORE_NOTE} Tampoco indica ley ni tonelaje.`}
         </Text>
         {regionalAvg !== undefined && (
           <Text style={styles.regionalNote}>

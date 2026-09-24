@@ -19,6 +19,7 @@ import { geeAuthHeaders } from './geeAuth';
 import { applyEvidenceCeiling, type ZoneProspectivity } from './ConsensusFusion';
 import { anomalyFromPct } from './spectralHelpers';
 import { displayScore } from './displayScore';
+import { SCORE_NOTE } from './scoreNote';
 import type { MetalScore } from './GeologicalEngine';
 import { INDEX_GLOSSARY, S2_REAL_INDEX_KEYS, NON_S2_INDEX_KEYS } from './indexGlossary';
 import { isSaturated, hasSaturatedIndex, SATURATION_NOTICE } from './saturation';
@@ -302,7 +303,7 @@ function buildTopPointsRows(analysisPoints: any[], metalName: string): string {
     return `<tr>
       <td><strong>${i + 1}</strong></td>
       <td style="font-family:monospace;font-size:10px">${latLngToUTM(p.lat, p.lng)}</td>
-      <td>${badge}<br/><span style="font-size:11px;color:#888">${scoreStr}</span></td>
+      <td>${badge}<br/><span style="font-size:11px;color:#888">${scoreStr}</span><br/><span style="font-size:9px;color:#999">${SCORE_NOTE}</span></td>
       <td style="font-size:12px">${evidence}</td>
       <td style="font-size:12px">${indices}${satNote}</td>
     </tr>`;
@@ -511,6 +512,7 @@ function buildMetalsSection(metalScores?: MetalScore[]): string {
     return `<div class="metal-card">
       <div class="metal-head"><span class="metal-icon">${m.icon || '⛏️'}</span><span class="metal-label">${m.label || m.metal}</span></div>
       ${valueHtml}
+      ${m.requires_deep ? '' : `<div class="metal-note">${SCORE_NOTE}</div>`}
       ${synth}
       ${warn}
     </div>`;
