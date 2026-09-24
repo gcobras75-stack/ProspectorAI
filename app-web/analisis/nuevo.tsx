@@ -314,7 +314,7 @@ export default function NuevoAnalisis() {
             <View style={s.switchRow}>
               <View style={{ flex: 1, paddingRight: 12 }}>
                 <Text style={s.switchTitle}>Análisis profundo</Text>
-                <Text style={s.note}>Suma ASTER, EMIT y Sentinel-1/DEM (consenso entre fuentes). Tarda más y usa más cuota de satélite.</Text>
+                <Text style={s.note}>Suma ASTER y EMIT (consenso entre fuentes). Tarda más y usa más cuota de satélite.</Text>
               </View>
               <Switch value={deep} onValueChange={setDeep} trackColor={{ true: '#FFD700', false: '#333' }} />
             </View>

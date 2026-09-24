@@ -24,15 +24,7 @@ export function buildProjectContext(p: WebProject, samples: WebSample[]): string
     return `  #${i + 1} Lat:${pt.lat?.toFixed(5)}, Lng:${pt.lng?.toFixed(5)} — ${level} alteracion (score:${Math.round(score)})${conf}`;
   }).join('\n');
 
-  const lineamentCount = points.filter((pt) => pt.near_lineament).length;
-  const priorityCount = points.filter((pt) => pt.consensus === 'PRIORITY_TARGET').length;
   const structuralLines: string[] = [];
-  if (lineamentCount > 0) {
-    structuralLines.push(`LINEAMIENTOS: ${lineamentCount} punto${lineamentCount > 1 ? 's' : ''} cruzan con estructuras (posibles fallas/fracturas)`);
-  }
-  if (priorityCount > 0) {
-    structuralLines.push(`OBJETIVOS PRIORITARIOS: ${priorityCount} zona${priorityCount > 1 ? 's' : ''} con anomalia espectral confirmada + control estructural`);
-  }
   const emitCount = points.filter((pt) => pt.emitScore !== null && pt.emitScore !== undefined && pt.emitScore >= 65).length;
   if (emitCount > 0) {
     structuralLines.push(`EMIT hiperspectral: ${emitCount} celdas con senal mineral >=65`);

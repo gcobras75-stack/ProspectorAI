@@ -142,7 +142,7 @@ export default function ProyectoWeb() {
             <Text style={s.src} numberOfLines={2}>
               Fuentes: {[
                 project.analysis_meta.fuentes?.s2 && 'Sentinel-2', project.analysis_meta.fuentes?.aster && 'ASTER',
-                project.analysis_meta.fuentes?.emit && 'EMIT', project.analysis_meta.fuentes?.s1 && 'Sentinel-1/DEM',
+                project.analysis_meta.fuentes?.emit && 'EMIT',
                 project.analysis_meta.fuentes?.thermal && 'Térmico',
               ].filter(Boolean).join(' · ')}
               {(project.analysis_meta.notas ?? []).length > 0 ? `  ·  ${project.analysis_meta.notas.join(' ')}` : ''}

@@ -14,9 +14,9 @@
  *  - Sin caché local ni cola offline: si no hay respuesta del servidor, se dice tal cual.
  */
 import {
-  fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid,
+  fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, 
   fetchEmitGrid, fetchThermalGrid, computeAdaptiveCellSize,
-  type MiningSpectralResult, type AsterSpectralResult, type StructuralResult,
+  type MiningSpectralResult, type AsterSpectralResult, 
   type EmitSpectralResult, type ThermalResult,
 } from '../app/core/SatelliteEngine';
 import { analyzeZoneLocal, enrichPointsWithDeepData } from '../app/core/GeologicalEngine';
@@ -122,10 +122,9 @@ export async function runAnalysis(
   let finalPoints: any[] = data.top_points;
   let asterResult: AsterSpectralResult | null = null;
   let emitResult: EmitSpectralResult | null = null;
-  let structuralResult: StructuralResult | null = null;
   let thermalResult: ThermalResult | null = null;
 
-  // ── ASTER + EMIT + estructural (opcional) y fusión de consenso ──────────────
+  // ── ASTER + EMIT (opcional) y fusión de consenso ──────────────
   if (deepAnalysis) {
     try {
       onStep('Consultando ASTER…');
@@ -150,16 +149,8 @@ export async function runAnalysis(
     } catch { notas.push('EMIT: no respondió.'); }
     check();
 
-    try {
-      onStep('Consultando Sentinel-1 + DEM…');
-      const structural = await fetchStructuralGrid(coords.map(c => ({ lat: c.latitude, lng: c.longitude })), { cell_size_m: cellSizeM });
-      if (structural.data_source !== 'NO_DATA_OFFLINE') structuralResult = structural;
-      else notas.push('Sentinel-1/DEM: sin datos para esta zona.');
-    } catch { notas.push('Sentinel-1/DEM: no respondió.'); }
-    check();
-
-    if (asterResult || emitResult || structuralResult) {
-      finalPoints = fuseAnalysisPoints(finalPoints, satData, asterResult, emitResult, structuralResult, mineral) as any[];
+    if (asterResult || emitResult) {
+      finalPoints = fuseAnalysisPoints(finalPoints, satData, asterResult, emitResult, null, mineral) as any[];
     }
 
     // Etapa B: enriquecer índices con dato REAL de ASTER/EMIT (sin cobertura → sin cambios).
@@ -194,7 +185,7 @@ export async function runAnalysis(
   // Telemetría de costos (mejor esfuerzo; nunca bloquea).
   logAnalisisZona({
     analisisId, hectareas: data.area_ha, material: mineral,
-    fuentes: { s2: true, aster: !!asterResult, emit: !!emitResult, s1: !!structuralResult, dem: !!structuralResult, thermal: !!thermalResult },
+    fuentes: { s2: true, aster: !!asterResult, emit: !!emitResult, s1: false, dem: false, thermal: !!thermalResult },
     roca: { propuesta: input.rockProposed, final: rockType, origen: rockSource },
   });
 
@@ -205,7 +196,7 @@ export async function runAnalysis(
     meta: {
       origen: 'pwa', ranking_ia: false, fecha: new Date().toISOString(),
       area_ha: Math.round(areaHa * 100) / 100, cell_size_m: cellSizeM, analisis_profundo: deepAnalysis,
-      fuentes: { s2: true, aster: !!asterResult, emit: !!emitResult, s1: !!structuralResult, thermal: !!thermalResult },
+      fuentes: { s2: true, aster: !!asterResult, emit: !!emitResult, s1: false, thermal: !!thermalResult },
       s2: { cloud_cover: satData.cloud_cover, images_used: satData.images_used, coverage_pct: satData.coverage_pct, source_label: satData.source_label },
       notas,
     },

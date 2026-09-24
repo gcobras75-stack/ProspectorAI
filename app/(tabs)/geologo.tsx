@@ -81,15 +81,7 @@ function formatContext(
     return `  #${i + 1} Lat:${p.lat?.toFixed(5)}, Lng:${p.lng?.toFixed(5)} — ${level} alteracion (score:${Math.round(score)})${conf}`;
   }).join('\n');
 
-  const lineamentCount  = points.filter((p: any) => p.near_lineament).length;
-  const priorityCount   = points.filter((p: any) => p.consensus === 'PRIORITY_TARGET').length;
   const structuralLines: string[] = [];
-  if (lineamentCount > 0) {
-    structuralLines.push(`LINEAMIENTOS: ${lineamentCount} punto${lineamentCount > 1 ? 's' : ''} cruzan con estructuras (posibles fallas/fracturas)`);
-  }
-  if (priorityCount > 0) {
-    structuralLines.push(`OBJETIVOS PRIORITARIOS: ${priorityCount} zona${priorityCount > 1 ? 's' : ''} con anomalia espectral confirmada + control estructural`);
-  }
   const emitCount = points.filter((p: any) => p.emitScore !== null && p.emitScore !== undefined && p.emitScore >= 65).length;
   if (emitCount > 0) {
     structuralLines.push(`EMIT hiperspectral: ${emitCount} celdas con senal mineral >=65`);

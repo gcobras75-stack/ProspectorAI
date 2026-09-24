@@ -65,7 +65,7 @@ export function buildPointInterpretationContext(p: any, opts: PointInterpOptions
 
   const consensusRaw: string = p.consensus ?? p.consensus_level ?? '';
   const consensusMap: Record<string, string> = {
-    PRIORITY_TARGET: 'OBJETIVO PRIORITARIO (S2 + ASTER + estructura)',
+    PRIORITY_TARGET: 'OBJETIVO PRIORITARIO (varios satélites)',
     TRIPLE_SPECTRAL: 'TRIPLE (S2 + ASTER + EMIT)',
     CONFIRMED: 'CONFIRMADO (S2 + ASTER)',
     SINGLE: 'INDIVIDUAL (una sola fuente)',
@@ -76,7 +76,6 @@ export function buildPointInterpretationContext(p: any, opts: PointInterpOptions
   sources.push(p.s2Score != null ? 'Sentinel-2 ✓' : 'Sentinel-2: sin dato');
   sources.push(p.asterScore != null ? 'ASTER ✓' : 'ASTER: sin dato');
   sources.push(p.emitScore != null ? 'EMIT ✓' : 'EMIT: sin dato');
-  if (p.near_lineament) sources.push('Estructura/lineamiento ✓');
 
   const source = satelliteData?.source_label ?? 'Sentinel-2';
   const cellM = satelliteData?.cell_size_m;

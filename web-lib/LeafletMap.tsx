@@ -108,7 +108,6 @@ const LeafletMap = forwardRef<MapHandle, Props>(function LeafletMap({ vertices, 
         `Punto #${rank}`,
         `Score ${score}${p.consensus ? ` · ${String(p.consensus)}` : ''}`,
         SCORE_NOTE,
-        p.near_lineament ? 'Sobre un posible lineamiento' : '',
         `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`,
       ]);
       if (i < MAX_NUMBERED) {

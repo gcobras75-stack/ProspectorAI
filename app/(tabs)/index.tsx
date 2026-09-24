@@ -12,7 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import { analyzeZoneLocal, computeAllMetalScores, enrichPointsWithDeepData, scoreCeilingForMaterial, MetalScore } from '../core/GeologicalEngine';
 import { Colors, Typography, Spacing, Radii, Touch, anomalyFromPct, AnomalyLevel } from '../core/theme';
-import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchStructuralGrid, fetchEmitGrid, fetchThermalGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type StructuralResult, type EmitSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
+import { fetchMiningSpectralGrid, fetchMiningAsterGrid, fetchAsterCoverage, fetchEmitGrid, fetchThermalGrid, computeAdaptiveCellSize, type MiningSpectralResult, type AsterSpectralResult, type EmitSpectralResult, type ThermalResult } from '../core/SatelliteEngine';
 import { getAreaLevel, AREA_LEVEL_COLOR, areaBlockMessage, AREA_WARN_MESSAGE } from '../core/areaLimits';
 import { fuseAnalysisPoints, computeZoneProspectivity, type ZoneProspectivity } from '../core/ConsensusFusion';
 import FieldModeButton, { FieldModeButtonHandle } from '../components/FieldModeButton';
@@ -229,7 +229,6 @@ export default function ProspectorDashboard() {
   const [startMarker, setStartMarker] = useState<Coordinate | null>(null);
   const [asterData, setAsterData]         = useState<AsterSpectralResult | null>(null);
   const [emitData, setEmitData]           = useState<EmitSpectralResult | null>(null);
-  const [structuralData, setStructuralData] = useState<StructuralResult | null>(null);
   // Preferencia guardada (base) + elección manual de ESTA sesión; el estado efectivo (deepAnalysis) se deriva más abajo, con el material.
   const [deepBase, setDeepBase] = useState(false);
   const [deepManual, setDeepManual] = useState<boolean | null>(null);
@@ -381,9 +380,6 @@ export default function ProspectorDashboard() {
       if (emitData && emitData.data_source !== 'NO_DATA_OFFLINE') {
         sourcesParts.push('EMIT');
       }
-      if (structuralData && structuralData.data_source !== 'NO_DATA_OFFLINE') {
-        sourcesParts.push('Sentinel-1 SAR');
-      }
       const satelitesSources = sourcesParts.length > 0 ? sourcesParts.join(' · ') : 'Sentinel-2';
 
       const acquisitionDates = satelliteData?.acquisition_date || 'N/D';
@@ -393,7 +389,6 @@ export default function ProspectorDashboard() {
         s2:        satelliteData?.acquisition_date || undefined,
         aster:     (asterData as any)?.archive_range || (asterData as any)?.acquisition_date || 'Archivo 2000–2008',
         emit:      (emitData as any)?.acquisition_date || undefined,
-        sentinel1: (structuralData as any)?.acquisition_date || undefined,
       };
 
       const cellSizeM = satelliteData?.cell_size_m ?? 500;
@@ -1138,7 +1133,7 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
            }
         }
 
-        // ── Optional ASTER + EMIT + structural deep analysis + consensus fusion
+        // ── Optional ASTER + EMIT deep analysis + consensus fusion
         if (deepAnalysis) {
           let asterResult: AsterSpectralResult | null = null;
           try {
@@ -1175,25 +1170,10 @@ function getDrySeasonDates(centLat: number, centLng: number): { fecha_inicio?: s
             console.warn('[analyzeZone] EMIT failed:', emitErr.message);
           }
 
-          // ── Structural grid (Sentinel-1 + DEM) ─────────────────────────────
-          let structuralResult: StructuralResult | null = null;
-          try {
-            setAnalysisStep('Consultando Sentinel-1 + DEM... (4/4)');
-            const structCoords = coordsToUse.map(c => ({ lat: c.latitude, lng: c.longitude }));
-            const structural = await fetchStructuralGrid(structCoords, { cell_size_m: cellSizeM });
-            setStructuralData(structural);
-            if (structural.data_source !== 'NO_DATA_OFFLINE') {
-              structuralResult = structural;
-              usedStruct = true;
-            }
-          } catch (structErr: any) {
-            console.warn('[analyzeZone] Structural failed:', structErr.message);
-          }
-
           // Fuse all available layers
-          if (asterResult || emitResult || structuralResult) {
+          if (asterResult || emitResult) {
             finalPoints = fuseAnalysisPoints(
-              finalPoints, satData, asterResult, emitResult, structuralResult, selectedMineral
+              finalPoints, satData, asterResult, emitResult, null, selectedMineral
             ) as any[];
           }
 

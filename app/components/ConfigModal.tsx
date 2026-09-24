@@ -296,7 +296,7 @@ export default function ConfigModal({
             )}
           </View>
 
-          <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 20 }]}>1. GEOLOGÍA ESTRUCTURAL</Text>
+          <Text style={[styles.sectionHeader, { color: '#00FFFF', marginTop: 20 }]}>1. MATERIAL Y TERRENO</Text>
 
           <Text style={[styles.sectionLabel, isFieldMode && styles.sectionLabelLight]}>MATERIAL OBJETIVO</Text>
           <View onLayout={e => { searchY.current = e.nativeEvent.layout.y; }}>

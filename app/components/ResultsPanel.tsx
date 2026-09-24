@@ -109,13 +109,12 @@ export default function ResultsPanel({
   const evidenceLine = (p: any): string => {
     let base: string;
     if (p.consensus === 'PRIORITY_TARGET') {
-      base = '🎯 Objetivo prioritario · 2 satélites + falla coinciden';
+      base = '🎯 Objetivo prioritario · varios satélites coinciden';
     } else {
       const n = nSats(p);
       base = n >= 3 ? '✓✓✓ 3 satélites coinciden'
         : n === 2 ? '✓✓ 2 satélites coinciden'
         : '1 satélite detectó señal';
-      if (p.near_lineament) base += ' · sobre una posible falla';
     }
     return base;
   };
@@ -390,7 +389,7 @@ export default function ResultsPanel({
             padding: 12,
           }}>
             {[
-              { label: '🎯 OBJETIVO', desc: 'Anomalía espectral + falla geológica coinciden — máxima prioridad de campo' },
+              { label: '🎯 OBJETIVO', desc: 'Varios satélites de acuerdo con señal alta — máxima prioridad de campo' },
               { label: '🌈 3×', desc: 'Tres satélites (S2 + ASTER + EMIT) de acuerdo — alta confianza espectral' },
               { label: '✅ CONF.', desc: 'Dos satélites (S2 + ASTER) coinciden — buena señal, merece visita' },
               { label: 'INDIVIDUAL', desc: 'Solo una fuente detectó anomalía — explorar con precaución' },
@@ -512,7 +511,7 @@ export default function ResultsPanel({
               const isConfirmed     = p.consensus === 'CONFIRMED';
               const badgeColor  = isPriority ? Colors.priorityTarget : isTripleSpectral ? Colors.tripleSpectral : isConfirmed ? Colors.confirmed : anomalyColor;
               const badgeLabel  = isPriority ? 'OBJ.' : isTripleSpectral ? '\uD83C\uDF08 3\u00D7' : isConfirmed ? 'CONF.' : anomaly.label;
-              const badgeSub    = isPriority ? '2 satélites + falla' : isTripleSpectral ? '3 satélites ✓✓✓' : isConfirmed ? '2 satélites ✓✓' : 'alteración';
+              const badgeSub    = isPriority ? 'varios satélites' : isTripleSpectral ? '3 satélites ✓✓✓' : isConfirmed ? '2 satélites ✓✓' : 'alteración';
               return (
                 <TouchableOpacity
                   key={i}

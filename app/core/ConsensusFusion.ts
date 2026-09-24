@@ -1,4 +1,4 @@
-import { MiningSpectralResult, AsterSpectralResult, AsterSpectralCell, StructuralResult, StructuralCell, EmitSpectralResult, EmitSpectralCell, findNearestCell } from './SatelliteEngine';
+import { MiningSpectralResult, AsterSpectralResult, AsterSpectralCell, StructuralResult, EmitSpectralResult, EmitSpectralCell, findNearestCell } from './SatelliteEngine';
 import { cellAnomalyScore } from './spectralHelpers';
 import { METAL_WEIGHTS, SYNTHETIC_INDEX_KEYS, SYNTHETIC_REQUIRES_DEEP_THRESHOLD } from './GeologicalEngine';
 import { evidenceCeiling } from './materialsCatalog';
@@ -76,7 +76,9 @@ export function fuseAnalysisPoints(
   s2Data: MiningSpectralResult,
   asterData: AsterSpectralResult | null,
   emitData: EmitSpectralResult | null,
-  structuralData: StructuralResult | null,
+  // IGNORADO por completo (decisión 2026-09-24): near_lineament/lineament_density no detectan fallas (AUC 0,37–0,53) y no deben
+  // entrar al consenso ni al puntaje, responda lo que responda el servidor. Se conserva el parámetro solo por compatibilidad.
+  _structuralData: StructuralResult | null,
   metal: string
 ): ConsensusPoint[] {
   const order: Record<ConsensusLevel, number> = {
@@ -87,15 +89,12 @@ export function fuseAnalysisPoints(
     const s2Cell         = s2Data.cells.length         ? findNearestCell(p.lat, p.lng, s2Data.cells)         : null;
     const asterCell      = asterData?.cells.length      ? findNearestCell(p.lat, p.lng, asterData.cells)      : null;
     const emitCell       = emitData?.cells.length       ? findNearestCell(p.lat, p.lng, emitData.cells)       : null;
-    const structuralCell = structuralData?.cells.length ? findNearestCell(p.lat, p.lng, structuralData.cells) : null;
 
     const s2Score        = s2Cell         ? cellAnomalyScore(s2Cell, metal) : 0;
     const asterScore     = asterCell      ? asterAnomalyScore(asterCell, metal) : null;
     const emitScore      = emitCell       ? emitAnomalyScore(emitCell, metal)   : null;
-    const structuralScore = structuralCell
-      ? Math.round(structuralCell.lineament_density * 100)
-      : null;
-    const nearLineament  = structuralCell?.near_lineament ?? false;
+    const structuralScore: number | null = null;
+    const nearLineament = false;
     const masked         = s2Cell?.masked_by_vegetation ?? false;
 
     // Build evidence string
@@ -103,7 +102,6 @@ export function fuseAnalysisPoints(
     if (s2Score >= AnomalyLevel.med.minPct)                                 evidenceParts.push('S2 \u2713');
     if (asterScore !== null && asterScore >= AnomalyLevel.med.minPct)       evidenceParts.push('ASTER \u2713');
     if (emitScore !== null && emitScore >= AnomalyLevel.high.minPct)         evidenceParts.push('EMIT \u2713');
-    if (nearLineament)                                 evidenceParts.push('Estructura \u2713');
     const evidence = evidenceParts.join(' \u00B7 ') || 'sin anomal\u00EDa';
 
     let consensus:   ConsensusLevel;
@@ -115,10 +113,6 @@ export function fuseAnalysisPoints(
     if (masked) {
       consensus   = 'VEGETATION';
       supportedBy = [];
-    } else if ((tripleSpectral || dualSpectral) && nearLineament) {
-      // Highest tier: multi-spectral confirmation + structural control
-      consensus   = 'PRIORITY_TARGET';
-      supportedBy = tripleSpectral ? ['S2', 'ASTER', 'EMIT'] : ['S2', 'ASTER'];
     } else if (tripleSpectral) {
       consensus   = 'TRIPLE_SPECTRAL';
       supportedBy = ['S2', 'ASTER', 'EMIT'];
@@ -135,9 +129,7 @@ export function fuseAnalysisPoints(
 
     const topSpectral = Math.max(s2Score, asterScore ?? 0, emitScore ?? 0);
     let boostedScore: number;
-    if (consensus === 'PRIORITY_TARGET') {
-      boostedScore = Math.min(100, Math.round(topSpectral * 1.25));
-    } else if (consensus === 'TRIPLE_SPECTRAL') {
+    if (consensus === 'TRIPLE_SPECTRAL') {
       boostedScore = Math.min(100, Math.round(topSpectral * 1.20));
     } else if (consensus === 'CONFIRMED') {
       boostedScore = Math.min(100, Math.round(topSpectral * 1.15));
@@ -351,11 +343,10 @@ export function computeZoneProspectivity(
     }
   }
 
-  // ── Nº de sensores con señal REAL (S2 siempre; +ASTER +EMIT +Estructura) ──
+  // ── Nº de sensores con señal REAL (S2 siempre; +ASTER +EMIT) ──
   let n_sensors = 1;
   if (valid.some(p => p.asterScore != null)) n_sensors++;
   if (valid.some(p => p.emitScore != null)) n_sensors++;
-  if (valid.some(p => p.near_lineament || p.structuralScore != null)) n_sensors++;
 
   // ── CONFIANZA (única sede del consenso) ──
   const coberturaScore = coverage_pct;
@@ -403,7 +394,6 @@ export function computeZoneProspectivity(
   const reasons_plus: string[] = [];
   const reasons_minus: string[] = [];
   if (signal >= SIGNAL_STRONG_REASON_MIN)               reasons_plus.push('Firma de óxido de hierro / arcillas clara');
-  if (valid.some(p => p.near_lineament))                reasons_plus.push('Coincide con falla / lineamiento');
   if (n_sensors >= 2)                                   reasons_plus.push(`${n_sensors} satélites coinciden`);
   if (hasConsensusField && strongConsensus / n_points >= 0.3) reasons_plus.push('Anomalía extensa y consistente');
 
