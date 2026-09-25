@@ -1,4 +1,4 @@
-import { MiningSpectralResult, AsterSpectralResult, AsterSpectralCell, StructuralResult, EmitSpectralResult, EmitSpectralCell, findNearestCell } from './SatelliteEngine';
+import { MiningSpectralResult, AsterSpectralResult, AsterSpectralCell, EmitSpectralResult, EmitSpectralCell, findNearestCell } from './SatelliteEngine';
 import { cellAnomalyScore } from './spectralHelpers';
 import { METAL_WEIGHTS, SYNTHETIC_INDEX_KEYS, SYNTHETIC_REQUIRES_DEEP_THRESHOLD } from './GeologicalEngine';
 import { evidenceCeiling } from './materialsCatalog';
@@ -78,7 +78,7 @@ export function fuseAnalysisPoints(
   emitData: EmitSpectralResult | null,
   // IGNORADO por completo (decisión 2026-09-24): near_lineament/lineament_density no detectan fallas (AUC 0,37–0,53) y no deben
   // entrar al consenso ni al puntaje, responda lo que responda el servidor. Se conserva el parámetro solo por compatibilidad.
-  _structuralData: StructuralResult | null,
+  _structuralData: unknown,
   metal: string
 ): ConsensusPoint[] {
   const order: Record<ConsensusLevel, number> = {
